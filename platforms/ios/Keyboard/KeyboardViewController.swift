@@ -60,6 +60,17 @@ final class KeyboardViewController: UIInputViewController {
     private var directEnglish: Bool { scheme == .english || preferences.englishInput }
     private let globe = KeycapButton(), numbers = KeycapButton(), shiftButton = KeycapButton(), spaceKey = SpaceCursorButton()
     private var caretSteps = 0
+    /// Set while a left-half Space hold is extending a Buffer selection.
+    private var selectingText = false
+    /// Associated words offered after a Chinese commit, shown while nothing is composed.
+    private var associations: [String] = []
+    /// Last Chinese commit, so the next consecutive one can be learned as its successor.
+    private var lastCommitted: String?
+    private lazy var associationIndex: AssociationIndex? = Bundle.main.url(forResource: "EngineData", withExtension: nil)
+        .flatMap { AssociationIndex(contentsOf: $0.appendingPathComponent("associations.tsv")) }
+    private var associationHistory = AssociationHistory()
+    private var associationHistoryLoaded = false, associationHistoryChanges = 0
+    private var showingAssociations: Bool { snapshot.candidates.isEmpty && !associations.isEmpty }
     private var height: NSLayoutConstraint!
     private var previousWidth: CGFloat = 0
     private var chordPreview = ""
@@ -107,7 +118,8 @@ final class KeyboardViewController: UIInputViewController {
         stopButton.symbol("stop.fill", label: L("停止处理", "Stop processing"))
         insertionSlot.addSubview(insertButton); insertionSlot.addSubview(stopButton)
         candidateStrip.onSelect = { [weak self] index in
-            guard let self else { return }; self.collapseCandidates(); self.surface.cancel(); self.receive(self.engine.candidate(index))
+            guard let self else { return }; self.collapseCandidates(); self.surface.cancel()
+            if self.showingAssociations { self.chooseAssociation(index) } else { self.receive(self.engine.candidate(index)) }
         }
         candidateStrip.onPress = { [weak self] in self?.surface.feedback.send(.press) }
         candidateStrip.onExpand = { [weak self] in self?.expanded.toggle(); self?.resize() }
@@ -128,7 +140,7 @@ final class KeyboardViewController: UIInputViewController {
         surface.onKey = { [weak self] in self?.type($0) }
         surface.onEmoji = { [weak self] text in
             guard let self, self.onscreen else { return }
-            self.surface.cancel(); self.settle(); self.insert(text); self.render()
+            self.surface.cancel(); self.settle(); self.breakAssociationChain(); self.insert(text); self.render()
         }
         surface.onLanguageToggle = { [weak self] in self?.toggleLanguage() }
         surface.onModeChanged = { [weak self] in self?.render() }
@@ -153,8 +165,7 @@ final class KeyboardViewController: UIInputViewController {
         shiftButton.symbol("shift", label: L("大写切换", "Shift"))
         configure(spaceKey, "") { [weak self] in guard let self, self.spaceKey.consumeTap() else { return }; self.noteTypingKey(); self.space() }
         spaceKey.symbol("space", label: L("空格", "Space"))
-        spaceKey.accessibilityHint = L("按住并左右拖动可移动光标", "Hold and drag left or right to move the cursor")
-        spaceKey.onCursorBegan = { [weak self] in self?.beginCaretDrag() ?? false }
+        spaceKey.onCursorBegan = { [weak self] half in self?.beginCaretDrag(selecting: half == .left) ?? false }
         spaceKey.onCursorMove = { [weak self] steps in self?.moveCaret(steps) }
         for delete in [deleteButton, chordDelete] {
             delete.symbol("delete.left", label: L("删除", "Delete"))
@@ -216,6 +227,7 @@ final class KeyboardViewController: UIInputViewController {
         reloadPreferences(); choose(preferences.scheme); render()
     }
     @objc private func protect() {
+        breakAssociationChain(); saveAssociationHistory()
         stopDefaultAutoSend(); liveTyping.reset()
         cancelDeletes(); surface.shifted = false; shiftButton.isSelected = false
         metrics.sampleMemory(); metrics.save()
@@ -231,7 +243,7 @@ final class KeyboardViewController: UIInputViewController {
             // target, but keeps unsubmitted blocks for another explicit insertion.
             // Hiding/resigning the keyboard ends the session and clears the draft.
             cancelDeletes(); delivery.abandonMarkedText(); cancelRequest(); engine.clear(); snapshot = .init(); chordPreview = ""; surface.retire()
-            stopDefaultAutoSend(); autoSuspended = true; liveTyping.reset()
+            stopDefaultAutoSend(); autoSuspended = true; liveTyping.reset(); breakAssociationChain()
             currentDocument = DocumentIdentity.read(textDocumentProxy); render()
         }
         if !hasFullAccess && selectedPlugin?.hasPrefix("ai.") == true { cancelRequest(); render() }
@@ -275,8 +287,56 @@ final class KeyboardViewController: UIInputViewController {
     private func receive(_ state: EngineSnapshot) {
         snapshot = state
         if !state.preedit.isEmpty && realtime { cancelRequest() }
-        if !state.commit.isEmpty { insert(state.commit) }
+        if !state.preedit.isEmpty { associations = [] }
+        if !state.commit.isEmpty { insert(state.commit); committed(state.commit, composing: !state.preedit.isEmpty) }
         render()
+    }
+    // MARK: Associations
+    /// Learns `previous → text` for consecutive Chinese commits and, once nothing is
+    /// left in composition, offers what usually follows `text`.
+    private func committed(_ text: String, composing: Bool) {
+        guard onscreen, !directEnglish, Associations.isChinese(text) else { breakAssociationChain(); return }
+        if let previous = lastCommitted { learnAssociation(previous: previous, next: text) }
+        lastCommitted = text
+        associations = composing ? [] : Associations.suggestions(after: text, index: associationIndex, history: loadedAssociationHistory())
+    }
+    private func chooseAssociation(_ index: Int) {
+        guard onscreen, associations.indices.contains(index) else { return }
+        let word = associations[index]
+        insert(word); committed(word, composing: false); render()
+    }
+    /// Any key other than a candidate hides associations; edits that are not a
+    /// continuation (delete, space, return, cursor, field change) also end learning.
+    private func breakAssociationChain() { lastCommitted = nil; associations = [] }
+    private var associationHistoryURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("RIMESAssociations.json")
+    }
+    private func loadedAssociationHistory() -> AssociationHistory {
+        if !associationHistoryLoaded {
+            associationHistoryLoaded = true
+            if let data = try? Data(contentsOf: associationHistoryURL), let history = try? JSONDecoder().decode(AssociationHistory.self, from: data) { associationHistory = history }
+        }
+        return associationHistory
+    }
+    private func learnAssociation(previous: String, next: String) {
+        _ = loadedAssociationHistory()
+        associationHistory.record(previous: previous, next: next); associationHistoryChanges += 1
+        if associationHistoryChanges >= 10 { saveAssociationHistory() }
+    }
+    /// Keyboard-private: never in the App Group, never synced, excluded from backup.
+    private func saveAssociationHistory() {
+        guard associationHistoryLoaded, associationHistoryChanges > 0 else { return }
+        associationHistoryChanges = 0
+        var url = associationHistoryURL
+        guard let data = try? JSONEncoder().encode(associationHistory) else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        var values = URLResourceValues(); values.isExcludedFromBackup = true; try? url.setResourceValues(values)
+    }
+    private func clearAssociationHistory() {
+        associationHistory = AssociationHistory(); associationHistoryLoaded = true; associationHistoryChanges = 0
+        try? FileManager.default.removeItem(at: associationHistoryURL)
+        breakAssociationChain(); render()
     }
     private func commitRawInput() {
         guard !engine.rawInput.isEmpty else { return }
@@ -319,7 +379,7 @@ final class KeyboardViewController: UIInputViewController {
     private func type(_ text: String, chord: Bool = false) {
         let start = ProcessInfo.processInfo.systemUptime; defer { metrics.processed(since: start) }
         guard onscreen else { return }; status.text = ""
-        if directEnglish || surface.shifted { insert(surface.shifted ? text.uppercased() : text); render(); return }
+        if directEnglish || surface.shifted { breakAssociationChain(); insert(surface.shifted ? text.uppercased() : text); render(); return }
         guard engine.available else { return }
         for scalar in text.unicodeScalars {
             let (state, handled) = engine.handledKey(Int32(scalar.value), generatedSeparator: chord && scalar.value == 39); receive(state)
@@ -332,21 +392,23 @@ final class KeyboardViewController: UIInputViewController {
         if !snapshot.candidates.isEmpty { receive(engine.candidate(0)) }
         else { receive(engine.process(key: 0xff0d)) }
     }
-    private func space() { surface.cancel(); if !snapshot.preedit.isEmpty { settle() } else { insert(" "); render() } }
-    private func enter() { surface.cancel(); if !engine.rawInput.isEmpty { commitRawInput() } else { insert("\n"); render() } }
+    private func space() { surface.cancel(); if !snapshot.preedit.isEmpty { settle() } else { breakAssociationChain(); insert(" "); render() } }
+    private func enter() { surface.cancel(); breakAssociationChain(); if !engine.rawInput.isEmpty { commitRawInput() } else { insert("\n"); render() } }
     private func backspace() {
         guard onscreen, currentDocument == DocumentIdentity.read(textDocumentProxy) else { cancelDeletes(); return }
         surface.cancel(); if !engine.rawInput.isEmpty { receive(engine.process(key: 0xff08)) }
-        else if bufferEnabled { cancelRequest(); buffer.backspace(); sourceChanged(); render() }
+        // Default shows its blocks, so Delete removes a whole block; plugin input
+        // shows none and keeps character deletion.
+        else if bufferEnabled { cancelRequest(); if isDefaultBuffer { buffer.deleteBlockBackward() } else { buffer.backspace() }; sourceChanged(); render() }
         else if let target = currentDocument { _ = delivery.deleteBackward(target:target) }
     }
-    private func toggleBuffer() { stopDefaultAutoSend(); autoSuspended = false; liveTyping.reset(); cancelDeletes(); surface.cancel(); settle(); bufferEnabled.toggle(); if !bufferEnabled { cancelRequest(); selectedPlugin = nil; refreshPluginMenu() }; bufferButton.isSelected = bufferEnabled; render() }
+    private func toggleBuffer() { breakAssociationChain(); stopDefaultAutoSend(); autoSuspended = false; liveTyping.reset(); cancelDeletes(); surface.cancel(); settle(); bufferEnabled.toggle(); if !bufferEnabled { cancelRequest(); selectedPlugin = nil; refreshPluginMenu() }; bufferButton.isSelected = bufferEnabled; render() }
     private func render() {
         if onscreen {
             if bufferEnabled { delivery.discardMarkedText() }
             else if let target = currentDocument { delivery.updateMarkedText(compositionText, target: target) }
         }
-        candidateStrip.update(snapshot.candidates); renderHandPreview(); refreshLanguageSwap(); renderBuffer(); resize()
+        candidateStrip.update(showingAssociations ? associations : snapshot.candidates); renderHandPreview(); refreshLanguageSwap(); renderBuffer(); resize()
     }
     private func renderHandPreview() {
         let preview = surface.handPreview
@@ -355,12 +417,19 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func renderBuffer() {
         bufferPanel.isHidden = !bufferEnabled; bufferButton.isSelected = bufferEnabled
+        // Default shows its delivery blocks in the input line (caret block outlined);
+        // plugins send their result, so their output line shows those blocks instead.
         let display = BufferComposition(source: buffer.source, cursor: buffer.cursor, preedit: compositionText,
-                                        font: .systemFont(ofSize: view.bounds.width > 600 ? 14 : 15))
-        source.attributedText = display.text; source.scrollRangeToVisible(display.caretRange)
+                                        font: .systemFont(ofSize: view.bounds.width > 600 ? 14 : 15), selection: buffer.selection,
+                                        blocks: isDefaultBuffer ? buffer.blocks : nil)
+        source.setBlocks(display.blockRanges, active: display.activeBlock)
+        source.attributedText = display.text; source.caretLocation = display.caretRange.location
+        source.scrollRangeToVisible(display.caretRange)
         // Every Buffer mode uses the same two lines: a display-only output line
         // above an input line. Default shows its live typing stats as output.
-        result.text = isDefaultBuffer ? "" : buffer.generating ? L("处理中… ", "Working… ") + buffer.preview : (needsPluginResult ? buffer.pluginPending.joined() : buffer.pending.joined())
+        let outputBlocks = isDefaultBuffer || buffer.generating ? [] : (needsPluginResult ? buffer.pluginPending : buffer.pending)
+        result.setBlocks(BufferBlockStyle.ranges(of: outputBlocks), active: outputBlocks.isEmpty ? nil : 0)
+        result.text = isDefaultBuffer ? "" : buffer.generating ? L("处理中… ", "Working… ") + buffer.preview : outputBlocks.joined()
         // Streaming output follows its newest text; finished output opens at its start.
         result.scrollRangeToVisible(NSRange(location: buffer.generating ? (result.text as NSString).length : 0, length: 0))
         aiButton.isHidden = !bufferEnabled
@@ -430,18 +499,35 @@ final class KeyboardViewController: UIInputViewController {
         bottomLanguage.setTitle(surface.englishInput ? "EN" : "中", for: .normal)
         bottomLanguage.isSelected = surface.englishInput
         bottomLanguage.accessibilityLabel = surface.englishInput ? L("英文，切换中文", "English; switch to Chinese") : L("中文，切换英文", "Chinese; switch to English")
+        // Chord mode splits Space: hold the left half to select, the right half to move.
+        spaceKey.split = swapped
+        spaceKey.accessibilityHint = swapped
+            ? L("左半按住拖动可在 Buffer 中选择文字，右半按住拖动可移动光标", "Hold the left half and drag to select text in the Buffer; hold the right half and drag to move the cursor")
+            : L("按住并左右拖动可移动光标", "Hold and drag left or right to move the cursor")
     }
     /// Space hold starts caret movement only when nothing is being composed.
-    private func beginCaretDrag() -> Bool {
+    /// Selecting works only in the Buffer: iOS gives keyboards no way to select
+    /// host text, so there the left half moves the caret like the right half.
+    private func beginCaretDrag(selecting: Bool = false) -> Bool {
         guard onscreen, !hasComposition, engine.rawInput.isEmpty else { return false }
         if !bufferEnabled { guard let target = currentDocument, target == DocumentIdentity.read(textDocumentProxy) else { return false } }
-        cancelDeletes(); insertButton.cancelPress(); surface.cancel()
-        surface.feedback.send(.press); return true
+        cancelDeletes(); insertButton.cancelPress(); surface.cancel(); breakAssociationChain()
+        selectingText = selecting && bufferEnabled
+        if selectingText { buffer.beginSelection() } else if bufferEnabled { buffer.clearSelection() }
+        if selecting && !bufferEnabled { showHostSelectionNoteOnce() }
+        surface.feedback.send(.press); render(); return true
+    }
+    private static let hostSelectionNoteKey = "rimes.keyboard.hostSelectionNoteShown"
+    private func showHostSelectionNoteOnce() {
+        guard !UserDefaults.standard.bool(forKey: Self.hostSelectionNoteKey) else { return }
+        UserDefaults.standard.set(true, forKey: Self.hostSelectionNoteKey)
+        status.text = L("iOS 不允许键盘在应用中选择文字；打开 Buffer 即可选择", "iOS doesn't let keyboards select text in apps; turn on Buffer to select")
     }
     private func moveCaret(_ steps: Int) {
         guard onscreen, steps != 0 else { return }
         if bufferEnabled {
-            let before = buffer.cursor; buffer.moveCursor(steps)
+            let before = buffer.cursor
+            if selectingText { buffer.extendSelection(steps) } else { buffer.moveCursor(steps) }
             guard buffer.cursor != before else { return }
             render()
         } else {
@@ -455,7 +541,13 @@ final class KeyboardViewController: UIInputViewController {
         expanded = false; candidateStrip.setNeedsLayout(); resize()
     }
     private func noteTypingKey(backspace: Bool = false) {
-        if !backspace { collapseCandidates() }
+        // A key press hides associations; Delete also ends the learning chain.
+        if backspace { breakAssociationChain() } else { associations = [] }
+        if !backspace {
+            collapseCandidates()
+            // Only Delete acts on a selection; any other key just clears it.
+            if buffer.selectionAnchor != nil { buffer.clearSelection(); renderBuffer() }
+        }
         guard isDefaultBuffer else { return }
         liveTyping.noteKey(at: uptime, isRepeat: false, isBackspace: backspace)
     }
@@ -541,7 +633,11 @@ final class KeyboardViewController: UIInputViewController {
             }
             items += [source, UIMenu(title: L("光标", "Cursor"), children: [left, right]), clear]
         }
-        items.append(haptics); moreButton.menu = UIMenu(children: items)
+        items.append(haptics)
+        if !loadedAssociationHistory().isEmpty {
+            items.append(UIAction(title: L("清除联想记录", "Clear learned associations"), image: UIImage(systemName: "text.badge.xmark"), attributes: [.destructive]) { [weak self] _ in self?.clearAssociationHistory() })
+        }
+        moreButton.menu = UIMenu(children: items)
     }
     @discardableResult private func deliver(all: Bool) -> Bool {
         surface.cancel(); if !snapshot.preedit.isEmpty { settle(); return false }
@@ -655,6 +751,11 @@ final class KeyboardViewController: UIInputViewController {
     func developmentChord(_ text: String) { type(text, chord: true) }
     var developmentHandPreview: ChordHandPreviewView { handPreview }
     var developmentSpaceKey: SpaceCursorButton { spaceKey }
+    var developmentBufferSelection: Range<Int>? { buffer.selection }
+    var developmentAssociations: [String] { showingAssociations ? associations : [] }
+    func developmentClearAssociationHistory() { clearAssociationHistory() }
+    func developmentSaveAssociationHistory() { associationHistoryChanges = max(1, associationHistoryChanges); saveAssociationHistory() }
+    var developmentStatus: String { status.text ?? "" }
     func developmentReleaseEdgeTouchDelay() { releaseEdgeTouchDelay() }
     func developmentNumeric() { numbers.sendActions(for: .touchUpInside) }
     var developmentBufferCursor: Int { buffer.cursor }

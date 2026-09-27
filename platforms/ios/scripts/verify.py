@@ -12,6 +12,7 @@ for path,sha in checks.items():
 for name in ['rimes_pinyin','rimes_ziranma','rimes_wubi']:
     assert (data/'build'/f'{name}.schema.yaml').exists()
     assert (data/'build'/f'{name}.prism.bin').exists()
+assert (data/'associations.tsv').is_file() and 'associations.tsv' in checks
 assert not any(p.suffix in ['.lua','.dylib'] or 'yoyo' in p.name or 'flypy' in p.name for p in data.rglob('*'))
 for name in ['App/Info.plist','Keyboard/Info.plist']:
     p=plistlib.loads((ios/name).read_bytes()); assert p['CFBundleLocalizations']==['en','zh-Hans']

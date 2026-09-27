@@ -39,12 +39,20 @@ macOS input-method source and installation are unchanged.
 - Backspace deletes immediately, then after 400 ms repeats every 75 ms; lifting,
   leaving the key, cancellation, target changes, rotation and hiding stop it.
   Each deletion tick emits feedback at the selected haptic strength.
+  In the Default Buffer each Delete removes the whole block before the caret (the
+  block holding the caret if it is inside one); pinyin in composition, selections,
+  plugin input and host fields keep their usual deletion.
 - Outside chord resolution (QWERTY, numbers, Shift or EN), the cap under the finger
   at release is typed and the highlight follows the finger; taps in the 6 pt gutters
   between caps snap to the nearest cap. Chord hit testing is unchanged.
 - Hold Space for 0.35 s, then drag: each 10 pt moves the caret one character (an
   emoji counts as one) in the host field or the Buffer, with a haptic tick. Releasing
   after a hold types no space. Holding during composition does not start it.
+  In the chord grid Space is split: a tap on either half types a space; holding the
+  right half moves the caret, holding the left half selects in the Buffer from the
+  caret (Delete removes the selection; any other key clears it). iOS gives keyboards
+  no API to select host text, so in app fields the left half also moves the caret,
+  with a one-time note.
 - Touches near the screen edges are no longer held back by the system's edge-swipe
   recognizers; their touch delay is released while the gestures stay enabled.
 - Shift latches uppercase ASCII entry while preserving the chord layout. Return
@@ -70,6 +78,12 @@ macOS input-method source and installation are unchanged.
   typing collapses them to one row until expanded again.
   Tap the paper plane for one block; hold it for one second for all remaining blocks.
   The More menu contains explicit source insertion, cursor movement and Clear.
+- After a Chinese commit, the empty candidate row offers associated words: first
+  what you have typed next on this device, then continuations from the bundled Pinyin
+  dictionary (`associations.tsv`, built by `scripts/build-associations.py`; e.g.
+  谢谢 → 了/大家/合作). Tapping one inserts it and chains; any other key hides them
+  (Space still types a space). Learning is keyboard-private, bounded to 600 words ×
+  8 next words, excluded from backup, and cleared from Gear → Clear learned associations.
 - Composition appears inline as native marked text in the host, or at the Buffer
   cursor. Confirming a candidate replaces it once; unconfirmed text stays out of
   Buffer source revisions and translation requests. There is no separate preedit row.
@@ -79,9 +93,14 @@ macOS input-method source and installation are unchanged.
   the typing block stays anchored to the bottom while auxiliaries grow upward.
 - Default Buffer shows committed characters/minute, touch starts/character,
   touch starts/second and backspace presses centered in the output line.
-  Default does not duplicate source text there. Its input line is the same plain
-  line as plugins; desktop clause/phrase segmentation still splits delivery blocks,
-  without drawing them. Repeats do not
+  Default does not duplicate source text there. As on the desktop, every commit is
+  its own block (one typed word = one block); punctuation and spaces join the block
+  before them and direct Latin letters join into one word. Text set whole (restored
+  or cleared) falls back to clause segmentation. The input line shows these blocks as
+  rounded backgrounds with a gap between them, the caret block outlined, and Send /
+  automatic insertion deliver exactly these blocks; plugin output lines show their result
+  blocks the same way, head block outlined. Gaps are kerning and the caret is a thin
+  blinking overlay, so neither inserts characters or shifts the text. Repeats do not
   inflate touch counts; a six-second idle gap starts a new burst. No accuracy is
   inferred for free typing. Gear → Default automatic insertion offers Off/1/2/3/5 s
   (default Off). Blocks age separately, edited text restarts, composition pauses,

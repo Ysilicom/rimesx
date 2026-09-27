@@ -8,7 +8,7 @@ in public issues. The website contains the complete bilingual public policy.
 
 ## 中文
 
-RIMES 的普通输入在设备本地运行。学习词频只保存在当前设备，不提供账户或云同步。
+灵犀输入法（RIMES）的普通输入在设备本地运行。学习词频只保存在当前设备，不提供账户或云同步。
 我们不收集输入正文日志、广告标识符或使用遥测。Buffer 草稿保存在键盘会话内存中，
 不写入文件；离开键盘会话时清除。
 
@@ -25,7 +25,9 @@ API Key 保存在本设备 Keychain，不包含在配置导出和备份中。请
 
 ## English
 
-Ordinary typing runs locally. Learned word frequencies stay on this device; there
+Ordinary typing runs locally. Learned word frequencies and learned next-word
+associations stay in the keyboard on this device (never shared with the app, never
+synced, excluded from backup; clear them from the keyboard's gear menu); there
 are no accounts, cloud sync, advertising identifiers, text logs or usage telemetry.
 Buffer drafts stay in keyboard-session memory and are cleared when the session ends.
 

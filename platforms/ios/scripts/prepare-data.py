@@ -53,6 +53,7 @@ subprocess.run([str(root/'Vendor/ios-build/host/rime/bin/rime_deployer'),'--buil
 required=['rimes_pinyin.schema.yaml','rimes_ziranma.schema.yaml','rimes_wubi.schema.yaml','pinyin_simp.table.bin','wubi86.table.bin']
 for name in required:
     if not (base/'build'/name).is_file():raise RuntimeError('Missing compiled asset: '+name)
+subprocess.run(['python3',str(root/'platforms/ios/scripts/build-associations.py'),str(base)],check=True)
 files={str(p.relative_to(base)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(base.rglob('*')) if p.is_file() and p.name!='checksums.json' and '.userdb' not in str(p)}
 (base/'checksums.json').write_text(json.dumps(files,indent=2)+'\n')
 print('Compiled',len(files),'resources')

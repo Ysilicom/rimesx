@@ -225,7 +225,8 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         let source = controller.layoutViews.source
         XCTAssertGreaterThan(source.contentOffset.x, 0)
         XCTAssertEqual(controller.layoutViews.result.contentOffset.x, 0)
-        XCTAssertTrue(controller.layoutViews.source.text.hasSuffix("▏"))
+        XCTAssertEqual(controller.layoutViews.source.caretLocation, (controller.layoutViews.source.text as NSString).length)
+        XCTAssertFalse(controller.layoutViews.source.text.contains("▏")) // the caret is an overlay, not a character
     }
     func testCursorDragStepsAndCarriesRemainder() {
         var drag = CursorDrag()
@@ -299,6 +300,147 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         XCTAssertFalse(edge.delaysTouchesBegan); XCTAssertFalse(ancestor.delaysTouchesBegan)
         XCTAssertTrue(edge.isEnabled) // system gestures still work
     }
+    func testChordSpaceSplitsLeftSelectsInBufferRightMoves() throws {
+        UserDefaults.standard.removeObject(forKey: "rimes.keyboard.hostSelectionNoteShown")
+        let (window, controller) = host(); defer { window.isHidden = true }
+        let space = controller.developmentSpaceKey
+        XCTAssertFalse(space.split)
+        controller.developmentChoose(.chord); window.layoutIfNeeded()
+        XCTAssertTrue(space.split)
+        func hold(_ half: SpaceCursorButton.Half, steps: Int) {
+            space.moveCursor(to: 0) // each real press starts from its own touch point
+            space.pressedHalf = half; space.beginCursor(requireTracking: false)
+            space.moveCursor(to: CursorDrag.step * CGFloat(steps)); space.finish()
+            XCTAssertFalse(space.consumeTap()) // a hold never types a space
+        }
+        // Buffer: left half selects from the cursor; Delete removes the selection.
+        controller.developmentBuffer("ab😀cd")
+        hold(.left, steps: -3)
+        XCTAssertEqual(controller.developmentBufferSelection, 2..<5)
+        let highlighted = controller.layoutViews.source.attributedText!
+        var selectedText = ""
+        highlighted.enumerateAttribute(.backgroundColor, in: NSRange(location: 0, length: highlighted.length)) { value, range, _ in
+            if let color = value as? UIColor, color != UIColor.systemTeal.withAlphaComponent(0.1) { selectedText += (highlighted.string as NSString).substring(with: range) }
+        }
+        XCTAssertEqual(selectedText, "😀cd")
+        controller.developmentBackspace()
+        XCTAssertEqual(controller.developmentBufferSource.text, "ab"); XCTAssertNil(controller.developmentBufferSelection)
+        // Right half only moves; any typing key clears a selection without deleting it.
+        hold(.right, steps: -1); XCTAssertNil(controller.developmentBufferSelection); XCTAssertEqual(controller.developmentBufferCursor, 1)
+        hold(.left, steps: 1); XCTAssertEqual(controller.developmentBufferSelection, 1..<2)
+        controller.layoutViews.keys.onTypingPress?()
+        XCTAssertNil(controller.developmentBufferSelection); XCTAssertEqual(controller.developmentBufferSource.text, "ab")
+        // Host field: iOS allows no selection, so the left half moves the caret and explains once.
+        controller.developmentBuffer(nil)
+        controller.layoutProxy.native.text = "hello"; controller.layoutProxy.native.selectedRange = NSRange(location: 5, length: 0)
+        hold(.left, steps: -2)
+        XCTAssertEqual(controller.layoutProxy.native.selectedRange, NSRange(location: 3, length: 0))
+        XCTAssertFalse(controller.developmentStatus.isEmpty)
+        controller.developmentContent(); XCTAssertTrue(UserDefaults.standard.bool(forKey: "rimes.keyboard.hostSelectionNoteShown"))
+        // Outside chord mode Space is whole again.
+        controller.developmentChoose(.pinyin); XCTAssertFalse(space.split)
+    }
+    func testBufferBlocksAndOverlayCaretKeepTextLayout() throws {
+        let font = UIFont.systemFont(ofSize: 15)
+        // Blocks follow the delivery segmenter; unconfirmed text joins the block it ends.
+        let blocks = ["第一句。", "第二句！", "未完成"]
+        let composed = BufferComposition(source: blocks.joined(), cursor: 8, preedit: "ni", font: font, blocks: blocks)
+        XCTAssertEqual(composed.text.string, "第一句。第二句！ni未完成")
+        XCTAssertEqual(composed.blockRanges, [NSRange(location: 0, length: 4), NSRange(location: 4, length: 6), NSRange(location: 10, length: 3)])
+        XCTAssertEqual(composed.activeBlock, 1); XCTAssertEqual(composed.caretRange, NSRange(location: 10, length: 0))
+        // The caret adds no width: text with and without a caret measures the same.
+        let atStart = BufferComposition(source: "你好", cursor: 0, preedit: "", font: font)
+        let atEnd = BufferComposition(source: "你好", cursor: 2, preedit: "", font: font)
+        XCTAssertEqual(atStart.text.size().width, atEnd.text.size().width, accuracy: 0.01)
+
+        let (window, controller) = host(); defer { window.isHidden = true }
+        controller.developmentBuffer("第一句。第二句！未完成", plugin: false); window.layoutIfNeeded()
+        let line = controller.layoutViews.source; line.layoutIfNeeded()
+        XCTAssertEqual(line.text, "第一句。第二句！未完成")
+        XCTAssertEqual(line.blockRanges.count, 3); XCTAssertEqual(line.activeBlock, 2)
+        XCTAssertEqual(line.blockFrames.count, 3)
+        for (left, right) in zip(line.blockFrames, line.blockFrames.dropFirst()) { XCTAssertLessThan(left.maxX, right.minX) } // visible gaps
+        let caret = try XCTUnwrap(line.subviews.first { $0.bounds.width == 2 && !$0.isHidden })
+        XCTAssertEqual(caret.frame.midX, line.blockFrames[2].maxX - 4, accuracy: 1.5) // after the last character
+        controller.developmentBufferCursor(4); window.layoutIfNeeded(); line.layoutIfNeeded()
+        XCTAssertEqual(line.activeBlock, 0); XCTAssertEqual(line.caretLocation, 4)
+        XCTAssertLessThan(caret.frame.maxX, line.blockFrames[1].minX) // caret sits before the gap, not inside the next block
+        // Plugin output shows its result blocks; the head (next to send) is emphasised.
+        controller.developmentBuffer("原文。", plugin: true, output: "One. Two."); window.layoutIfNeeded()
+        let output = controller.layoutViews.result
+        XCTAssertEqual(output.text, "One. Two."); XCTAssertEqual(output.activeBlock, 0)
+        XCTAssertTrue(line.blockRanges.isEmpty)
+    }
+    func testAssociationsFollowCommitsLearnAndClearOnOtherKeys() throws {
+        let (window, controller) = host(); defer { window.isHidden = true }
+        controller.developmentClearAssociationHistory()
+        let strip = controller.layoutViews.candidates
+        func text() -> String { controller.layoutProxy.native.text }
+        // Bundled dictionary continuations appear after a commit.
+        controller.developmentType("xiexie"); controller.developmentSpace()
+        XCTAssertEqual(text(), "谢谢")
+        XCTAssertEqual(Array(controller.developmentAssociations.prefix(3)), ["了", "大家", "合作"])
+        XCTAssertEqual(strip.buttons.map { $0.title(for: .normal) ?? "" }.prefix(3), ["了", "大家", "合作"])
+        // Tapping one inserts it and chains to the next associations.
+        strip.buttons[1].sendActions(for: .touchUpInside)
+        XCTAssertEqual(text(), "谢谢大家")
+        // Any other key hides them; Space types a space instead of picking one.
+        controller.developmentType("zhongguo"); controller.developmentSpace()
+        XCTAssertFalse(controller.developmentAssociations.isEmpty)
+        controller.layoutViews.keys.onTypingPress?(); XCTAssertTrue(controller.developmentAssociations.isEmpty)
+        controller.developmentType("ni"); XCTAssertFalse(strip.buttons.isEmpty) // composition candidates, not associations
+        controller.developmentEnter()
+        // Learned: consecutive commits teach what follows, ahead of the dictionary.
+        controller.developmentClearAssociationHistory()
+        for _ in 0..<2 { controller.developmentType("xiexie"); controller.developmentSpace(); controller.developmentType("ni"); controller.developmentSpace(); controller.developmentEnter() }
+        controller.developmentType("xiexie"); controller.developmentSpace()
+        XCTAssertEqual(controller.developmentAssociations.first, "你")
+        // Delete ends the chain: the next commit is not learned as a continuation.
+        controller.developmentBackspace(); controller.layoutViews.keys.onTypingPress?()
+        XCTAssertTrue(controller.developmentAssociations.isEmpty)
+        // History persists across keyboard sessions and can be cleared.
+        controller.developmentSaveAssociationHistory()
+        let (window2, second) = host(); defer { window2.isHidden = true }
+        second.developmentType("xiexie"); second.developmentSpace()
+        XCTAssertEqual(second.developmentAssociations.first, "你")
+        second.developmentClearAssociationHistory()
+        second.developmentType("xiexie"); second.developmentSpace()
+        XCTAssertEqual(second.developmentAssociations.first, "了")
+        // English and punctuation never produce associations.
+        second.developmentChoose(.english); second.developmentType("hello")
+        XCTAssertTrue(second.developmentAssociations.isEmpty)
+    }
+    func testTypedWordsBecomeTheirOwnBlocksAndSendOneAtATime() throws {
+        let (window, controller) = host(); defer { window.isHidden = true }
+        controller.developmentBuffer("")
+        controller.developmentType("nihao"); controller.developmentSpace()
+        let line = controller.layoutViews.source; window.layoutIfNeeded(); line.layoutIfNeeded()
+        XCTAssertEqual(line.blockRanges.count, 1) // a single word is a single block
+        controller.developmentType("shijie"); controller.developmentSpace()
+        controller.developmentType(","); window.layoutIfNeeded(); line.layoutIfNeeded()
+        XCTAssertEqual(controller.developmentBufferSource.text, "你好世界，")
+        XCTAssertEqual(line.blockRanges.map { (line.text as NSString).substring(with: $0) }, ["你好", "世界，"])
+        XCTAssertEqual(line.activeBlock, 1); XCTAssertEqual(line.blockFrames.count, 2)
+        let image = UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in controller.view.layer.render(in: context.cgContext) }
+        try? image.pngData()?.write(to: FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("keyboard-word-blocks.png"))
+        // Delete removes the whole last block, then the one before; pinyin in
+        // composition still deletes letter by letter.
+        controller.developmentType("dajia"); controller.developmentBackspace()
+        XCTAssertEqual(controller.developmentRaw, "daji"); XCTAssertEqual(controller.developmentBufferSource.text, "你好世界，")
+        controller.developmentSpace(); XCTAssertGreaterThan(controller.developmentBufferSource.text.count, 5) // committed a new word
+        controller.developmentBackspace(); XCTAssertEqual(controller.developmentBufferSource.text, "你好世界，") // that word, whole
+        controller.developmentBackspace(); XCTAssertEqual(controller.developmentBufferSource.text, "你好") // 世界， in one press
+        // Plugin input keeps character deletion.
+        controller.developmentBuffer("原文。", plugin: true, output: "Text."); controller.developmentBackspace()
+        XCTAssertEqual(controller.developmentBufferSource.text, "原文")
+        controller.developmentBuffer(""); ["nihao", "shijie"].forEach { controller.developmentType($0); controller.developmentSpace() }
+        controller.developmentType(","); window.layoutIfNeeded(); line.layoutIfNeeded()
+        // Send inserts exactly the head block; the rest keeps its blocks.
+        XCTAssertTrue(controller.layoutViews.insert.accessibilityActivate())
+        XCTAssertEqual(controller.layoutProxy.native.text, "你好")
+        window.layoutIfNeeded(); line.layoutIfNeeded()
+        XCTAssertEqual(line.text, "世界，"); XCTAssertEqual(line.blockRanges.count, 1)
+    }
     func testDefaultChordSerialGHReachesGangInHostAndBuffer() {
         for buffered in [false, true] {
             let (window, controller) = host(); defer { window.isHidden = true }
@@ -307,7 +449,7 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
             controller.developmentType("g"); controller.developmentType("h")
             XCTAssertEqual(controller.developmentRaw, "gh")
             let preedit = buffered ? controller.layoutViews.source.text : controller.layoutProxy.native.text
-            XCTAssertEqual(preedit, buffered ? "gang▏" : "gang")
+            XCTAssertEqual(preedit, "gang")
             controller.developmentEnter()
             XCTAssertEqual(buffered ? controller.developmentBufferSource.text : controller.layoutProxy.native.text, "gh")
             XCTAssertTrue(controller.developmentRaw.isEmpty)
@@ -340,7 +482,7 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         controller.developmentChoose(.english); controller.developmentBuffer("")
         controller.developmentAutoDelay(1)
         controller.layoutViews.keys.onTypingPress?()
-        controller.developmentType("A。B。")
+        for key in ["A", "。", "B", "。"] { controller.developmentType(key) } // one commit per key, as typed
         XCTAssertEqual(controller.developmentTypingMetrics.committedCharacterCount, 4)
         XCTAssertEqual(controller.developmentTypingMetrics.keyCount, 1)
         controller.developmentAutoTick()
@@ -365,7 +507,7 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
     }
     func testDeleteRepeatsAcrossCompositionThenBufferAndStopsOnTargetChange() {
         let (window, controller) = host(); defer { window.isHidden = true }
-        controller.developmentChoose(.pinyin); controller.developmentBuffer("AB😀")
+        controller.developmentChoose(.pinyin); controller.developmentBuffer("甲。乙。丙。") // three blocks
         controller.developmentType("ni")
         let button = controller.developmentDelete
         var time: TimeInterval = 10; button.clock = { time }
@@ -376,12 +518,12 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         XCTAssertEqual(controller.developmentRaw, "n"); XCTAssertEqual(pulses, 1)
         time = 10.399; button.advance(); XCTAssertEqual(controller.developmentRaw, "n")
         time = 10.4; button.advance(); XCTAssertTrue(controller.developmentRaw.isEmpty)
-        time = 10.475; button.advance(); XCTAssertEqual(controller.developmentBufferSource.text, "AB"); XCTAssertEqual(pulses, 3)
+        time = 10.475; button.advance(); XCTAssertEqual(controller.developmentBufferSource.text, "甲。乙。"); XCTAssertEqual(pulses, 3) // one whole block per repeat
         button.sendActions(for: .touchUpInside); time = 20; button.advance(); XCTAssertEqual(pulses, 3)
-        XCTAssertEqual(controller.developmentBufferSource.text, "AB")
-        button.sendActions(for: .touchDown); XCTAssertEqual(controller.developmentBufferSource.text, "A")
+        XCTAssertEqual(controller.developmentBufferSource.text, "甲。乙。")
+        button.sendActions(for: .touchDown); XCTAssertEqual(controller.developmentBufferSource.text, "甲。")
         controller.layoutProxy.documentIdentifier = UUID(); controller.textDidChange(nil)
-        time = 21; button.advance(); XCTAssertEqual(controller.developmentBufferSource.text, "A")
+        time = 21; button.advance(); XCTAssertEqual(controller.developmentBufferSource.text, "甲。")
         controller.developmentBuffer(nil); controller.developmentChoose(.english)
         controller.layoutProxy.native.text = "abcd"; controller.layoutProxy.native.selectedRange = NSRange(location: 4, length: 0)
         button.sendActions(for: .touchDown); XCTAssertEqual(controller.layoutProxy.native.text, "abc")
@@ -553,12 +695,12 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         XCTAssertEqual(controller.developmentBufferSource.revision, before.revision)
         XCTAssertTrue(controller.layoutProxy.markedUpdates.isEmpty)
         XCTAssertTrue(controller.layoutProxy.insertions.isEmpty)
-        XCTAssertEqual(controller.layoutViews.source.text.replacingOccurrences(of: " ", with: ""), "前😀nihao▏后")
+        XCTAssertEqual(controller.layoutViews.source.text.replacingOccurrences(of: " ", with: ""), "前😀nihao后")
         XCTAssertFalse(controller.layoutViews.insert.isEnabled)
         let index = try XCTUnwrap(controller.layoutViews.candidates.buttons.firstIndex { $0.currentTitle == "你好" })
         controller.layoutViews.candidates.onSelect?(index)
         XCTAssertEqual(controller.developmentBufferSource.text, "前😀你好后")
-        XCTAssertEqual(controller.layoutViews.source.text, "前😀你好▏后")
+        XCTAssertEqual(controller.layoutViews.source.text, "前😀你好后")
         XCTAssertTrue(controller.layoutProxy.native.text.isEmpty)
         XCTAssertTrue(controller.layoutViews.insert.isEnabled)
     }
@@ -594,13 +736,13 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
     func testBufferCompositionUsesUTF16RangesForEmojiAndInlineUnderline() {
         let prefix = "前👩🏽‍💻"
         let display = BufferComposition(source: prefix + "后", cursor: 2, preedit: "ni hao", font: .systemFont(ofSize: 15))
-        XCTAssertEqual(display.text.string, prefix + "ni hao▏后")
+        XCTAssertEqual(display.text.string, prefix + "ni hao后")
         XCTAssertEqual(display.markedRange, NSRange(location: prefix.utf16.count, length: 6))
         XCTAssertEqual(display.caretRange.location, prefix.utf16.count + 6)
         XCTAssertEqual(display.text.attribute(.underlineStyle, at: display.markedRange.location, effectiveRange: nil) as? Int, NSUnderlineStyle.single.rawValue)
         XCTAssertNil(display.text.attribute(.underlineStyle, at: 0, effectiveRange: nil))
         let empty = BufferComposition(source: "", cursor: 50, preedit: "", font: .systemFont(ofSize: 15))
-        XCTAssertEqual(empty.text.string, "▏"); XCTAssertEqual(empty.markedRange.length, 0)
+        XCTAssertEqual(empty.text.string, ""); XCTAssertEqual(empty.caretRange, NSRange(location: 0, length: 0)); XCTAssertEqual(empty.markedRange.length, 0)
     }
     func testChordCapsShareDimensionsIncludingRightHandUtilities() throws {
         var custom = ChordProfile.builtIn.copy()
@@ -734,7 +876,7 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         // Default uses the plugin's two-line style: display-only output above the input line.
         XCTAssertEqual(v.result.text, ""); XCTAssertFalse(v.result.isHidden); XCTAssertFalse(v.source.isHidden)
         XCTAssertEqual(v.source.role, .input); XCTAssertEqual(v.result.role, .output)
-        XCTAssertEqual(v.source.text, "原文。▏")
+        XCTAssertEqual(v.source.text, "原文。")
         XCTAssertFalse(v.buffer.subviews.contains { String(describing: type(of: $0)).contains("BlockStrip") })
         let stats = try XCTUnwrap(v.result.subviews.first { $0.accessibilityIdentifier == "keyboard.buffer.metrics" } as? UILabel)
         XCTAssertFalse(stats.isHidden)
