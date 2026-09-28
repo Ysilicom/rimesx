@@ -1,5 +1,7 @@
 #include "TextService.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <new>
 #include <string>
@@ -8,6 +10,8 @@
 #include <textstor.h>
 
 #include "Diagnostics.h"
+#include "DisplayAttribute.h"
+#include "Guids.h"
 #include "ModuleState.h"
 
 namespace rimes::windows::tsf {
@@ -151,6 +155,204 @@ private:
   std::wstring text_;
 };
 
+class CompositionEditSession final : public ITfEditSession {
+public:
+  enum class Action {
+    kUpdate,
+    kEnd,
+  };
+
+  CompositionEditSession(ITfContext *context,
+                         ITfCompositionSink *sink,
+                         ITfComposition **composition_slot,
+                         Action action,
+                         std::wstring text,
+                         std::uint32_t caret_utf16)
+      : context_(context),
+        sink_(sink),
+        composition_slot_(composition_slot),
+        action_(action),
+        text_(std::move(text)),
+        caret_utf16_(caret_utf16) {
+    context_->AddRef();
+    module::AddObject();
+  }
+
+  CompositionEditSession(const CompositionEditSession &) = delete;
+  CompositionEditSession &operator=(const CompositionEditSession &) = delete;
+
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interface_id,
+                                           void **object) override {
+    if (object == nullptr) {
+      return E_POINTER;
+    }
+    *object = nullptr;
+    if (!InlineIsEqualGUID(interface_id, IID_IUnknown) &&
+        !InlineIsEqualGUID(interface_id, IID_ITfEditSession)) {
+      return E_NOINTERFACE;
+    }
+    *object = static_cast<ITfEditSession *>(this);
+    AddRef();
+    return S_OK;
+  }
+
+  ULONG STDMETHODCALLTYPE AddRef() override {
+    return reference_count_.fetch_add(1, std::memory_order_relaxed) + 1;
+  }
+
+  ULONG STDMETHODCALLTYPE Release() override {
+    const ULONG remaining =
+        reference_count_.fetch_sub(1, std::memory_order_acq_rel) - 1;
+    if (remaining == 0) {
+      delete this;
+    }
+    return remaining;
+  }
+
+  HRESULT STDMETHODCALLTYPE DoEditSession(TfEditCookie edit_cookie) override {
+    if (action_ == Action::kEnd) {
+      return EndLocked(edit_cookie);
+    }
+    return UpdateLocked(edit_cookie);
+  }
+
+private:
+  ~CompositionEditSession() {
+    context_->Release();
+    module::ReleaseObject();
+  }
+
+  HRESULT StartLocked(TfEditCookie edit_cookie) {
+    if (composition_slot_ == nullptr || *composition_slot_ != nullptr) {
+      return S_OK;
+    }
+    ITfInsertAtSelection *insert = nullptr;
+    HRESULT result = context_->QueryInterface(
+        IID_ITfInsertAtSelection, reinterpret_cast<void **>(&insert));
+    if (FAILED(result) || insert == nullptr) {
+      return result;
+    }
+    ITfRange *range = nullptr;
+    result = insert->InsertTextAtSelection(edit_cookie, TF_IAS_QUERYONLY,
+                                           nullptr, 0, &range);
+    insert->Release();
+    if (FAILED(result) || range == nullptr) {
+      if (range != nullptr) {
+        range->Release();
+      }
+      return result;
+    }
+
+    ITfContextComposition *context_composition = nullptr;
+    result = context_->QueryInterface(
+        IID_ITfContextComposition, reinterpret_cast<void **>(&context_composition));
+    if (FAILED(result) || context_composition == nullptr) {
+      range->Release();
+      return result;
+    }
+    result = context_composition->StartComposition(edit_cookie, range, sink_,
+                                                   composition_slot_);
+    context_composition->Release();
+    range->Release();
+    return result;
+  }
+
+  HRESULT UpdateLocked(TfEditCookie edit_cookie) {
+    HRESULT result = S_OK;
+    if (composition_slot_ == nullptr) {
+      return E_INVALIDARG;
+    }
+    if (*composition_slot_ == nullptr) {
+      result = StartLocked(edit_cookie);
+      if (FAILED(result) || *composition_slot_ == nullptr) {
+        return result;
+      }
+    }
+
+    ITfRange *range = nullptr;
+    result = (*composition_slot_)->GetRange(&range);
+    if (FAILED(result) || range == nullptr) {
+      if (range != nullptr) {
+        range->Release();
+      }
+      return result;
+    }
+    if (text_.size() >
+        static_cast<std::size_t>(std::numeric_limits<LONG>::max())) {
+      range->Release();
+      return E_INVALIDARG;
+    }
+    result = range->SetText(edit_cookie, 0, text_.c_str(),
+                            static_cast<LONG>(text_.size()));
+    if (SUCCEEDED(result)) {
+      ApplyCompositionDisplayAttribute(edit_cookie, context_, range);
+      ITfRange *caret_range = nullptr;
+      if (SUCCEEDED(range->Clone(&caret_range)) && caret_range != nullptr) {
+        ITfRangeACP *acp = nullptr;
+        if (SUCCEEDED(caret_range->QueryInterface(
+                IID_ITfRangeACP, reinterpret_cast<void **>(&acp))) &&
+            acp != nullptr) {
+          LONG start = 0;
+          LONG ignored = 0;
+          if (SUCCEEDED(acp->GetExtent(&start, &ignored))) {
+            const LONG caret = start + static_cast<LONG>((std::min)(
+                                           caret_utf16_,
+                                           static_cast<std::uint32_t>(text_.size())));
+            acp->SetExtent(caret, 0);
+          }
+          acp->Release();
+        } else {
+          caret_range->Collapse(edit_cookie, TF_ANCHOR_END);
+        }
+        TF_SELECTION selection{};
+        selection.range = caret_range;
+        selection.style.ase = TF_AE_NONE;
+        selection.style.fInterimChar = FALSE;
+        context_->SetSelection(edit_cookie, 1, &selection);
+        caret_range->Release();
+      }
+    }
+    range->Release();
+    return result;
+  }
+
+  HRESULT EndLocked(TfEditCookie edit_cookie) {
+    if (composition_slot_ == nullptr || *composition_slot_ == nullptr) {
+      return S_OK;
+    }
+    ITfComposition *composition = *composition_slot_;
+    *composition_slot_ = nullptr;
+    const HRESULT result = composition->EndComposition(edit_cookie);
+    composition->Release();
+    return result;
+  }
+
+  std::atomic_ulong reference_count_{1};
+  ITfContext *context_;
+  ITfCompositionSink *sink_;
+  ITfComposition **composition_slot_;
+  Action action_;
+  std::wstring text_;
+  std::uint32_t caret_utf16_ = 0;
+};
+
+HRESULT RequestEdit(ITfContext *context,
+                    TfClientId client_id,
+                    ITfEditSession *session) {
+  if (context == nullptr || session == nullptr || client_id == kNullClientId) {
+    return E_INVALIDARG;
+  }
+  HRESULT edit_result = E_FAIL;
+  HRESULT request_result = context->RequestEditSession(
+      client_id, session, TF_ES_SYNC | TF_ES_READWRITE, &edit_result);
+  if (FAILED(request_result) || edit_result == TF_E_SYNCHRONOUS ||
+      edit_result == TF_E_LOCKED) {
+    request_result = context->RequestEditSession(
+        client_id, session, TF_ES_ASYNC | TF_ES_READWRITE, &edit_result);
+  }
+  return FAILED(request_result) ? request_result : edit_result;
+}
+
 } // namespace
 
 TextService::TextService() noexcept : broker_client_(CreateBrokerClient()) {
@@ -176,6 +378,10 @@ HRESULT STDMETHODCALLTYPE TextService::QueryInterface(REFIID interface_id,
     *object = static_cast<ITfTextInputProcessor *>(this);
   } else if (InlineIsEqualGUID(interface_id, IID_ITfKeyEventSink)) {
     *object = static_cast<ITfKeyEventSink *>(this);
+  } else if (InlineIsEqualGUID(interface_id, IID_ITfCompositionSink)) {
+    *object = static_cast<ITfCompositionSink *>(this);
+  } else if (InlineIsEqualGUID(interface_id, IID_ITfDisplayAttributeProvider)) {
+    *object = static_cast<ITfDisplayAttributeProvider *>(this);
   } else {
     return E_NOINTERFACE;
   }
@@ -257,6 +463,13 @@ HRESULT STDMETHODCALLTYPE TextService::ActivateEx(ITfThreadMgr *thread_manager,
 
 HRESULT STDMETHODCALLTYPE TextService::Deactivate() {
   LogDiagnosticStage(DiagnosticStage::kDeactivateEntered);
+  candidate_window_.Hide();
+  if (composition_ != nullptr) {
+    ending_composition_ = true;
+    composition_->Release();
+    composition_ = nullptr;
+    ending_composition_ = false;
+  }
   if (broker_client_ != nullptr) {
     broker_client_->Disconnect();
   }
@@ -281,7 +494,44 @@ HRESULT STDMETHODCALLTYPE TextService::Deactivate() {
   return result;
 }
 
-HRESULT STDMETHODCALLTYPE TextService::OnSetFocus(BOOL) { return S_OK; }
+HRESULT STDMETHODCALLTYPE TextService::OnSetFocus(BOOL foreground) {
+  if (foreground == FALSE) {
+    candidate_window_.Hide();
+  }
+  return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE TextService::OnCompositionTerminated(
+    TfEditCookie, ITfComposition *composition) {
+  if (composition_ == composition) {
+    composition_->Release();
+    composition_ = nullptr;
+  }
+  if (!ending_composition_) {
+    candidate_window_.Hide();
+  }
+  return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE TextService::EnumDisplayAttributeInfo(
+    IEnumTfDisplayAttributeInfo **enumerator) {
+  return CreateEnumDisplayAttributeInfo(enumerator);
+}
+
+HRESULT STDMETHODCALLTYPE TextService::GetDisplayAttributeInfo(
+    REFGUID guid, ITfDisplayAttributeInfo **info) {
+  if (!InlineIsEqualGUID(guid, kInputDisplayAttributeGuid)) {
+    if (info != nullptr) {
+      *info = nullptr;
+    }
+    return E_INVALIDARG;
+  }
+  return CreateDisplayAttributeInfo(info);
+}
+
+bool TextService::IsBrokerConnected() const noexcept {
+  return broker_client_ != nullptr && broker_client_->IsConnected();
+}
 
 HRESULT STDMETHODCALLTYPE TextService::OnTestKeyDown(ITfContext *context,
                                                      WPARAM virtual_key,
@@ -341,15 +591,167 @@ HRESULT TextService::HandleKey(BrokerKeyPhase phase, ITfContext *context,
     // the key even if the host refuses an edit lock; passing it through would
     // duplicate raw input while leaving the engine one event ahead.
     *eaten = TRUE;
-    if (context != nullptr && !state.commit_text.empty()) {
-      LogDiagnosticStage(DiagnosticStage::kCommitDispatchStarted);
-      const HRESULT commit_result = CommitText(context, state.commit_text);
-      LogDiagnosticStage(SUCCEEDED(commit_result)
-                             ? DiagnosticStage::kCommitDispatchSucceeded
-                             : DiagnosticStage::kCommitDispatchFailed);
+    if (context != nullptr && is_real_event) {
+      ApplyDocumentState(context, state);
     }
   }
   return S_OK;
+}
+
+HRESULT TextService::ApplyDocumentState(ITfContext *context,
+                                        const BrokerInputState &state) noexcept {
+  if (context == nullptr) {
+    return E_INVALIDARG;
+  }
+  if (!state.commit_text.empty()) {
+    LogDiagnosticStage(DiagnosticStage::kCommitDispatchStarted);
+    HRESULT commit_result = S_OK;
+    if (composition_ != nullptr) {
+      commit_result = UpdateComposition(context, state);
+    } else {
+      commit_result = CommitText(context, state.commit_text);
+    }
+    LogDiagnosticStage(SUCCEEDED(commit_result)
+                           ? DiagnosticStage::kCommitDispatchSucceeded
+                           : DiagnosticStage::kCommitDispatchFailed);
+    if (composition_ != nullptr && !state.composing) {
+      EndComposition(context);
+    }
+  } else if (state.composing && !state.composition.empty()) {
+    UpdateComposition(context, state);
+  } else if (composition_ != nullptr) {
+    BrokerInputState cleared;
+    UpdateComposition(context, cleared);
+    EndComposition(context);
+  }
+
+  UpdateCandidateWindow(context, state);
+  return S_OK;
+}
+
+HRESULT TextService::UpdateComposition(ITfContext *context,
+                                       const BrokerInputState &state) noexcept {
+  CompositionEditSession *session = new (std::nothrow) CompositionEditSession(
+      context, this, &composition_,
+      state.commit_text.empty() ? CompositionEditSession::Action::kUpdate
+                                : CompositionEditSession::Action::kUpdate,
+      state.commit_text.empty() ? state.composition : state.commit_text,
+      state.commit_text.empty() ? state.caret_utf16
+                                : static_cast<std::uint32_t>(
+                                      state.commit_text.size()));
+  if (session == nullptr) {
+    return E_OUTOFMEMORY;
+  }
+  const HRESULT result = RequestEdit(context, client_id_, session);
+  session->Release();
+  if (!state.commit_text.empty() && !state.composing) {
+    EndComposition(context);
+  } else if (!state.commit_text.empty() && state.composing &&
+             !state.composition.empty()) {
+    CompositionEditSession *next = new (std::nothrow) CompositionEditSession(
+        context, this, &composition_, CompositionEditSession::Action::kUpdate,
+        state.composition, state.caret_utf16);
+    if (next != nullptr) {
+      RequestEdit(context, client_id_, next);
+      next->Release();
+    }
+  }
+  return result;
+}
+
+HRESULT TextService::EndComposition(ITfContext *context) noexcept {
+  ending_composition_ = true;
+  CompositionEditSession *session = new (std::nothrow) CompositionEditSession(
+      context, this, &composition_, CompositionEditSession::Action::kEnd,
+      std::wstring(), 0);
+  HRESULT result = S_OK;
+  if (session != nullptr) {
+    result = RequestEdit(context, client_id_, session);
+    session->Release();
+  } else if (composition_ != nullptr) {
+    composition_->Release();
+    composition_ = nullptr;
+    result = E_OUTOFMEMORY;
+  }
+  ending_composition_ = false;
+  return result;
+}
+
+void TextService::UpdateCandidateWindow(ITfContext *context,
+                                        const BrokerInputState &state) noexcept {
+  if (!state.candidates_visible || state.candidates.empty() ||
+      (activation_flags_ & TF_TMAE_SECUREMODE) != 0) {
+    candidate_window_.Hide();
+    return;
+  }
+  try {
+    CandidateSnapshot snapshot;
+    snapshot.visible = true;
+    snapshot.highlighted = state.highlighted_candidate;
+    snapshot.page_start = state.page_start;
+    snapshot.page_size = state.page_size;
+    snapshot.composition = state.composition;
+    snapshot.caret_rect = QueryCaretRect(context);
+    snapshot.items.reserve(state.candidates.size());
+    for (std::size_t index = 0; index < state.candidates.size(); ++index) {
+      CandidateItem item;
+      item.text = state.candidates[index].text;
+      item.comment = state.candidates[index].comment;
+      item.label = state.candidates[index].label;
+      if (item.label.empty()) {
+        item.label = std::to_wstring(index + 1);
+      }
+      snapshot.items.push_back(std::move(item));
+    }
+    candidate_window_.Update(snapshot);
+  } catch (...) {
+    candidate_window_.Hide();
+  }
+}
+
+RECT TextService::QueryCaretRect(ITfContext *context) noexcept {
+  RECT caret{};
+  if (context == nullptr) {
+    return caret;
+  }
+  ITfContextView *view = nullptr;
+  if (FAILED(context->GetActiveView(&view)) || view == nullptr) {
+    if (FAILED(context->QueryInterface(IID_ITfContextView,
+                                       reinterpret_cast<void **>(&view))) ||
+        view == nullptr) {
+      return caret;
+    }
+  }
+  ITfRange *range = nullptr;
+  if (composition_ != nullptr) {
+    composition_->GetRange(&range);
+  }
+  BOOL clipped = FALSE;
+  if (range != nullptr) {
+    view->GetTextExt(TF_INVALID_EDIT_COOKIE, range, &caret, &clipped);
+    range->Release();
+  }
+  if (caret.right <= caret.left || caret.bottom <= caret.top) {
+    HWND window = nullptr;
+    if (SUCCEEDED(view->GetWnd(&window)) && window != nullptr) {
+      POINT point{};
+      if (GetCaretPos(&point) && ClientToScreen(window, &point)) {
+        caret.left = point.x;
+        caret.top = point.y;
+        caret.right = point.x + 2;
+        caret.bottom = point.y + 20;
+      }
+    }
+  }
+  view->Release();
+  return caret;
+}
+
+void TextService::ClearCompositionPointer() noexcept {
+  if (composition_ != nullptr) {
+    composition_->Release();
+    composition_ = nullptr;
+  }
 }
 
 HRESULT TextService::CommitText(ITfContext *context,

@@ -1,5 +1,7 @@
+#include "autostart.hpp"
 #include "broker_connection.hpp"
 #include "broker_options.hpp"
+#include "default_paths.hpp"
 #include "named_pipe_server.hpp"
 #include "single_instance.hpp"
 #include "win32_security.hpp"
@@ -18,13 +20,20 @@ void PrintUsage() {
       << L"RIMES Windows Broker 0.1.0-dev\n\n"
       << L"Usage:\n"
       << L"  RimesBroker --print-endpoint\n"
-      << L"  RimesBroker [--once] --rime-dll <absolute-path>\n"
-      << L"      --shared-data-dir <absolute-path>\n"
-      << L"      --user-data-dir <absolute-path>\n"
-      << L"      --log-dir <absolute-path> [--full-maintenance-check]\n\n"
+      << L"  RimesBroker --print-paths\n"
+      << L"  RimesBroker --install-autostart | --remove-autostart\n"
+      << L"  RimesBroker [--once] [--rime-dll <absolute-path>]\n"
+      << L"      [--shared-data-dir <absolute-path>]\n"
+      << L"      [--user-data-dir <absolute-path>]\n"
+      << L"      [--log-dir <absolute-path>] [--full-maintenance-check]\n\n"
       << L"  --once                  Serve one verified client, then exit.\n"
       << L"  --print-endpoint        Print this user's pipe name, then exit.\n"
-      << L"  --full-maintenance-check  Ask librime for a full maintenance pass.\n";
+      << L"  --print-paths           Print resolved engine paths, then exit.\n"
+      << L"  --install-autostart     Register a current-user logon Run key.\n"
+      << L"  --remove-autostart      Remove the current-user logon Run key.\n"
+      << L"  --full-maintenance-check  Ask librime for a full maintenance pass.\n"
+      << L"  Missing engine paths default to %%LOCALAPPDATA%%\\RIMES and\n"
+      << L"  %%APPDATA%%\\RIMES, or files next to this executable.\n";
 }
 
 }  // namespace
@@ -54,6 +63,49 @@ int wmain(const int argc, wchar_t** argv) {
   if (options.print_endpoint) {
     std::wcout << security.pipe_name() << L'\n';
     return 0;
+  }
+  if (options.remove_autostart) {
+    if (!RemoveBrokerAutostart(&error)) {
+      std::wcerr << L"Failed to remove broker autostart: " << error << L'\n';
+      return 7;
+    }
+    std::wcout << L"Removed the current-user RIMES broker autostart entry.\n";
+    return 0;
+  }
+  if (options.install_autostart) {
+    DefaultBrokerPaths defaults;
+    if (!ResolveDefaultBrokerPaths(&defaults, &error)) {
+      std::wcerr << L"Failed to resolve the broker path: " << error << L'\n';
+      return 7;
+    }
+    if (!InstallBrokerAutostart(defaults.broker_exe.wstring(), &error)) {
+      std::wcerr << L"Failed to install broker autostart: " << error << L'\n';
+      return 7;
+    }
+    std::wcout << L"Installed current-user autostart for "
+               << defaults.broker_exe.wstring() << L'\n';
+    return 0;
+  }
+  if (options.print_paths) {
+    std::wcout << L"rime-dll=" << options.engine.dll_path.wstring() << L'\n'
+               << L"shared-data-dir="
+               << options.engine.shared_data_dir.wstring() << L'\n'
+               << L"user-data-dir=" << options.engine.user_data_dir.wstring()
+               << L'\n'
+               << L"log-dir=" << options.engine.log_dir.wstring() << L'\n'
+               << L"used-defaults="
+               << (options.used_default_paths ? L"yes" : L"no") << L'\n';
+    return 0;
+  }
+
+  DefaultBrokerPaths created_dirs;
+  created_dirs.shared_data_dir = options.engine.shared_data_dir;
+  created_dirs.user_data_dir = options.engine.user_data_dir;
+  created_dirs.log_dir = options.engine.log_dir;
+  if (!EnsureBrokerDataDirectories(created_dirs, &error)) {
+    std::wcerr << L"Failed to create broker data directories: " << error
+               << L'\n';
+    return 5;
   }
 
   SingleInstance instance;

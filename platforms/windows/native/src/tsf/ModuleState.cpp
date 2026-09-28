@@ -5,6 +5,7 @@
 namespace rimes::windows::tsf::module {
 namespace {
 
+std::atomic<HINSTANCE> g_instance{nullptr};
 std::atomic_ulong g_object_count{0};
 std::atomic_ulong g_server_lock_count{0};
 
@@ -18,6 +19,14 @@ void DecrementWithoutUnderflow(std::atomic_ulong* counter) noexcept {
 }
 
 }  // namespace
+
+void SetInstance(HINSTANCE instance) noexcept {
+  g_instance.store(instance, std::memory_order_release);
+}
+
+HINSTANCE Instance() noexcept {
+  return g_instance.load(std::memory_order_acquire);
+}
 
 void AddObject() noexcept {
   g_object_count.fetch_add(1, std::memory_order_relaxed);

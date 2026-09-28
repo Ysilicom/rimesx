@@ -1,0 +1,22 @@
+# Isolated table used by RimesTsfE2E. sort: original keeps 你好 first so
+# Space and number-key assertions stay stable.
+---
+name: rimes_e2e
+version: "0.1"
+sort: original
+...
+你好	nihao
+拟好	nihao
+泥壕	nihao
+尼好	nihao
+逆好	nihao
+匿好	nihao
+腻好	nihao
+妮好	nihao
+倪好	nihao
+霓好	nihao
+你	ni
+泥	ni
+拟	ni
+逆	ni
+匿	ni

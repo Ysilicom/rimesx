@@ -1,18 +1,22 @@
 #pragma once
 
 #include <Windows.h>
+#include <msctf.h>
 
 #include <atomic>
 #include <memory>
 #include <string>
 
 #include "BrokerClient.h"
+#include "CandidateWindow.h"
 #include "TsfInterfaces.h"
 
 namespace rimes::windows::tsf {
 
 class TextService final : public ITfTextInputProcessorEx,
-                          public ITfKeyEventSink {
+                          public ITfKeyEventSink,
+                          public ITfCompositionSink,
+                          public ITfDisplayAttributeProvider {
  public:
   TextService() noexcept;
 
@@ -55,6 +59,18 @@ class TextService final : public ITfTextInputProcessorEx,
                                            REFGUID key,
                                            BOOL* eaten) override;
 
+  // ITfCompositionSink
+  HRESULT STDMETHODCALLTYPE OnCompositionTerminated(
+      TfEditCookie write_cookie, ITfComposition* composition) override;
+
+  // ITfDisplayAttributeProvider
+  HRESULT STDMETHODCALLTYPE EnumDisplayAttributeInfo(
+      IEnumTfDisplayAttributeInfo** enumerator) override;
+  HRESULT STDMETHODCALLTYPE GetDisplayAttributeInfo(
+      REFGUID guid, ITfDisplayAttributeInfo** info) override;
+
+  [[nodiscard]] bool IsBrokerConnected() const noexcept;
+
  private:
   ~TextService();
 
@@ -64,16 +80,27 @@ class TextService final : public ITfTextInputProcessorEx,
                     LPARAM key_data,
                     BOOL* eaten) noexcept;
 
-  HRESULT CommitText(ITfContext* context,
-                     const std::wstring& text) noexcept;
+  HRESULT ApplyDocumentState(ITfContext* context,
+                             const BrokerInputState& state) noexcept;
+  HRESULT CommitText(ITfContext* context, const std::wstring& text) noexcept;
+  HRESULT UpdateComposition(ITfContext* context,
+                            const BrokerInputState& state) noexcept;
+  HRESULT EndComposition(ITfContext* context) noexcept;
+  void UpdateCandidateWindow(ITfContext* context,
+                             const BrokerInputState& state) noexcept;
+  RECT QueryCaretRect(ITfContext* context) noexcept;
+  void ClearCompositionPointer() noexcept;
 
   std::atomic_ulong reference_count_{1};
   ITfThreadMgr* thread_manager_ = nullptr;
   ITfKeystrokeMgr* keystroke_manager_ = nullptr;
+  ITfComposition* composition_ = nullptr;
   TfClientId client_id_ = kNullClientId;
   DWORD activation_flags_ = 0;
   bool key_event_sink_advised_ = false;
+  bool ending_composition_ = false;
   std::unique_ptr<BrokerClient> broker_client_;
+  CandidateWindow candidate_window_;
 };
 
 }  // namespace rimes::windows::tsf

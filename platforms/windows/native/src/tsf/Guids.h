@@ -23,11 +23,21 @@ inline constexpr GUID kLanguageProfileGuid = {
 
 inline constexpr LANGID kLanguageId = 0x0804;  // Chinese (Simplified, China)
 
+// Display attribute used to underline the inline preedit. Stable product
+// identity; do not regenerate after a build has been distributed.
+inline constexpr GUID kInputDisplayAttributeGuid = {
+    0x8f2a1c3e,
+    0x7b94,
+    0x4d21,
+    {0x9e, 0x5a, 0x1c, 0x8d, 0x3f, 0x6a, 0x2b, 0x40},
+};
+
 inline constexpr wchar_t kTextServiceClsidString[] =
     L"{0B2C570B-9811-45DF-989B-EA306281F6B4}";
 inline constexpr wchar_t kLanguageProfileGuidString[] =
     L"{CD791B35-640F-4F1C-A3D3-624099E15ACB}";
 inline constexpr wchar_t kDisplayName[] = L"RIMES";
 inline constexpr wchar_t kDllFileName[] = L"RimesTsf.dll";
+inline constexpr wchar_t kCandidateWindowClass[] = L"Rimes.CandidateWindow";
 
 }  // namespace rimes::windows::tsf

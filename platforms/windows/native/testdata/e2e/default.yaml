@@ -1,0 +1,8 @@
+# Isolated schema list for the Windows IME in-process typing tests.
+# Do not use the product rime_ice default here: that scheme needs the full
+# RIMES lua tree and is covered later on real hardware.
+schema_list:
+  - schema: rimes_e2e
+
+menu:
+  page_size: 5
