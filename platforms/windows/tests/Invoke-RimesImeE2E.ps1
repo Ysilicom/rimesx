@@ -145,6 +145,14 @@ try {
     $e2e = Start-Process -FilePath $e2ePath -Wait -PassThru -NoNewWindow
     $e2eExit = [int]$e2e.ExitCode
     if ($e2eExit -ne 0) {
+        Write-Host "--- broker stderr ---"
+        if (Test-Path -LiteralPath $brokerStderr) {
+            Get-Content -LiteralPath $brokerStderr -Raw
+        }
+        Write-Host "--- broker stdout ---"
+        if (Test-Path -LiteralPath $brokerStdout) {
+            Get-Content -LiteralPath $brokerStdout -Raw
+        }
         throw "RimesTsfE2E.exe exited with code $e2eExit"
     }
 } finally {

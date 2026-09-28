@@ -142,6 +142,9 @@ int RunTypingScenarios() {
   }
 
   TypeLatin(service, context, "nihao");
+  std::cerr << "after nihao: composing=" << document.composing
+            << " preedit_units=" << document.composition.size()
+            << " text_units=" << document.text.size() << '\n';
   Expect(document.composing, "nihao should start an inline composition");
   Expect(!document.composition.empty(),
          "nihao should produce a non-empty preedit");

@@ -42,6 +42,15 @@ translator:
 menu:
   page_size: 5
 
+ascii_composer:
+  good_old_caps_lock: true
+  switch_key:
+    Caps_Lock: clear
+    Shift_L: noop
+    Shift_R: noop
+    Control_L: noop
+    Control_R: noop
+
 key_binder:
   bindings:
     - {when: has_menu, accept: Page_Up, send: Page_Up}
