@@ -591,7 +591,7 @@ HRESULT TextService::HandleKey(BrokerKeyPhase phase, ITfContext *context,
     // the key even if the host refuses an edit lock; passing it through would
     // duplicate raw input while leaving the engine one event ahead.
     *eaten = TRUE;
-    if (context != nullptr && is_real_event) {
+    if (context != nullptr && is_real_event && state.has_snapshot) {
       ApplyDocumentState(context, state);
     }
   }

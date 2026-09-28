@@ -27,10 +27,31 @@ void Expect(bool condition, std::string_view message) {
   }
 }
 
+void DumpDocument(std::string_view label,
+                  const rimes::windows::e2e::FakeDocument& document) {
+  rimes::windows::tsf::CandidateSnapshot snapshot;
+  rimes::windows::tsf::CandidateWindow::GetLastSnapshot(&snapshot);
+  std::cerr << label << ": composing=" << document.composing
+            << " preedit_units=" << document.composition.size()
+            << " text_units=" << document.text.size()
+            << " candidates=" << snapshot.items.size()
+            << " visible=" << snapshot.visible << '\n';
+}
+
+void ClearCapsLockIfLatched() {
+  if ((GetKeyState(VK_CAPITAL) & 1) == 0) {
+    return;
+  }
+  keybd_event(VK_CAPITAL, 0x45, KEYEVENTF_EXTENDEDKEY, 0);
+  keybd_event(VK_CAPITAL, 0x45, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+}
+
 void TypeVirtualKey(rimes::windows::tsf::TextService* service,
                     ITfContext* context,
                     WPARAM virtual_key,
-                    bool require_eaten) {
+                    bool require_eaten,
+                    rimes::windows::e2e::FakeDocument* document = nullptr,
+                    bool dump_after_key_down = false) {
   using rimes::windows::tsf::TextService;
   BOOL eaten = FALSE;
   service->OnTestKeyDown(context, virtual_key, 0, &eaten);
@@ -43,6 +64,9 @@ void TypeVirtualKey(rimes::windows::tsf::TextService* service,
   if (require_eaten && eaten == FALSE) {
     Fail("expected the key down to be consumed");
   }
+  if (dump_after_key_down && document != nullptr) {
+    DumpDocument("after keydown vk=" + std::to_string(virtual_key), *document);
+  }
   eaten = FALSE;
   service->OnTestKeyUp(context, virtual_key, 0, &eaten);
   eaten = FALSE;
@@ -51,11 +75,14 @@ void TypeVirtualKey(rimes::windows::tsf::TextService* service,
 
 void TypeLatin(rimes::windows::tsf::TextService* service,
                ITfContext* context,
-               std::string_view letters) {
+               std::string_view letters,
+               rimes::windows::e2e::FakeDocument* document = nullptr) {
+  bool first = true;
   for (const char letter : letters) {
     const WPARAM virtual_key =
         static_cast<WPARAM>(static_cast<unsigned char>(letter) & ~0x20U);
-    TypeVirtualKey(service, context, virtual_key, true);
+    TypeVirtualKey(service, context, virtual_key, true, document, first);
+    first = false;
   }
 }
 
@@ -141,10 +168,12 @@ int RunTypingScenarios() {
     return EXIT_FAILURE;
   }
 
-  TypeLatin(service, context, "nihao");
-  std::cerr << "after nihao: composing=" << document.composing
-            << " preedit_units=" << document.composition.size()
-            << " text_units=" << document.text.size() << '\n';
+  ClearCapsLockIfLatched();
+  std::cerr << "caps_lock=" << ((GetKeyState(VK_CAPITAL) & 1) != 0)
+            << " shift=" << ((GetKeyState(VK_SHIFT) & 0x8000) != 0) << '\n';
+
+  TypeLatin(service, context, "nihao", &document);
+  DumpDocument("after nihao", document);
   Expect(document.composing, "nihao should start an inline composition");
   Expect(!document.composition.empty(),
          "nihao should produce a non-empty preedit");

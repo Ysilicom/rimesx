@@ -892,6 +892,8 @@ class NamedPipeBrokerClient final : public BrokerClient {
         // consumed.  Keep the pair together even if librime reports that the
         // release itself caused no additional mutation; exposing an orphan
         // KeyUp to the host breaks chord_composer and some app key state.
+        // Leave `state` as the empty default (has_snapshot=false) so TSF does
+        // not treat this eat-without-mutation as "cancel the composition".
         return key_up ? BrokerKeyResult::kConsumed
                       : BrokerKeyResult::kPassThrough;
       }
@@ -901,6 +903,7 @@ class NamedPipeBrokerClient final : public BrokerClient {
       }
 
       if (state != nullptr) {
+        state->has_snapshot = true;
         state->composing = is_composing;
         state->revision = decoded.revision;
         state->caret_utf16 = decoded.caret_utf16;

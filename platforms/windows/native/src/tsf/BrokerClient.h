@@ -36,9 +36,13 @@ struct BrokerCandidate {
   std::wstring label;
 };
 
-// Text mutations returned atomically with one real key-down request.  Wire
+// Text mutations returned atomically with one handled Broker snapshot.  Wire
 // strings are decoded and validated by the pipe client before they reach TSF.
+// `has_snapshot` is false when the key was eaten without a new authoritative
+// mutation (most KeyUp events). Applying an empty default state in that case
+// would cancel an in-progress composition.
 struct BrokerInputState {
+  bool has_snapshot = false;
   bool composing = false;
   bool candidates_visible = false;
   std::uint64_t revision = 0;
