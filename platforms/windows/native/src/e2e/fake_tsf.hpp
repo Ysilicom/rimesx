@@ -168,13 +168,14 @@ class FakeContext final : public ITfContext,
   HRESULT STDMETHODCALLTYPE SetValue(TfEditCookie,
                                      ITfRange*,
                                      const VARIANT*) override;
+  HRESULT STDMETHODCALLTYPE SetValueStore(TfEditCookie,
+                                          ITfRange*,
+                                          ITfPropertyStore*) override;
   HRESULT STDMETHODCALLTYPE Clear(TfEditCookie, ITfRange*) override;
   HRESULT STDMETHODCALLTYPE FindRange(TfEditCookie,
                                       ITfRange*,
                                       ITfRange**,
                                       TfAnchor) override;
-  HRESULT STDMETHODCALLTYPE AdviseSink(REFIID, IUnknown*, DWORD) override;
-  HRESULT STDMETHODCALLTYPE UnadviseSink(DWORD) override;
 
   FakeDocument* document() noexcept { return document_; }
 
@@ -184,7 +185,7 @@ class FakeContext final : public ITfContext,
   FakeDocument* document_;
 };
 
-class FakeRange final : public ITfRange, public ITfRangeACP {
+class FakeRange final : public ITfRangeACP {
  public:
   FakeRange(FakeDocument* document, LONG start, LONG length) noexcept;
 

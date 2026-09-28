@@ -78,6 +78,10 @@ SendInput host. The required CI assertions are therefore in-process. The
 script records a desktop probe for honesty. Real-host coverage is
 [MANUAL-TEST.md](MANUAL-TEST.md).
 
+PR-time evidence is the non-required **Windows IME** workflow
+(`.github/workflows/windows-ime.yml`). The older **Windows Native Foundation**
+workflow stays schedule/manual only so it cannot join the macOS release gate.
+
 See [librime/README.md](librime/README.md) for URLs and SHA-256.
 
 ## Daily-use layout

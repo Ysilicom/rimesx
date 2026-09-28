@@ -201,8 +201,8 @@ void CandidateWindow::LayoutAndShow(const CandidateSnapshot& snapshot) noexcept 
     DeleteObject(font);
   }
 
-  const long width =
-      (std::max)(min_width, text_width + (2 * padding) + 8);
+  const long width = (std::max)(static_cast<long>(min_width),
+                                text_width + (2 * padding) + 8);
   const long height = (2 * padding) +
                       static_cast<long>(snapshot.items.size()) * item_height;
   const ScreenRect caret{snapshot.caret_rect.left, snapshot.caret_rect.top,

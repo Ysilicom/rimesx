@@ -219,7 +219,8 @@ HRESULT STDMETHODCALLTYPE FakeContext::GetStart(TfEditCookie, ITfRange** range) 
   if (range == nullptr) {
     return E_POINTER;
   }
-  *range = new (std::nothrow) FakeRange(document_, 0, 0);
+  *range = static_cast<ITfRange*>(
+      new (std::nothrow) FakeRange(document_, 0, 0));
   return *range != nullptr ? S_OK : E_OUTOFMEMORY;
 }
 
@@ -283,7 +284,8 @@ HRESULT STDMETHODCALLTYPE FakeContext::InsertTextAtSelection(
   if ((flags & TF_IAS_QUERYONLY) != 0) {
     const LONG start = static_cast<LONG>(document_->text.size());
     if (range != nullptr) {
-      *range = new (std::nothrow) FakeRange(document_, start, 0);
+      *range = static_cast<ITfRange*>(
+          new (std::nothrow) FakeRange(document_, start, 0));
       if (*range == nullptr) {
         return E_OUTOFMEMORY;
       }
@@ -297,7 +299,8 @@ HRESULT STDMETHODCALLTYPE FakeContext::InsertTextAtSelection(
   if (range != nullptr) {
     const LONG start =
         static_cast<LONG>(document_->text.size() - (count > 0 ? count : 0));
-    *range = new (std::nothrow) FakeRange(document_, start, count);
+    *range = static_cast<ITfRange*>(
+        new (std::nothrow) FakeRange(document_, start, count));
     if (*range == nullptr) {
       return E_OUTOFMEMORY;
     }
@@ -422,6 +425,11 @@ HRESULT STDMETHODCALLTYPE FakeContext::SetValue(TfEditCookie,
                                                 const VARIANT*) {
   return S_OK;
 }
+HRESULT STDMETHODCALLTYPE FakeContext::SetValueStore(TfEditCookie,
+                                                     ITfRange*,
+                                                     ITfPropertyStore*) {
+  return S_OK;
+}
 HRESULT STDMETHODCALLTYPE FakeContext::Clear(TfEditCookie, ITfRange*) {
   return S_OK;
 }
@@ -431,13 +439,6 @@ HRESULT STDMETHODCALLTYPE FakeContext::FindRange(TfEditCookie,
                                                  TfAnchor) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeContext::AdviseSink(REFIID, IUnknown*, DWORD) {
-  return S_OK;
-}
-HRESULT STDMETHODCALLTYPE FakeContext::UnadviseSink(DWORD) {
-  return S_OK;
-}
-
 FakeRange::FakeRange(FakeDocument* document, LONG start, LONG length) noexcept
     : document_(document), start_(start), length_(length) {}
 
@@ -448,9 +449,8 @@ HRESULT STDMETHODCALLTYPE FakeRange::QueryInterface(REFIID interface_id,
   }
   *object = nullptr;
   if (InlineIsEqualGUID(interface_id, IID_IUnknown) ||
-      InlineIsEqualGUID(interface_id, IID_ITfRange)) {
-    *object = static_cast<ITfRange*>(this);
-  } else if (InlineIsEqualGUID(interface_id, IID_ITfRangeACP)) {
+      InlineIsEqualGUID(interface_id, IID_ITfRange) ||
+      InlineIsEqualGUID(interface_id, IID_ITfRangeACP)) {
     *object = static_cast<ITfRangeACP*>(this);
   } else {
     return E_NOINTERFACE;
@@ -603,7 +603,8 @@ HRESULT STDMETHODCALLTYPE FakeRange::Clone(ITfRange** range) {
   if (range == nullptr) {
     return E_POINTER;
   }
-  *range = new (std::nothrow) FakeRange(document_, start_, length_);
+  *range = static_cast<ITfRange*>(
+      new (std::nothrow) FakeRange(document_, start_, length_));
   return *range != nullptr ? S_OK : E_OUTOFMEMORY;
 }
 
@@ -674,11 +675,12 @@ HRESULT STDMETHODCALLTYPE FakeComposition::GetRange(ITfRange** range) {
     return E_POINTER;
   }
   if (range_ == nullptr) {
-    *range = new (std::nothrow) FakeRange(document_, 0, 0);
+    *range = static_cast<ITfRange*>(
+        new (std::nothrow) FakeRange(document_, 0, 0));
     return *range != nullptr ? S_OK : E_OUTOFMEMORY;
   }
   range_->AddRef();
-  *range = range_;
+  *range = static_cast<ITfRange*>(range_);
   return S_OK;
 }
 
