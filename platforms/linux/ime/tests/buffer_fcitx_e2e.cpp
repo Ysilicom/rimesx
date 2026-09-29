@@ -308,6 +308,7 @@ void RunBufferSuite(fcitx::Instance& instance,
 
     ic->focusIn();
     EnsureCapturing(frontend, uuid, dump_path);
+    SendKey(frontend, uuid, "BackSpace");
     Type(frontend, uuid, "shi");
     ic->focusOut();
     *grace_timer = instance.eventLoop().addTimeEvent(
