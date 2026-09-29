@@ -53,6 +53,7 @@ Default seed (once per library, marker `content-seed-v1` survives deletion):
 
 Show is refused on a password / secure field. Hide uses the same hotkey,
 Escape **on the armed IC**, the rail close button, or an IM switch.
+Hide also clears the in-rail search query, matching macOS.
 
 ## What the user sees
 
@@ -190,8 +191,11 @@ RIMES
    focus-out grace, password, IC destroy, IM switch), **disarm**. Activate
    and Return fail closed. Remaining cards stay on disk.
 5. Password / `CapabilityFlag::Password`: refuse to arm, hide or keep
-   hidden, never insert. Firefox-esr still disables the IM on
-   `<input type=password>` — same limit as Buffer.
+   hidden, never insert. The addon watches
+   `InputContextCapabilityChanged` so a field that becomes a password
+   box is flagged even after Fcitx has already switched the IM away
+   (later keys never reach `HandleEarlyKey`). Firefox-esr still
+   disables the IM on `<input type=password>` — same limit as Buffer.
 6. Exactly one `rimes-capsule` UI process. `kill -9` + dropped socket
    uses the Buffer respawn algorithm (`waitpid` ECHILD / ESRCH, 50 ms
    then 2 s backoff, do not kill a newer child that is still connecting).

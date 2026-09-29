@@ -190,6 +190,8 @@ void CapsuleModel::Hide() {
     visible_ = false;
     armed_ = false;
     token_.clear();
+    query_.clear();
+    ApplyFilter();
     Touch();
 }
 

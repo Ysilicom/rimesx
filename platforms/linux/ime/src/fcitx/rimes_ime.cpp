@@ -78,6 +78,18 @@ RimesIme::RimesIme(Instance* instance)
                 capsule_->OnInputContextDestroyed(ic_event.inputContext());
             }
         });
+    capability_watch_ = instance_->watchEvent(
+        EventType::InputContextCapabilityChanged, EventWatcherPhase::Default,
+        [this](Event& event) {
+            auto& cap = static_cast<CapabilityChangedEvent&>(event);
+            const bool password = cap.newFlags().test(CapabilityFlag::Password);
+            if (buffer_) {
+                buffer_->OnPasswordField(cap.inputContext(), password);
+            }
+            if (capsule_) {
+                capsule_->OnPasswordField(cap.inputContext(), password);
+            }
+        });
 }
 
 RimesIme::~RimesIme() {

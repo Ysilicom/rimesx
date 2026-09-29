@@ -57,6 +57,16 @@ int main() {
     Expect(!model.arms("1"), "old token dead");
     Expect(model.visible(), "disarm keeps visible");
 
+    model.append_query('z');
+    model.set_visible(true);
+    model.set_armed(true);
+    model.set_token("2");
+    model.Hide();
+    Expect(!model.visible(), "hide");
+    Expect(!model.armed(), "hide disarms");
+    Expect(model.query().empty(), "hide clears leftover search");
+    Expect(model.cards().size() == 2, "hide restores the unfiltered note list");
+
     model.set_password_field(true);
     Expect(!model.visible(), "password hides");
     Expect(!model.armed(), "password disarms");

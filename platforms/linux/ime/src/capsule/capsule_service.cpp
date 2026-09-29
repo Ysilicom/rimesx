@@ -405,6 +405,12 @@ void CapsuleService::OnActivate(InputContext* ic) {
 }
 
 void CapsuleService::OnDeactivate(InputContext* ic, bool switching_im) {
+    // Fcitx disables the IM on CapabilityFlag::Password (switch-IM
+    // deactivate). Mark the field before Close() so the snapshot stays
+    // honest even though later keys never reach HandleEarlyKey.
+    if (ic != nullptr) {
+        OnPasswordField(ic, ic->capabilityFlags().test(CapabilityFlag::Password));
+    }
     if (switching_im) {
         Close();
         return;

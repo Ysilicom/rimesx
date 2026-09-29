@@ -56,6 +56,7 @@ private:
     std::unique_ptr<BufferService> buffer_;
     std::unique_ptr<CapsuleService> capsule_;
     std::unique_ptr<HandlerTableEntry<EventHandler>> destroy_watch_;
+    std::unique_ptr<HandlerTableEntry<EventHandler>> capability_watch_;
     bool deploy_announced_ = false;
 };
 

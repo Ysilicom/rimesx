@@ -176,10 +176,13 @@ void RunCapsuleSuite(fcitx::Instance& instance, fcitx::AddonInstance* frontend,
     ExpectContains(snapshot, "\"visible\":true", "field switch keeps the rail");
     std::cout << "ok: field switch disarms; later Return is not consumed by Capsule\n";
 
-    SendKey(frontend, uuid, "Escape");
+    SendKey(frontend, uuid, "Control+Shift+V");
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "\"visible\":false", "toggle after a field switch hides");
     SendKey(frontend, uuid, "Control+Shift+V");
     snapshot = ReadDump(dump_path);
     ExpectContains(snapshot, "\"armed\":true", "re-toggle re-arms");
+    ExpectContains(snapshot, "RIMES 默认词条", "hide must clear the leftover search query");
     const auto uuid2 =
         frontend->call<fcitx::ITestFrontend::createInputContext>("rimes-capsule-other");
     auto* ic2 = instance.inputContextManager().findByUUID(uuid2);
@@ -207,14 +210,18 @@ void RunCapsuleSuite(fcitx::Instance& instance, fcitx::AddonInstance* frontend,
     ic->setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit} |
                            fcitx::CapabilityFlag::ClientUnfocusCommit |
                            fcitx::CapabilityFlag::Password);
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "\"visible\":false", "password capability must hide the rail");
+    ExpectContains(snapshot, "\"password_field\":true", "password flag missing");
     SendKey(frontend, uuid, "Control+Shift+V");
     snapshot = ReadDump(dump_path);
     ExpectContains(snapshot, "\"visible\":false", "password field must refuse the rail");
-    ExpectContains(snapshot, "\"password_field\":true", "password flag missing");
+    ExpectContains(snapshot, "\"password_field\":true", "password flag must survive a toggle");
     std::cout << "ok: password field refuses Capsule\n";
 
     ic->setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit} |
                            fcitx::CapabilityFlag::ClientUnfocusCommit);
+    instance.setCurrentInputMethod(ic, "rimes", true);
     ic->focusIn();
     SendKey(frontend, uuid, "Control+Shift+V");
     snapshot = ReadDump(dump_path);

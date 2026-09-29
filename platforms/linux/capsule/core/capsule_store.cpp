@@ -154,7 +154,16 @@ bool ParseMarkdown(std::string_view text, Record* out, std::string* error) {
         return false;
     }
     auto body = text.substr(end + 4);
-    if (!body.empty() && body.front() == '\n') {
+    // After "\n---", consume the rest of that line, then one blank line
+    // the way CapsuleContentStore skips an empty line after the closer.
+    if (body.size() >= 2 && body[0] == '\r' && body[1] == '\n') {
+        body.remove_prefix(2);
+    } else if (!body.empty() && body.front() == '\n') {
+        body.remove_prefix(1);
+    }
+    if (body.size() >= 2 && body[0] == '\r' && body[1] == '\n') {
+        body.remove_prefix(2);
+    } else if (!body.empty() && body.front() == '\n') {
         body.remove_prefix(1);
     }
     if (body.size() > static_cast<std::size_t>(kMaxContentChars) ||
