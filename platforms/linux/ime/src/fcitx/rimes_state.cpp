@@ -196,18 +196,11 @@ void RimesState::UpdateUI(const rimes::linuxime::EngineSnapshot& snapshot) {
     }
     const bool capturing = ime_->buffer().model().captures(
         std::to_string(reinterpret_cast<std::uintptr_t>(ic_)));
-    // While Buffer owns this field, keep an invisible ZWSP guard in the host
-    // (macOS U+200B analogue) and project real preedit into the workbench.
+    // Project real preedit into the workbench. Do not put U+200B in the host
+    // client preedit — GTK, VTE and Gecko commit that guard on focus-out.
     if (capturing) {
-        Text guard;
-        guard.append("\u200B");
-        if (ic_->capabilityFlags().test(CapabilityFlag::Preedit)) {
-            panel.setClientPreedit(guard);
-            panel.setPreedit(Text());
-        } else {
-            panel.setClientPreedit(Text());
-            panel.setPreedit(Text());
-        }
+        panel.setClientPreedit(Text());
+        panel.setPreedit(Text());
     } else if (ic_->capabilityFlags().test(CapabilityFlag::Preedit)) {
         panel.setClientPreedit(preedit);
         panel.setPreedit(Text());

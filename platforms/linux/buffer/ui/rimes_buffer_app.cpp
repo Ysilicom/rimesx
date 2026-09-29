@@ -21,6 +21,7 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -31,6 +32,7 @@ constexpr int kWindowWidth = 760;
 constexpr int kWindowHeight = 78;
 constexpr int kToolbarHeight = 33;
 constexpr int kGapBelowCaret = 10;
+constexpr int kCandidateReserve = 120;
 
 struct App {
     GtkWidget* window = nullptr;
@@ -44,6 +46,9 @@ struct App {
     int socket_fd = -1;
     guint io_id = 0;
     std::string incoming;
+    std::string dump_geometry;
+    bool quit_after_dump = false;
+    bool dumped_geometry = false;
     rimes::buffer::Snapshot snapshot;
     bool wayland_layer = false;
     bool placed = false;
@@ -89,7 +94,11 @@ void ApplyLayerShell(GtkWindow* window, App* app) {
     gtk_layer_init_for_window(window);
     gtk_layer_set_layer(window, GTK_LAYER_SHELL_LAYER_OVERLAY);
     gtk_layer_set_anchor(window, GTK_LAYER_SHELL_EDGE_BOTTOM, TRUE);
+    gtk_layer_set_anchor(window, GTK_LAYER_SHELL_EDGE_LEFT, TRUE);
+    gtk_layer_set_anchor(window, GTK_LAYER_SHELL_EDGE_RIGHT, TRUE);
     gtk_layer_set_margin(window, GTK_LAYER_SHELL_EDGE_BOTTOM, 48);
+    gtk_layer_set_margin(window, GTK_LAYER_SHELL_EDGE_LEFT, 80);
+    gtk_layer_set_margin(window, GTK_LAYER_SHELL_EDGE_RIGHT, 80);
     gtk_layer_set_namespace(window, "rimes-buffer");
 #if GTK_LAYER_SHELL_MAJOR >= 0
     gtk_layer_set_keyboard_mode(window, GTK_LAYER_SHELL_KEYBOARD_MODE_NONE);
@@ -106,15 +115,19 @@ void PlaceOnX11(App* app) {
         return;
     }
     gint x = app->snapshot.caret.x + (app->snapshot.caret.width / 2) - (kWindowWidth / 2);
-    gint y = app->snapshot.caret.y + app->snapshot.caret.height + kGapBelowCaret;
+    // Always leave room for the stock Fcitx5 candidate popup under the caret.
+    // First show happens before composition, so a 10px-only gap overlaps it.
+    const gint below_gap = kGapBelowCaret + kCandidateReserve;
+    gint y = app->snapshot.caret.y + app->snapshot.caret.height + below_gap;
     GdkDisplay* display = gtk_widget_get_display(app->window);
     GdkMonitor* monitor = gdk_display_get_monitor_at_point(display, app->snapshot.caret.x,
                                                            app->snapshot.caret.y);
     if (monitor != nullptr) {
         GdkRectangle work{};
         gdk_monitor_get_workarea(monitor, &work);
-        if (y + kWindowHeight > work.y + work.height) {
-            y = app->snapshot.caret.y - kGapBelowCaret - kWindowHeight;
+        const gint above_y = app->snapshot.caret.y - kGapBelowCaret - kWindowHeight;
+        if (y + kWindowHeight > work.y + work.height && above_y >= work.y + 8) {
+            y = above_y;
         }
         x = MAX(work.x + 8, MIN(x, work.x + work.width - kWindowWidth - 8));
         y = MAX(work.y + 8, MIN(y, work.y + work.height - kWindowHeight - 8));
@@ -338,6 +351,44 @@ gboolean OnSocket(GIOChannel* /*channel*/, GIOCondition condition, gpointer data
     return TRUE;
 }
 
+void WriteGeometryDump(App* app) {
+    if (app->dump_geometry.empty() || app->dumped_geometry) {
+        return;
+    }
+    GtkAllocation allocation{};
+    gtk_widget_get_allocation(app->window, &allocation);
+    if (allocation.width < 2 || allocation.height < 2) {
+        gtk_window_get_size(GTK_WINDOW(app->window), &allocation.width, &allocation.height);
+    }
+    if (allocation.width < 2 && !app->quit_after_dump) {
+        return;
+    }
+    gint request_w = 0;
+    gint request_h = 0;
+    gtk_widget_get_size_request(app->window, &request_w, &request_h);
+    FILE* file = std::fopen(app->dump_geometry.c_str(), "w");
+    if (file == nullptr) {
+        return;
+    }
+    std::fprintf(file,
+                 "{\"width\":%d,\"height\":%d,\"size_request_w\":%d,\"size_request_h\":%d,"
+                 "\"layer\":%s,\"min_width\":%d,\"min_height\":%d}\n",
+                 allocation.width, allocation.height, request_w, request_h,
+                 app->wayland_layer ? "true" : "false", kWindowWidth, kWindowHeight);
+    std::fclose(file);
+    app->dumped_geometry = true;
+    if (app->quit_after_dump) {
+        gtk_main_quit();
+    }
+}
+
+void OnSizeAllocate(GtkWidget* /*widget*/, GdkRectangle* allocation, gpointer data) {
+    if (allocation == nullptr || allocation->width < 2 || allocation->height < 2) {
+        return;
+    }
+    WriteGeometryDump(static_cast<App*>(data));
+}
+
 gboolean OnToolbarDrag(GtkWidget* /*widget*/, GdkEventButton* event, gpointer data) {
     auto* app = static_cast<App*>(data);
     if (event->type == GDK_BUTTON_PRESS && event->button == 1 && !app->wayland_layer) {
@@ -379,11 +430,13 @@ gboolean ConnectSocket(App* app, const std::string& path) {
 void LoadCss() {
     GtkCssProvider* provider = gtk_css_provider_new();
     const char* css = R"CSS(
-window.rimes-buffer { background: transparent; }
+window.rimes-buffer { background: transparent; min-width: 760px; min-height: 78px; }
 #rimes-chrome {
   background-color: #1c2420;
   border: 1px solid #3d5a4c;
   border-radius: 12px;
+  min-width: 760px;
+  min-height: 78px;
 }
 #rimes-toolbar { min-height: 33px; }
 #rimes-title, #rimes-status, #rimes-target {
@@ -424,19 +477,26 @@ void BuildUi(App* app) {
     app->window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(app->window), "RIMES Buffer");
     gtk_window_set_default_size(GTK_WINDOW(app->window), kWindowWidth, kWindowHeight);
+    gtk_widget_set_size_request(app->window, kWindowWidth, kWindowHeight);
+    gtk_widget_set_hexpand(app->window, TRUE);
+    gtk_window_set_resizable(GTK_WINDOW(app->window), FALSE);
     gtk_window_set_decorated(GTK_WINDOW(app->window), FALSE);
     gtk_window_set_skip_taskbar_hint(GTK_WINDOW(app->window), TRUE);
     gtk_window_set_skip_pager_hint(GTK_WINDOW(app->window), TRUE);
     gtk_window_set_accept_focus(GTK_WINDOW(app->window), FALSE);
     gtk_window_set_focus_on_map(GTK_WINDOW(app->window), FALSE);
-    gtk_window_set_type_hint(GTK_WINDOW(app->window), GDK_WINDOW_TYPE_HINT_DOCK);
+    // UTILITY (not DOCK): Xfce/xfwm can move it via begin_move_drag.
+    gtk_window_set_type_hint(GTK_WINDOW(app->window), GDK_WINDOW_TYPE_HINT_UTILITY);
     gtk_window_set_keep_above(GTK_WINDOW(app->window), TRUE);
     gtk_widget_set_name(app->window, "rimes-buffer-window");
     gtk_style_context_add_class(gtk_widget_get_style_context(app->window), "rimes-buffer");
     gtk_widget_set_app_paintable(app->window, TRUE);
     g_signal_connect(app->window, "destroy", G_CALLBACK(gtk_main_quit), nullptr);
+    g_signal_connect(app->window, "size-allocate", G_CALLBACK(OnSizeAllocate), app);
 
     ApplyLayerShell(GTK_WINDOW(app->window), app);
+    // Layer-shell ignores default_size unless a request or stretch anchors exist.
+    gtk_widget_set_size_request(app->window, kWindowWidth, kWindowHeight);
 
     GtkWidget* chrome = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_name(chrome, "rimes-chrome");
@@ -501,7 +561,10 @@ void BuildUi(App* app) {
     gtk_widget_set_name(app->preedit, "rimes-preedit");
     gtk_box_pack_start(GTK_BOX(rail), app->preedit, FALSE, FALSE, 0);
 
-    GtkWidget* clipboard = gtk_button_new_with_label("⎘");
+    GtkWidget* clipboard = gtk_button_new();
+    gtk_button_set_image(GTK_BUTTON(clipboard),
+                         gtk_image_new_from_icon_name("edit-paste", GTK_ICON_SIZE_BUTTON));
+    gtk_button_set_always_show_image(GTK_BUTTON(clipboard), TRUE);
     gtk_style_context_add_class(gtk_widget_get_style_context(clipboard), "rimes-action");
     gtk_widget_set_tooltip_text(clipboard, "Import clipboard into Buffer");
     g_signal_connect(clipboard, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
@@ -520,7 +583,10 @@ void BuildUi(App* app) {
                      app);
     gtk_box_pack_end(GTK_BOX(body), clipboard, FALSE, FALSE, 0);
 
-    app->send = gtk_button_new_with_label("✈");
+    app->send = gtk_button_new();
+    gtk_button_set_image(GTK_BUTTON(app->send),
+                         gtk_image_new_from_icon_name("go-next", GTK_ICON_SIZE_BUTTON));
+    gtk_button_set_always_show_image(GTK_BUTTON(app->send), TRUE);
     gtk_style_context_add_class(gtk_widget_get_style_context(app->send), "rimes-action");
     gtk_widget_set_tooltip_text(app->send, "Send next block");
     g_signal_connect(app->send, "clicked", G_CALLBACK(+[](GtkButton*, gpointer data) {
@@ -541,16 +607,24 @@ int main(int argc, char** argv) {
     gtk_init(&argc, &argv);
     std::string socket_path = DefaultSocketPath();
     bool preview = false;
+    std::string dump_geometry;
+    bool quit_after_dump = false;
     for (int index = 1; index < argc; ++index) {
         if (std::strcmp(argv[index], "--socket") == 0 && index + 1 < argc) {
             socket_path = argv[++index];
         } else if (std::strcmp(argv[index], "--preview") == 0) {
             preview = true;
+        } else if (std::strcmp(argv[index], "--dump-geometry") == 0 && index + 1 < argc) {
+            dump_geometry = argv[++index];
+        } else if (std::strcmp(argv[index], "--quit-after-dump") == 0) {
+            quit_after_dump = true;
         }
     }
 
     App app;
     g_app = &app;
+    app.dump_geometry = dump_geometry;
+    app.quit_after_dump = quit_after_dump;
     LoadCss();
     BuildUi(&app);
 
@@ -565,6 +639,19 @@ int main(int argc, char** argv) {
         app.snapshot.blocks.push_back(demo);
         gtk_widget_show_all(app.window);
         RebuildChips(&app);
+        if (!app.dump_geometry.empty()) {
+            g_timeout_add(200, [](gpointer data) -> gboolean {
+                WriteGeometryDump(static_cast<App*>(data));
+                return G_SOURCE_REMOVE;
+            }, &app);
+        }
+        if (app.quit_after_dump) {
+            g_timeout_add(2000, [](gpointer data) -> gboolean {
+                WriteGeometryDump(static_cast<App*>(data));
+                gtk_main_quit();
+                return G_SOURCE_REMOVE;
+            }, &app);
+        }
         gtk_main();
         return 0;
     }

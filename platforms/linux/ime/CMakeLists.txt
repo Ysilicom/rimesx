@@ -33,6 +33,7 @@ endfunction()
 add_library(RimesBufferCore STATIC
     "${RIMES_BUFFER_ROOT}/core/buffer_ids.cpp"
     "${RIMES_BUFFER_ROOT}/core/buffer_model.cpp"
+    "${RIMES_BUFFER_ROOT}/core/buffer_process.cpp"
     "${RIMES_BUFFER_ROOT}/core/buffer_protocol.cpp"
     "${RIMES_BUFFER_ROOT}/core/buffer_return.cpp"
 )
@@ -172,12 +173,19 @@ if(RIMES_BUILD_TESTS)
     target_link_libraries(rimes-buffer-protocol-tests PRIVATE RimesBufferCore)
     rimes_harden(rimes-buffer-protocol-tests)
 
+    add_executable(rimes-buffer-process-tests
+        "${RIMES_BUFFER_ROOT}/tests/buffer_process_tests.cpp"
+    )
+    target_link_libraries(rimes-buffer-process-tests PRIVATE RimesBufferCore)
+    rimes_harden(rimes-buffer-process-tests)
+
     add_test(NAME RimesKey COMMAND rimes-key-tests)
     add_test(NAME RimesSnapshot COMMAND rimes-snapshot-tests)
     add_test(NAME RimesPaths COMMAND rimes-paths-tests)
     add_test(NAME RimesBufferModel COMMAND rimes-buffer-model-tests)
     add_test(NAME RimesBufferReturn COMMAND rimes-buffer-return-tests)
     add_test(NAME RimesBufferProtocol COMMAND rimes-buffer-protocol-tests)
+    add_test(NAME RimesBufferProcess COMMAND rimes-buffer-process-tests)
 
     pkg_check_modules(GTK3 gtk+-3.0)
     if(GTK3_FOUND)

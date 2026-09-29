@@ -14,6 +14,7 @@
 #include <fcitx-utils/event.h>
 #include <fcitx-utils/eventdispatcher.h>
 #include <fcitx-utils/key.h>
+#include <fcitx-utils/keysym.h>
 #include <fcitx-utils/testing.h>
 #include <fcitx/addonmanager.h>
 #include <fcitx/inputcontextmanager.h>
@@ -76,7 +77,7 @@ std::string IsolateDirs() {
     // Enable via the user hotkey. AUTO_CAPTURE plus a synthetic key that also
     // activates the IC would Toggle the workbench closed in the same event.
     setenv("RIMES_BUFFER_AUTO_CAPTURE", "0", 1);
-    setenv("RIMES_BUFFER_CLOSE_AFTER_LAST", "0", 1);
+    setenv("RIMES_BUFFER_CLOSE_AFTER_LAST", "1", 1);
     return dump_env;
 }
 
@@ -110,11 +111,32 @@ void ExpectMissing(const std::string& haystack, const char* needle, const char* 
     }
 }
 
+void ExpectNoZwsp(fcitx::InputContext* ic, const char* where) {
+    const auto client = ic->inputPanel().clientPreedit().toString();
+    const auto popup = ic->inputPanel().preedit().toString();
+    constexpr const char* kZwsp = "\xe2\x80\x8b";
+    if (client.find(kZwsp) != std::string::npos || popup.find(kZwsp) != std::string::npos) {
+        Die(std::string("U+200B leaked into host preedit at ") + where);
+    }
+}
+
+void EnsureCapturing(fcitx::AddonInstance* frontend, const fcitx::ICUUID& uuid,
+                     const std::string& dump_path) {
+    auto snapshot = ReadDump(dump_path);
+    if (HasNeedle(snapshot, "\"capturing\":true")) {
+        return;
+    }
+    SendKey(frontend, uuid, "Control+Shift+B");
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "\"capturing\":true", "could not resume Buffer capture");
+}
+
 void RunBufferSuite(fcitx::Instance& instance,
                     fcitx::AddonInstance* frontend,
                     const fcitx::ICUUID& uuid,
                     fcitx::InputContext* ic,
-                    const std::string& dump_path) {
+                    const std::string& dump_path,
+                    std::unique_ptr<fcitx::EventSourceTime>* hold_timer) {
     ic->setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit} |
                            fcitx::CapabilityFlag::ClientUnfocusCommit);
 
@@ -162,6 +184,7 @@ void RunBufferSuite(fcitx::Instance& instance,
     ExpectMissing(snapshot, "世界", "second Return tap did not send the remaining block");
     std::cout << "ok: buffer second Return tap sendNext\n";
 
+    EnsureCapturing(frontend, uuid, dump_path);
     Type(frontend, uuid, "nihao");
     SendKey(frontend, uuid, "space");
     SendKey(frontend, uuid, "BackSpace");
@@ -182,6 +205,18 @@ void RunBufferSuite(fcitx::Instance& instance,
     ExpectMissing(snapshot, "nihao", "ready Return did not send the settled block");
     std::cout << "ok: buffer composing Return settles, next Return sends\n";
 
+    EnsureCapturing(frontend, uuid, dump_path);
+    Type(frontend, uuid, "nihao");
+    ExpectNoZwsp(ic, "composing while capturing");
+    snapshot = ReadDump(dump_path);
+    ExpectMissing(snapshot, "\\u200b", "snapshot must not advertise a ZWSP preedit");
+    ExpectMissing(snapshot, "\xe2\x80\x8b", "snapshot must not contain U+200B");
+    ic->focusOut();
+    ExpectNoZwsp(ic, "focus-out while capturing");
+    ic->focusIn();
+    ExpectNoZwsp(ic, "focus-in after capturing focus-out");
+    std::cout << "ok: capturing never installs a client-preedit ZWSP\n";
+
     SendKey(frontend, uuid, "Escape");
     snapshot = ReadDump(dump_path);
     ExpectContains(snapshot, "\"visible\":false", "Escape did not hide");
@@ -192,8 +227,67 @@ void RunBufferSuite(fcitx::Instance& instance,
     SendKey(frontend, uuid, "space");
     std::cout << "ok: buffer paused; later commits go to the host\n";
 
-    frontend->call<fcitx::ITestFrontend::destroyInputContext>(uuid);
-    instance.exit();
+    SendKey(frontend, uuid, "Control+Shift+B");
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "\"capturing\":true", "could not reopen for Escape-scope");
+    const auto uuid2 = frontend->call<fcitx::ITestFrontend::createInputContext>("rimes-buffer-other");
+    auto* ic2 = instance.inputContextManager().findByUUID(uuid2);
+    if (ic2 == nullptr) {
+        Die("second test input context was not created");
+    }
+    instance.setCurrentInputMethod(ic2, "rimes", true);
+    ic2->focusIn();
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "\"capturing\":false", "focusing another IC must drop capture");
+    ExpectContains(snapshot, "\"visible\":true", "focus change must keep the workbench");
+    const bool other_handled =
+        frontend->call<fcitx::ITestFrontend::sendKeyEvent>(uuid2, fcitx::Key("Escape"), false);
+    frontend->call<fcitx::ITestFrontend::keyEvent>(uuid2, fcitx::Key("Escape"), true);
+    if (other_handled) {
+        Die("Escape on an uncaptured IC was swallowed");
+    }
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "\"visible\":true", "Escape on another IC must not close Buffer");
+    std::cout << "ok: Escape is scoped to the captured input context\n";
+
+    frontend->call<fcitx::ITestFrontend::destroyInputContext>(uuid2);
+    ic->focusIn();
+    EnsureCapturing(frontend, uuid, dump_path);
+    Type(frontend, uuid, "nihao");
+    SendKey(frontend, uuid, "space");
+    Type(frontend, uuid, "shijie");
+    SendKey(frontend, uuid, "space");
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "你好", "hold-Return fixture missing first chip");
+    ExpectContains(snapshot, "世界", "hold-Return fixture missing second chip");
+    frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("你好");
+    frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("世界");
+    frontend->call<fcitx::ITestFrontend::keyEvent>(uuid, fcitx::Key("Return"), false);
+
+    *hold_timer = instance.eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 1400000, 0,
+        [frontend, uuid, ic, &instance, dump_path](fcitx::EventSourceTime*, uint64_t) {
+            try {
+                const fcitx::Key repeat_return(FcitxKey_Return,
+                                               fcitx::KeyStates{fcitx::KeyState::Repeat});
+                for (int index = 0; index < 8; ++index) {
+                    frontend->call<fcitx::ITestFrontend::keyEvent>(uuid, repeat_return, false);
+                }
+                frontend->call<fcitx::ITestFrontend::keyEvent>(uuid, fcitx::Key("Return"), true);
+                const auto after = ReadDump(dump_path);
+                ExpectMissing(after, "你好", "hold-Return left the first chip");
+                ExpectMissing(after, "世界", "hold-Return left the second chip");
+                ExpectContains(after, "\"capturing\":false",
+                               "send-all + close-after-last must pause");
+                ExpectNoZwsp(ic, "after held-Return send-all");
+                std::cout << "ok: held-Return send-all ate leftover repeats\n";
+                frontend->call<fcitx::ITestFrontend::destroyInputContext>(uuid);
+                instance.exit();
+            } catch (const TestFailed&) {
+                instance.exit();
+            }
+            return true;
+        });
 }
 
 }  // namespace
@@ -222,6 +316,7 @@ int main(int argc, char** argv) {
         fcitx::ICUUID uuid{};
         fcitx::InputContext* ic = nullptr;
         std::unique_ptr<fcitx::EventSourceTime> wait_timer;
+        std::unique_ptr<fcitx::EventSourceTime> hold_timer;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(180);
         bool suite_started = false;
 
@@ -275,7 +370,7 @@ int main(int argc, char** argv) {
                     suite_started = true;
                     std::cout << "ok: buffer testfrontend left Deploying\n";
                     try {
-                        RunBufferSuite(instance, frontend, uuid, ic, dump_path);
+                        RunBufferSuite(instance, frontend, uuid, ic, dump_path, &hold_timer);
                     } catch (const TestFailed&) {
                         instance.exit();
                     }

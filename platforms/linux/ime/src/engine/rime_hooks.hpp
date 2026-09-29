@@ -14,8 +14,10 @@
 // 2. Keys
 //    BufferService::HandleEarlyKey sits in front of RimesState::keyEvent.
 //    Ctrl/Super+Shift+B toggles the workbench. While capturing, Return,
-//    Backspace, Escape, Ctrl+A and Ctrl+V are consumed here. A composing
-//    Return is passed through to Rime so it can settle, then must not send.
+//    Backspace, Escape (this IC only), Ctrl+A and Ctrl+V are consumed here.
+//    After send-all closes the panel, Return auto-repeats are eaten until
+//    key-up so they cannot leak Enter into the host. A composing Return is
+//    passed through to Rime so it can settle, then must not send.
 //
 // 3. Session / field isolation
 //    One Rime session per Fcitx5 InputContext (RimesState). Buffer is
@@ -25,7 +27,8 @@
 // 4. UI
 //    Candidates stay on Fcitx5's InputPanel. The GTK workbench is a
 //    companion process (rimes-buffer) talking length-prefixed JSON over a
-//    Unix socket. It is a renderer, not a second engine.
+//    Unix socket. It is a renderer, not a second engine. A dead UI (ECHILD
+//    after Fcitx5 reaps SIGCHLD, or a dropped socket) is respawned.
 //
 // 5. Still later
 //    - Capsule / Mailbox

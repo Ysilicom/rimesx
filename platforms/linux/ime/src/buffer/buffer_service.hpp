@@ -66,6 +66,7 @@ private:
 
     InputContext* LiveTarget() const;
     void RefreshCaret(InputContext* ic);
+    void ClearClientPreedit(InputContext* ic);
     void ApplyReturnAction(rimes::buffer::ReturnGesture::Action action, InputContext* ic,
                            bool composing);
     bool Deliver(bool all);
@@ -97,6 +98,7 @@ private:
     pid_t ui_pid_ = 0;
     bool auto_capture_ = false;
     bool headless_ = false;
+    bool eat_return_until_release_ = false;
 };
 
 }  // namespace fcitx

@@ -41,29 +41,42 @@ For each host above, switch to **RIMES** (雾凇全拼) first.
    is inserted. `世界` remains. No extra newline.
 6. **Send all.** Stage two more commits. Hold Return about 1.2 seconds. Both
    remaining chips are inserted in order and disappear. The 2px progress bar
-   appears while holding.
+   appears while holding. Keep holding to ~1.7s: the host must **not**
+   receive extra Enter / newlines (a terminal must not execute the line).
 7. **Settle without sending.** Type `nihao` (do not press Space) then Return.
    rime_ice maps Return to `commit_raw_input`, so the chip is `nihao` (not
    `你好`). That same press must not insert into the host. A second Return
    sends the chip.
 8. **Backspace.** Stage one chip, press Backspace. The chip is gone. The host
    does not delete existing text.
-9. **Escape / hotkey close.** Stage a chip, press Escape (or the hotkey, or
-   Close). Buffer hides. The chip is still there when you reopen. The host
-   did not receive it.
+9. **Escape / hotkey close.** Stage a chip, press Escape **in that same
+   field** (or the hotkey, or Close). Buffer hides. The chip is still there
+   when you reopen. The host did not receive it.
 10. **Focus change.** Open Buffer, stage a chip, click another field or
     window. Later typing goes to the new field (direct). The old chip stays.
     Sending must not write into the new field until you reopen Buffer on it.
-11. **Password.** Click a password field. Buffer must hide or scrub chips.
-    Typed secrets must not appear in the workbench.
+    The field you leave must **not** gain U+200B / ZWSP. In the new field
+    (including a Firefox password box) press Escape: that app must receive
+    Escape; Buffer must stay visible.
+11. **Password.** Click a password field in a GTK host that keeps the IM
+    enabled. Buffer must hide or scrub chips. Typed secrets must not appear
+    in the workbench. **Firefox-esr disables the IM on
+    `<input type=password>`**, so the password flag never reaches the addon:
+    chips can stay visible and scrub will not run. Still confirm bugs 2/3
+    do not inject ZWSP or swallow Escape in that field.
 12. **Close after last.** With the default on, sending the last chip hides
     Buffer.
-13. **X11 placement.** On Xfce, the first open sits near the caret when the
-    toolkit reports one, not in a random corner. Drag the toolbar; the body
-    rail does not drag.
+13. **X11 placement.** On Xfce, the first open sits below the caret with
+    room for the stock candidate popup (not overlapping the typed-text
+    rail). Drag the toolbar; the body rail does not drag. If drag fails,
+    record the WM — `UTILITY` + `begin_move_drag` is the intended path.
 14. **Wayland placement.** On labwc/sway the panel is overlay / always
-    visible and does not steal focus. It may sit at the bottom instead of
-    10px under the caret — that is expected.
+    visible, roughly 760px wide (not a ~184×75 sliver), chips are readable,
+    and it does not steal focus. It may sit at the bottom instead of under
+    the caret — that is expected.
+15. **UI respawn.** While capturing, `kill -9` the `rimes-buffer` process.
+    Stage or toggle again: the panel must reappear without restarting
+    fcitx5. Staging/send must keep working.
 
 ## Session notes
 
@@ -73,8 +86,10 @@ For each host above, switch to **RIMES** (雾凇全拼) first.
 - Firefox and terminals sometimes need `GTK_IM_MODULE=fcitx` in the session,
   not only the shell that launched the test.
 - Electron/Chromium: if preedit leaks raw letters into the page while Buffer
-  is capturing, record it. Linux uses a ZWSP client preedit guard, not IMK
-  marked text.
+  is capturing, record it. Linux no longer installs a client-preedit ZWSP
+  (GTK/VTE/Gecko would commit it on focus-out).
+- Clipboard button is a GTK `edit-paste` icon. An empty box means the icon
+  theme is missing, not U+2398 tofu.
 
 ## What this checklist does not cover
 

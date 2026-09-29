@@ -41,21 +41,32 @@ content; blocks are not persisted.
 1. `Ctrl+Shift+B` or `Super+Shift+B` (hidden → visible) grants capture to the
    current Fcitx5 input context and shows the workbench. The host stays the
    delivery anchor; the workbench does not take keyboard focus.
-2. The same hotkey, unmodified Escape, or Close pauses capture, hides the
-   workbench, and keeps blocks.
+2. The same hotkey, unmodified Escape **on the captured IC**, or Close
+   pauses capture, hides the workbench, and keeps blocks.
 3. While capturing, Space/number commits go to Buffer, not the host.
 4. While capturing, a composing Return is fed to Rime so it can settle into a
    block. rime_ice uses `commit_raw_input`, so `nihao` + Return stages
    `nihao`. That same physical press must not send.
 5. A ready Return tap (`< 1.2s`) is `sendNext`. Holding Return for 1.2s is
-   `sendAll`. The paper-plane button is `sendNext` only.
-6. Backspace edits an open direct tail or removes the last block. It never
+   `sendAll`. The paper-plane button is `sendNext` only. After send-all
+   closes the workbench (default close-after-last), leftover Return
+   auto-repeats and the key-up stay consumed until that physical key is
+   released, so Enter cannot leak into the host.
+6. Unmodified Escape is consumed **only** for the captured input context.
+   Escape in any other field or window must reach that app. Switching away
+   returns the route to the host and keeps the workbench visible with its
+   staged chips.
+7. Backspace edits an open direct tail or removes the last block. It never
    reaches the host while capturing.
-7. Delivery calls `ic->commitString` on the **same** captured input context
+8. Delivery calls `ic->commitString` on the **same** captured input context
    after re-checking that it is still focused. Focus change, password fields,
    and secure state fail closed and leave remaining blocks in place.
-8. “Close after last delivery” defaults on: only a successful drain of the
+9. “Close after last delivery” defaults on: only a successful drain of the
    last pending block close-and-pauses.
+10. The companion `rimes-buffer` process is a renderer. If it dies (including
+    `kill -9`) or its socket drops, the addon treats `waitpid` `ECHILD` /
+    `ESRCH` as dead and respawns on the next publish while the workbench is
+    visible. Fcitx5's SIGCHLD handler may already have reaped the pid.
 
 ## Workbench chrome
 
@@ -63,8 +74,9 @@ content; blocks are not persisted.
 - Toolbar: Default label, status, passive target name, Close. Empty chrome
   is the X11 drag region.
 - Rail: placeholder when idle and empty; otherwise chips + inline preedit.
-- Trailing overlay: clipboard import and paper plane. They must not shrink
-  the rail.
+- Trailing overlay: clipboard import (`edit-paste` icon) and send next
+  (`go-next` icon). They must not shrink the rail. Do not use U+2398; Debian
+  fonts often lack that glyph.
 - Hold progress is a 2px bar along the bottom, not extra height.
 - Password / secure snapshots scrub plaintext.
 
@@ -73,17 +85,22 @@ content; blocks are not persisted.
 ### X11 (Xfce and the CI Xvfb path)
 
 - Borderless, skip-taskbar, `keep_above`, `accept_focus=false`.
+- Window type is `UTILITY` (not `DOCK`) so xfwm can honor
+  `gtk_window_begin_move_drag` on the toolbar. DOCK windows on Xfce are not
+  user-movable.
 - On first show, if Fcitx5 reports a caret rect, center horizontally on it
-  and sit 10px below (or above if there is no room).
+  and sit ~130px below (10px gap plus ~120px reserved for the stock Fcitx5
+  candidate popup). Flip above the caret if that does not fit the monitor.
 - The window does not follow later caret motion on the same display.
 
 ### wlroots Wayland (labwc / sway)
 
-- `gtk-layer-shell` overlay layer, bottom-anchored, keyboard interactivity
-  none. This is the supported always-on-top / no-focus-steal path.
-- The compositor owns position. There is no reliable “10px under the caret”
-  API on stock layer-shell. First show uses a bottom margin, not a caret
-  rect.
+- `gtk-layer-shell` overlay layer, bottom-anchored **and** left/right
+  stretched with ~80px side margins and a 48px bottom margin, plus a
+  760×78 size request. Keyboard interactivity none. A bottom-only anchor
+  without a size request collapses to ~184×75 and ellipsizes chips.
+- The compositor owns vertical position. There is no reliable “10px under
+  the caret” API on stock layer-shell.
 
 ### Other Wayland (GNOME, KDE)
 
@@ -98,12 +115,12 @@ content; blocks are not persisted.
 | Single IMK process owns UI | Companion `rimes-buffer` process + event-driven Unix socket | Fcitx5 addons must not assume a GTK display; a UI crash must not kill typing |
 | Nonactivating `NSPanel` + Spaces | X11 keep-above / Wayland layer-shell | No AppKit / Spaces; Wayland clients cannot place or steal focus freely |
 | Caret-anchored 10pt open | X11 only | wlroots layer-shell cannot place relative to a text caret |
-| Invisible U+200B IMK guard | ZWSP client preedit while capturing | Same leak-prevention idea, Fcitx5 preedit protocol |
+| Invisible U+200B IMK guard | **No client-preedit ZWSP** | GTK, VTE and Gecko commit a leftover client preedit on focus-out, including into password fields. Real preedit is shown only in the workbench while capturing. |
 | Custom detached `CandidateWindow` | Stock Fcitx5 candidate panel | IME step 1 already uses Fcitx5 UI; a second chrome is a later port |
 | Exact `FocusToken` + PID/bundle/AX box lock | IC pointer + focused-IC recheck | No IMK client identity and no Accessibility tree |
 | `Command+Shift+B` while another IM is active | Only while RIMES is current | No LaunchAgent analogue in this step |
 | AI / translation / stream / music plugins | Default only | Later components (and Capsule / Mailbox) |
-| Secure Input + session lock/sleep | Password capability + snapshot scrub | No Carbon Secure Event Input; lock/sleep hide is manual-test only |
+| Secure Input + session lock/sleep | Password capability + snapshot scrub | No Carbon Secure Event Input; lock/sleep hide is manual-test only. **Firefox disables the IM on `<input type=password>`**, so `CapabilityFlag::Password` never reaches the addon and captured chips can stay visible. Scrub cannot run. Escape / Return / preedit must still not touch an uncaptured field. |
 | Command+C generated-result copy | Not implemented | No generated-result workspace |
 | Pin to all Spaces / display recovery | Not implemented | No Spaces |
 | Themes 墨竹 / 翡翠 / 静谧 / Rasta | One Classic-like dark chrome | Visual port, not a theme engine |

@@ -127,13 +127,15 @@ void RimesIme::activate(const InputMethodEntry& entry, InputContextEvent& event)
 
 void RimesIme::deactivate(const InputMethodEntry& entry, InputContextEvent& event) {
     FCITX_UNUSED(entry);
-    auto* state = event.inputContext()->propertyFor(&factory_);
-    if (state != nullptr) {
-        state->deactivate(event);
-    }
+    // Drop capture and wipe client preedit before RimesState::reset paints
+    // the input panel, so focus-out cannot commit a leftover guard.
     if (buffer_) {
         buffer_->OnDeactivate(event.inputContext(),
                               event.type() == EventType::InputContextSwitchInputMethod);
+    }
+    auto* state = event.inputContext()->propertyFor(&factory_);
+    if (state != nullptr) {
+        state->deactivate(event);
     }
 }
 

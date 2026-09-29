@@ -96,7 +96,7 @@ if [[ ! -x "$BUILD_DIR/rimes-buffer-fcitx-e2e" ]]; then
     echo "error: missing $BUILD_DIR/rimes-buffer-fcitx-e2e" >&2
     exit 1
 fi
-echo "==> in-process Fcitx5 Buffer (stage / send / Return / pause)"
+echo "==> in-process Fcitx5 Buffer (stage / send / Return / hold-repeats / ZWSP / Escape-scope)"
 "$BUILD_DIR/rimes-buffer-fcitx-e2e" "$BUILD_DIR" "." "test-data"
 
 if (( SKIP_DISPLAY == 1 )); then
@@ -165,6 +165,35 @@ export DISPLAY=:93
 Xvfb "$DISPLAY" -screen 0 1280x720x24 -nolisten tcp >/dev/null 2>&1 &
 XVFB_PID=$!
 sleep 0.3
+
+assert_buffer_geometry() {
+    local geom=$1
+    local label=$2
+    python3 - "$geom" "$label" <<'PY'
+import json, sys
+path, label = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as handle:
+    data = json.load(handle)
+if data.get("size_request_w") != 760 or data.get("size_request_h") != 78:
+    raise SystemExit(f"{label}: size_request {data!r} is not 760x78")
+width = int(data.get("width") or 0)
+if width > 0 and width < 760:
+    raise SystemExit(f"{label}: allocated width {width} < 760 ({data!r})")
+print(f"ok: {label} size_request 760x78 allocated={data.get('width')}x{data.get('height')} layer={data.get('layer')}")
+PY
+}
+
+if [[ -x "$BUILD_DIR/rimes-buffer" ]]; then
+    echo "==> Buffer UI geometry (X11 / Xvfb)"
+    GEOM_X11="$STAGE_DIR/buffer-geom-x11.json"
+    if timeout 8 "$BUILD_DIR/rimes-buffer" --preview --dump-geometry "$GEOM_X11" --quit-after-dump \
+        >"$STAGE_DIR/buffer-geom-x11.log" 2>&1; then
+        assert_buffer_geometry "$GEOM_X11" "X11 preview"
+    else
+        echo "warning: rimes-buffer --dump-geometry exited ($STAGE_DIR/buffer-geom-x11.log)" >&2
+        tail -n 20 "$STAGE_DIR/buffer-geom-x11.log" >&2 || true
+    fi
+fi
 
 eval "$(dbus-launch --sh-syntax)"
 
@@ -306,16 +335,23 @@ if (( SKIP_WAYLAND == 0 )) && command -v sway >/dev/null && [[ -x "$BUILD_DIR/ri
     sleep 1
     if [[ -S "$XDG_RUNTIME_DIR/wayland-1" || -n "${WAYLAND_DISPLAY:-}" ]]; then
         export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
-        "$BUILD_DIR/rimes-buffer" --preview >"$STAGE_DIR/buffer-ui.log" 2>&1 &
+        GEOM_WL="$STAGE_DIR/buffer-geom-wayland.json"
+        "$BUILD_DIR/rimes-buffer" --preview --dump-geometry "$GEOM_WL" --quit-after-dump \
+            >"$STAGE_DIR/buffer-ui.log" 2>&1 &
         BUFFER_UI_PID=$!
-        sleep 1
-        if kill -0 "$BUFFER_UI_PID" >/dev/null 2>&1; then
-            echo "ok: rimes-buffer started under sway headless"
-        else
-            echo "warning: rimes-buffer preview exited (see $STAGE_DIR/buffer-ui.log)" >&2
-        fi
-        kill "$BUFFER_UI_PID" >/dev/null 2>&1 || true
+        for _ in $(seq 1 30); do
+            if [[ -s "$GEOM_WL" ]] || ! kill -0 "$BUFFER_UI_PID" >/dev/null 2>&1; then
+                break
+            fi
+            sleep 0.1
+        done
+        wait "$BUFFER_UI_PID" >/dev/null 2>&1 || true
         unset BUFFER_UI_PID
+        if [[ -s "$GEOM_WL" ]]; then
+            assert_buffer_geometry "$GEOM_WL" "sway layer-shell preview"
+        else
+            echo "warning: rimes-buffer preview did not dump geometry (see $STAGE_DIR/buffer-ui.log)" >&2
+        fi
     else
         echo "warning: sway headless did not expose a wayland socket" >&2
     fi

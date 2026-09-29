@@ -18,8 +18,11 @@
 #include <fcitx-utils/key.h>
 #include <fcitx-utils/log.h>
 #include <fcitx/inputcontextmanager.h>
+#include <fcitx/inputpanel.h>
+#include <fcitx/text.h>
 #include <fcitx/userinterface.h>
 
+#include "buffer_process.hpp"
 #include "engine/rime_key.hpp"
 
 namespace fcitx {
@@ -191,6 +194,16 @@ void BufferService::RefreshCaret(InputContext* ic) {
     }
 }
 
+void BufferService::ClearClientPreedit(InputContext* ic) {
+    if (ic == nullptr) {
+        return;
+    }
+    ic->inputPanel().setClientPreedit(Text());
+    ic->inputPanel().setPreedit(Text());
+    ic->updatePreedit();
+    ic->updateUserInterface(UserInterfaceComponent::InputPanel);
+}
+
 bool BufferService::OnCommit(InputContext* ic, std::string_view text) {
     if (ic == nullptr || text.empty()) {
         return false;
@@ -226,6 +239,18 @@ bool BufferService::HandleEarlyKey(KeyEvent& event, bool composing) {
         return true;
     }
 
+    if ((IsReturnKey(event.rawKey()) || IsReturnKey(event.key())) &&
+        eat_return_until_release_) {
+        if (event.isRelease()) {
+            eat_return_until_release_ = false;
+            ApplyReturnAction(gesture_.on_release(std::chrono::steady_clock::now()), ic,
+                              composing);
+            CancelHoldTimer();
+        }
+        event.filterAndAccept();
+        return true;
+    }
+
     const bool password = ic->capabilityFlags().test(CapabilityFlag::Password);
     OnPasswordField(ic, password);
     if (password || model_.secure()) {
@@ -233,7 +258,7 @@ bool BufferService::HandleEarlyKey(KeyEvent& event, bool composing) {
     }
 
     if (event.key().check(FcitxKey_Escape) && !event.isRelease() && !composing &&
-        model_.visible()) {
+        model_.captures(TokenFor(ic))) {
         CloseAndPause();
         event.filterAndAccept();
         return true;
@@ -249,7 +274,8 @@ bool BufferService::HandleEarlyKey(KeyEvent& event, bool composing) {
         if (composing) {
             if (event.isRelease()) {
                 gesture_.on_release(now);
-            } else {
+            } else if (!is_repeat) {
+                eat_return_until_release_ = true;
                 gesture_.on_press(true, is_repeat, now);
             }
             // Let Rime settle this physical Return into a commit. The same
@@ -257,8 +283,12 @@ bool BufferService::HandleEarlyKey(KeyEvent& event, bool composing) {
             return false;
         }
         if (event.isRelease()) {
+            eat_return_until_release_ = false;
             ApplyReturnAction(gesture_.on_release(now), ic, composing);
         } else {
+            if (!is_repeat) {
+                eat_return_until_release_ = true;
+            }
             ApplyReturnAction(gesture_.on_press(false, is_repeat, now), ic, composing);
             if (!is_repeat && !gesture_.settle_only()) {
                 ArmHoldTimer();
@@ -359,6 +389,7 @@ void BufferService::OnDeactivate(InputContext* ic, bool switching_im) {
         // and between synthetic keys. That is not a user field change.
         return;
     }
+    ClearClientPreedit(ic);
     if (model_.captures(TokenFor(ic))) {
         model_.route_direct_preserving_content("focus-out");
         gesture_.cancel();
@@ -428,6 +459,7 @@ void BufferService::ShowAndCapture(InputContext* ic) {
 void BufferService::CloseAndPause() {
     gesture_.cancel();
     CancelHoldTimer();
+    ClearClientPreedit(LiveTarget());
     model_.pause_capture_preserving_content();
     Publish();
 }
@@ -585,9 +617,7 @@ void BufferService::ReapUi() {
     if (ui_pid_ <= 0) {
         return;
     }
-    int status = 0;
-    const pid_t ended = waitpid(ui_pid_, &status, WNOHANG);
-    if (ended == ui_pid_) {
+    if (rimes::buffer::UiProcessGone(ui_pid_)) {
         ui_pid_ = 0;
     }
 }
@@ -747,13 +777,25 @@ void BufferService::ReadClient(Client* client) {
 }
 
 void BufferService::CloseClient(int fd) {
-    std::lock_guard<std::recursive_mutex> lock(clients_mu_);
-    for (auto iterator = clients_.begin(); iterator != clients_.end(); ++iterator) {
-        if (iterator->fd == fd) {
-            close(fd);
-            clients_.erase(iterator);
-            return;
+    bool clients_empty = false;
+    {
+        std::lock_guard<std::recursive_mutex> lock(clients_mu_);
+        for (auto iterator = clients_.begin(); iterator != clients_.end(); ++iterator) {
+            if (iterator->fd == fd) {
+                close(fd);
+                clients_.erase(iterator);
+                clients_empty = clients_.empty();
+                break;
+            }
         }
+    }
+    if (clients_empty && !headless_) {
+        post_([this] {
+            ReapUi();
+            if (model_.visible()) {
+                EnsureUi();
+            }
+        });
     }
 }
 
@@ -775,6 +817,9 @@ void BufferService::WriteAll(const std::string& payload) {
 }
 
 void BufferService::Publish() {
+    if (model_.visible()) {
+        EnsureUi();
+    }
     const auto json = rimes::buffer::EncodeSnapshot(rimes::buffer::MakeSnapshot(model_));
     WriteAll(json);
     if (dump_path_.empty()) {
