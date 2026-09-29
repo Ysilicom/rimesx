@@ -78,6 +78,10 @@ targets:
       - path: Resources/EngineData
         type: folder
         buildPhase: resources
+      # Animated Noto Emoji pets (CC BY 4.0), keyboard only.
+      - path: Resources/Pets
+        type: folder
+        buildPhase: resources
       - path: Resources/PrivacyInfo.xcprivacy
         buildPhase: resources
     dependencies:

@@ -32,7 +32,7 @@ b=(root/'Shared/Sources/RimesCore/ChordEncoding.swift').read_text().split('\n',1
 assert a==b,'Encoding source drift: update the shared port and run mapping/engine tests'
 p=json.loads((root/'Shared/Sources/RimesCore/Resources/flyyao.json').read_text())
 original=json.loads((root/'chord-keymaps/Isaac2025.json').read_text())
-assert p['mappings']==original['mappings'] and len(p['mappings'])==426
+assert p['mappings']==original['mappings'] and len(p['mappings'])==427
 print('PASS: resources, source parity, permissions and privacy manifest')
 if '--distribution' in sys.argv:
     audit=json.loads((ios/'distribution-audit.json').read_text())

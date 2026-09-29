@@ -170,7 +170,7 @@ This smoke is not a substitute for keyboard-extension lifecycle or physical test
 - `RimesCore` has no AppKit/InputMethodKit/CLI dependency. It owns portable keymaps,
   gesture reduction, Buffer state, provider requests and bounded SSE decoding.
 - The original desktop encoding algorithm is preserved in a standalone mobile
-  port. `scripts/verify.py` enforces source parity and the 426 mapping fixture.
+  port. `scripts/verify.py` enforces source parity and the 427 mapping fixture.
   Desktop imports/build products are deliberately not restructured in this version.
 - UIKit owns key hit testing, candidate UI and `UITextDocumentProxy` insertion.
   Each controller has one Rime session; initialization happens once per process.

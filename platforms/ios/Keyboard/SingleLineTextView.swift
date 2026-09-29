@@ -6,6 +6,13 @@ import RimesCore
 final class SingleLineTextView: UIScrollView {
     private let label = UILabel()
     private let caret = UIView()
+    /// Holds the text, caret and block backgrounds, clipped to a rounded area just inside the
+    /// frame so nothing ever covers the border or its corners, even mid-scroll.
+    private let canvas = UIView(), canvasClip = CAShapeLayer()
+    private static let clipInset: CGFloat = 2.5
+    private let placeholderLabel = UILabel()
+    /// Hint shown while the line is empty; never part of the text.
+    var placeholder = "" { didSet { if placeholder != oldValue { placeholderLabel.text = placeholder; setNeedsLayout() } } }
     private var blockViews: [UIView] = []
     private var plain: String?
     private var focus: NSRange?
@@ -15,17 +22,36 @@ final class SingleLineTextView: UIScrollView {
     enum Role { case input, output }
     var role = Role.input { didSet { applyRole(); if let plain { text = plain } } }
     var font: UIFont = .systemFont(ofSize: 15) { didSet { if let plain, oldValue != font { text = plain } } }
+    /// Shows the text as the model's thinking: dimmer, and read out as thinking.
+    var thinking = false { didSet { if oldValue != thinking, let plain { text = plain } } }
     var text: String {
         get { label.attributedText?.string ?? "" }
         set {
-            let value = NSMutableAttributedString(string: newValue, attributes: [.font: font, .foregroundColor: role == .input ? UIColor.label : UIColor.secondaryLabel])
+            let color: UIColor = thinking ? .tertiaryLabel : role == .input ? .label : .secondaryLabel
+            let value = NSMutableAttributedString(string: newValue, attributes: [.font: font, .foregroundColor: color])
             BufferBlockStyle.apply(to: value, ranges: blockRanges)
-            label.attributedText = value; plain = newValue; setNeedsLayout()
+            label.attributedText = Self.oneLine(value); plain = newValue; setNeedsLayout()
         }
     }
     var attributedText: NSAttributedString? {
         get { label.attributedText }
-        set { plain = nil; label.attributedText = newValue; setNeedsLayout() }
+        set { plain = nil; label.attributedText = newValue.map(Self.oneLine); setNeedsLayout() }
+    }
+    /// A line break would end the label's only line and break block measurement, so each
+    /// one is shown as "↵" (a CR as a zero-width space). UTF-16 length is unchanged, so
+    /// block and caret ranges still line up.
+    private static func oneLine(_ text: NSAttributedString) -> NSAttributedString {
+        let string = text.string as NSString
+        guard string.rangeOfCharacter(from: .newlines).location != NSNotFound else { return text }
+        let value = NSMutableAttributedString(attributedString: text)
+        for index in 0..<string.length {
+            switch string.character(at: index) {
+            case 0x0D: value.replaceCharacters(in: NSRange(location: index, length: 1), with: "\u{200B}")
+            case 0x0A, 0x0B, 0x0C, 0x85, 0x2028, 0x2029: value.replaceCharacters(in: NSRange(location: index, length: 1), with: "↵")
+            default: break
+            }
+        }
+        return value
     }
     /// Displayed UTF-16 block ranges and the emphasised block; set before the text.
     private(set) var blockRanges: [NSRange] = []
@@ -33,16 +59,44 @@ final class SingleLineTextView: UIScrollView {
     func setBlocks(_ ranges: [NSRange], active: Int?) {
         blockRanges = ranges; activeBlock = active; setNeedsLayout()
     }
+    /// Tapping a block reports its index; a drag still scrolls. Nil disables block taps.
+    var onTapBlock: ((Int) -> Void)? { didSet { updateTap() } }
+    /// A tap where there are no blocks.
+    var onTapBackground: (() -> Void)? { didSet { updateTap() } }
+    private func updateTap() {
+        let wanted = onTapBlock != nil || onTapBackground != nil
+        guard wanted != (blockTap != nil) else { return }
+        if wanted { let tap = UITapGestureRecognizer(target: self, action: #selector(tappedBlock(_:))); addGestureRecognizer(tap); blockTap = tap }
+        else { blockTap.map(removeGestureRecognizer); blockTap = nil }
+    }
+    private var blockTap: UITapGestureRecognizer?
+    @objc private func tappedBlock(_ tap: UITapGestureRecognizer) {
+        let x = tap.location(in: self).x // content coordinates, like blockFrames
+        if let index = blockIndex(at: x) { onTapBlock?(index) } else { onTapBackground?() }
+    }
+
+    /// The block under `x`, or the nearest one when the tap lands in a gap between blocks.
+    func blockIndex(at x: CGFloat) -> Int? {
+        guard !blockFrames.isEmpty else { return nil }
+        if let hit = blockFrames.firstIndex(where: { $0.minX <= x && x <= $0.maxX }) { return hit }
+        return blockFrames.indices.min { abs(blockFrames[$0].midX - x) < abs(blockFrames[$1].midX - x) }
+    }
     /// UTF-16 caret position, shown only for the input role.
     var caretLocation: Int? { didSet { if caretLocation != oldValue { restartBlink() }; setNeedsLayout() } }
     override init(frame: CGRect) {
         super.init(frame: frame)
         label.numberOfLines = 1; label.lineBreakMode = .byClipping
-        addSubview(label)
+        canvas.isUserInteractionEnabled = false; canvas.layer.mask = canvasClip
+        addSubview(canvas)
+        canvas.addSubview(label)
+        placeholderLabel.textColor = .placeholderText; placeholderLabel.isUserInteractionEnabled = false
+        placeholderLabel.adjustsFontSizeToFitWidth = true; placeholderLabel.minimumScaleFactor = 0.7
+        canvas.addSubview(placeholderLabel)
         caret.backgroundColor = .systemTeal; caret.layer.cornerRadius = 1; caret.isUserInteractionEnabled = false
-        addSubview(caret)
+        canvas.addSubview(caret)
         showsHorizontalScrollIndicator = false; showsVerticalScrollIndicator = false
         alwaysBounceHorizontal = false; alwaysBounceVertical = false; bounces = true
+        hideEdgeEffects()
         layer.cornerRadius = 7; layer.cornerCurve = .continuous
         applyRole()
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: SingleLineTextView, _: UITraitCollection) in view.applyRole(); view.setNeedsLayout() }
@@ -70,6 +124,8 @@ final class SingleLineTextView: UIScrollView {
     /// Keeps a UTF-16 range in view, only when text or range changed, so a
     /// manual drag stays where the user left it until the content moves on.
     func scrollRangeToVisible(_ range: NSRange) { focus = range; setNeedsLayout() }
+    /// Shows the start once, then leaves scrolling to the user even as text grows.
+    func scrollToStart() { focus = nil; followedSignature = ""; contentOffset = .zero }
     /// X of the boundary before `index`. Ends (and the caret) stop before a block
     /// gap that follows the previous character; starts sit after it.
     private func x(at index: Int, in text: NSAttributedString, beforeGap: Bool = true) -> CGFloat {
@@ -88,7 +144,17 @@ final class SingleLineTextView: UIScrollView {
         if contentOffset.y != 0 || contentOffset.x > contentSize.width - bounds.width {
             contentOffset = CGPoint(x: max(0, min(contentOffset.x, contentSize.width - bounds.width)), y: 0)
         }
+        canvas.frame = CGRect(origin: .zero, size: contentSize)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        // The visible window, in canvas coordinates, moves with the scroll position.
+        let window = CGRect(x: contentOffset.x, y: 0, width: bounds.width, height: bounds.height).insetBy(dx: Self.clipInset, dy: Self.clipInset)
+        canvasClip.frame = canvas.bounds
+        canvasClip.path = UIBezierPath(roundedRect: window, cornerRadius: max(0, layer.cornerRadius - Self.clipInset)).cgPath
+        CATransaction.commit()
         let attributed = label.attributedText ?? NSAttributedString()
+        placeholderLabel.isHidden = attributed.length > 0 || placeholder.isEmpty
+        placeholderLabel.font = font
+        placeholderLabel.frame = CGRect(x: Self.inset + 4, y: 0, width: max(0, bounds.width - 2 * Self.inset - 4), height: bounds.height)
         layoutBlocks(in: attributed)
         let lineHeight = min(bounds.height - 8, ceil((attributed.length > 0 ? (attributed.attribute(.font, at: 0, effectiveRange: nil) as? UIFont) : nil)?.lineHeight ?? font.lineHeight) + 2)
         if role == .input, let caretLocation {
@@ -107,12 +173,12 @@ final class SingleLineTextView: UIScrollView {
         while blockViews.count < blockRanges.count {
             let view = UIView(); view.isUserInteractionEnabled = false
             view.layer.cornerRadius = 5; view.layer.cornerCurve = .continuous
-            insertSubview(view, belowSubview: label); blockViews.append(view)
+            canvas.insertSubview(view, belowSubview: label); blockViews.append(view)
         }
         blockFrames = []
         for (index, (range, view)) in zip(blockRanges, blockViews).enumerated() {
             let left = x(at: range.location, in: attributed, beforeGap: false), right = x(at: NSMaxRange(range), in: attributed)
-            let frame = CGRect(x: left - 4, y: 4, width: max(8, right - left + 8), height: max(0, bounds.height - 8))
+            let frame = CGRect(x: left - 4, y: 5, width: max(8, right - left + 8), height: max(0, bounds.height - 10))
             view.frame = frame; blockFrames.append(frame)
             let active = index == activeBlock
             view.backgroundColor = active ? UIColor.systemTeal.withAlphaComponent(0.12)
@@ -120,5 +186,15 @@ final class SingleLineTextView: UIScrollView {
             view.layer.borderWidth = active ? 1 : 0
             view.layer.borderColor = UIColor.systemTeal.resolvedColor(with: traitCollection).cgColor
         }
+    }
+}
+
+extension UIScrollView {
+    /// iOS 26+ blurs a scroll view's edges wherever floating chrome overlaps it, such as a
+    /// host's search bar hovering over the top of the keyboard. Keyboard rows are controls,
+    /// never content scrolling under a bar, so they stay sharp.
+    func hideEdgeEffects() {
+        guard #available(iOS 26, *) else { return }
+        for effect in [topEdgeEffect, leftEdgeEffect, bottomEdgeEffect, rightEdgeEffect] { effect.isHidden = true }
     }
 }

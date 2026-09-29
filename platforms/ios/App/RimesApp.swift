@@ -37,6 +37,8 @@ struct HomeView: View {
                     NavigationLink { ChordProfilesView() } label: { Label(L("滑动并击与键位", "Slide chords & mappings"), systemImage: "hand.draw") }
                     NavigationLink { TranslationSetupView() } label: { Label(L("苹果翻译语言包", "Apple translation languages"), systemImage: "translate") }
                     NavigationLink { ProvidersView() } label: { Label(L("AI 服务", "AI services"), systemImage: "sparkles") }
+                    NavigationLink { PoemLibraryView() } label: { Label(L("AI 作诗：句式与词卡", "AI Poem: patterns & word cards"), systemImage: "text.book.closed") }
+                    NavigationLink { StatusSkinsView() } label: { Label(L("状态灯样式", "Status light looks"), systemImage: "pawprint") }
                 }
                 Section {
                     NavigationLink(L("隐私与第三方许可", "Privacy & licenses")) { PrivacyView() }
@@ -154,6 +156,106 @@ struct ProviderEditor: View {
             if consent { next.consents.append(provider.consentIdentity) }
             try ConfigurationStore().save(next); model.value = next; dismiss()
         } catch { message = error.localizedDescription }
+    }
+}
+struct StatusSkinsView: View {
+    @EnvironmentObject private var model: SettingsModel
+    private var chosen: [StatusSkin] { StatusSkin.rotation(model.value.statusSkins ?? []) }
+    var body: some View {
+        List {
+            Section { Text(L("在键盘里轻点 Buffer 左上角的状态灯，会在这里选中的样式之间轮换。键盘的设置面板里也能改。", "In the keyboard, tap the status light at the top left of the Buffer to rotate through the looks chosen here. You can also change them in the keyboard's settings panel.")).font(.callout) }
+            Section(L("轮换的样式", "Looks in the rotation")) {
+                ForEach(StatusSkin.allCases) { skin in
+                    Toggle(skin.title + (skin.isNoto ? L("（动画）", " (animated)") : ""), isOn: Binding(get: { chosen.contains(skin) }, set: { on in
+                        var next = chosen
+                        if on { next.append(skin) } else if next.count > 1 { next.removeAll { $0 == skin } }
+                        model.value.statusSkins = StatusSkin.allCases.filter(next.contains).map(\.rawValue)
+                        model.value.statusSkinsRevision = UUID(); model.save()
+                    }))
+                }
+            }
+            Section { Text(L("动画宠物来自 Google Noto Animated Emoji，采用 CC BY 4.0 许可；为键盘缩小为 96 像素并精简了帧。", "Animated pets: Google Noto Animated Emoji, licensed CC BY 4.0; resized to 96 px with fewer frames for the keyboard.")).font(.caption).foregroundStyle(.secondary) }
+        }.navigationTitle(L("状态灯样式", "Status light looks"))
+    }
+}
+struct PoemLibraryView: View {
+    @EnvironmentObject private var model: SettingsModel
+    @State private var pattern: PoemPattern?
+    @State private var card: PoemWordCard?
+    var body: some View {
+        List {
+            Section { Text(L("在键盘里打开“AI 作诗”，点输入行左侧的选项键选择即兴、藏头或藏尾，以及每句字数、句式和词卡。写好后点 ▶ 才会生成。", "Open AI Poem in the keyboard and use the options key left of the input line to choose improvise, hidden start or hidden end, line length, pattern and word cards. Nothing is generated until you tap ▶.")).font(.callout) }
+            Section(L("内置句式", "Built-in patterns")) {
+                ForEach(PoemPattern.builtIn) { item in VStack(alignment: .leading, spacing: 2) { Text(item.name); Text(item.instruction).font(.caption).foregroundStyle(.secondary) } }
+            }
+            Section {
+                ForEach(model.value.poemLibrary.patterns) { item in
+                    Button { pattern = item } label: { VStack(alignment: .leading, spacing: 2) { Text(item.name).foregroundStyle(.primary); Text(item.instruction).font(.caption).foregroundStyle(.secondary).lineLimit(2) } }
+                }.onDelete { model.value.poemLibrary.patterns.remove(atOffsets: $0); model.save() }
+                Button { pattern = PoemPattern() } label: { Label(L("添加句式", "Add pattern"), systemImage: "plus") }
+            } header: { Text(L("自定义句式", "Custom patterns")) } footer: { Text(L("用一句话描述格式，例如“每句以‘你’结尾，语气温柔”。", "Describe the form in a sentence, e.g. “every line ends with ‘you’, gentle tone”.")) }
+            Section {
+                ForEach(model.value.poemLibrary.cards) { item in
+                    Button { card = item } label: { VStack(alignment: .leading, spacing: 2) { Text(item.name).foregroundStyle(.primary); Text(item.words.joined(separator: " ")).font(.caption).foregroundStyle(.secondary).lineLimit(2) } }
+                }.onDelete { model.value.poemLibrary.cards.remove(atOffsets: $0); model.save() }
+                Button { card = PoemWordCard() } label: { Label(L("添加词卡", "Add word card"), systemImage: "plus") }
+            } header: { Text(L("词卡", "Word cards")) } footer: { Text(L("选中的词卡会让 AI 尽量把其中的词语写进诗里。", "The AI tries to weave words from the selected cards into the poem.")) }
+        }.navigationTitle(L("AI 作诗", "AI Poem"))
+        .sheet(item: $pattern) { PoemPatternEditor(pattern: $0).environmentObject(model) }
+        .sheet(item: $card) { PoemCardEditor(card: $0).environmentObject(model) }
+    }
+}
+struct PoemPatternEditor: View {
+    @EnvironmentObject private var model: SettingsModel
+    @Environment(\.dismiss) private var dismiss
+    @State var pattern: PoemPattern
+    @State private var message = ""
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField(L("名称，如“七绝”", "Name, e.g. “Quatrain”"), text: $pattern.name)
+                TextField(L("格式要求", "Form description"), text: $pattern.instruction, axis: .vertical).lineLimit(3...6)
+                Picker(L("即兴时的句数", "Lines when improvising"), selection: $pattern.lines) {
+                    Text(L("不固定", "Any")).tag(Int?.none)
+                    ForEach([2, 4, 6, 8, 12], id: \.self) { Text("\($0)").tag(Int?.some($0)) }
+                }
+                if !message.isEmpty { Text(message).foregroundStyle(.red) }
+            }.navigationTitle(L("句式", "Pattern"))
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(L("取消", "Cancel")) { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button(L("保存", "Save")) { save() } } }
+        }
+    }
+    private func save() {
+        pattern.name = pattern.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !pattern.name.isEmpty else { message = L("请填写名称", "Enter a name"); return }
+        var next = model.value
+        if let index = next.poemLibrary.patterns.firstIndex(where: { $0.id == pattern.id }) { next.poemLibrary.patterns[index] = pattern } else { next.poemLibrary.patterns.append(pattern) }
+        do { try ConfigurationStore().save(next); model.value = next; dismiss() } catch { message = error.localizedDescription }
+    }
+}
+struct PoemCardEditor: View {
+    @EnvironmentObject private var model: SettingsModel
+    @Environment(\.dismiss) private var dismiss
+    @State var card: PoemWordCard
+    @State private var words = ""
+    @State private var message = ""
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField(L("名称，如“春日”", "Name, e.g. “Spring”"), text: $card.name)
+                Section { TextField(L("词语，用空格或逗号分隔", "Words, separated by spaces or commas"), text: $words, axis: .vertical).lineLimit(3...8) } footer: { Text(L("例如：杏花 细雨 燕归 东风", "For example: blossom drizzle swallow breeze")) }
+                if !message.isEmpty { Text(message).foregroundStyle(.red) }
+            }.navigationTitle(L("词卡", "Word card"))
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(L("取消", "Cancel")) { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button(L("保存", "Save")) { save() } } }
+            .onAppear { words = card.words.joined(separator: " ") }
+        }
+    }
+    private func save() {
+        card.name = card.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        card.words = words.components(separatedBy: CharacterSet(charactersIn: " ,，、;；\n\t")).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard !card.name.isEmpty, !card.words.isEmpty else { message = L("请填写名称和至少一个词语", "Enter a name and at least one word"); return }
+        var next = model.value
+        if let index = next.poemLibrary.cards.firstIndex(where: { $0.id == card.id }) { next.poemLibrary.cards[index] = card } else { next.poemLibrary.cards.append(card) }
+        do { try ConfigurationStore().save(next); model.value = next; dismiss() } catch { message = error.localizedDescription }
     }
 }
 struct ChordProfilesView: View {

@@ -20,6 +20,13 @@ struct AppConfiguration: Codable {
     var selectedProvider: UUID?
     var consents: [String] = []
     var translationLanguage = "English"
+    /// Optional so configurations saved before AI Poem still decode.
+    var poem: PoemLibrary?
+    var poemLibrary: PoemLibrary { get { poem ?? .init() } set { poem = newValue } }
+    /// Status-light looks a tap rotates through, chosen in the app; nil leaves the keyboard's own choice.
+    var statusSkins: [String]?
+    /// Changes with each app edit so the keyboard applies it once, like the scheme.
+    var statusSkinsRevision: UUID?
     var provider: ProviderConfiguration? { providers.first { $0.id == selectedProvider } }
 }
 /// Only the containing app writes this snapshot. The keyboard never requires group write access.
@@ -34,7 +41,9 @@ final class ConfigurationStore: ConfigurationStorage {
         guard let data = try? Data(contentsOf: file), data.count < 8 * 1024 * 1024,
               var value = try? JSONDecoder().decode(AppConfiguration.self, from: data),
               value.providers.count <= 32, value.profiles.count <= 128 else { return AppConfiguration() }
-        value.chord = (try? value.chord.validated()) ?? .builtIn
+        // The built-in profile is read-only (editing makes a copy), so always use the bundled
+        // version; a saved snapshot would otherwise miss later mapping fixes.
+        value.chord = value.chord.id == ChordProfile.builtIn.id ? .builtIn : (try? value.chord.validated()) ?? .builtIn
         value.profiles = value.profiles.compactMap { try? $0.validated() }
         return value
     }
@@ -43,7 +52,8 @@ final class ConfigurationStore: ConfigurationStorage {
         guard value.providers.count <= 32, value.profiles.count <= 128 else { throw CoreError.tooLarge }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try JSONEncoder().encode(value).write(to: file, options: [.atomic, .completeFileProtection])
-        var excluded = root; var values = URLResourceValues(); values.isExcludedFromBackup = true; try excluded.setResourceValues(values)
+        // The App Group container root is system-owned on device; only the file itself can be marked.
+        var excluded = file; var values = URLResourceValues(); values.isExcludedFromBackup = true; try? excluded.setResourceValues(values)
     }
 }
 final class KeychainStore: ProviderSecretStore {

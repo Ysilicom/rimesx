@@ -3,6 +3,7 @@ import UIKit
 @testable import RIMES
 #endif
 import RimesCore
+import UniformTypeIdentifiers
 import Translation
 
 final class KeyboardViewController: UIInputViewController {
@@ -29,6 +30,10 @@ final class KeyboardViewController: UIInputViewController {
     private var autoSuspended = false
     private var defaultDelay = UserDefaults.standard.double(forKey: "defaultBuffer.autoDelay")
     private let typingStats = UILabel()
+    /// Whole-session totals behind the typing signature.
+    private var session = TypingSessionTotals()
+    /// Keeps the typing readout moving after typing stops.
+    private var statsTimer: Timer?
     private var isDefaultBuffer: Bool { bufferEnabled && selectedPlugin == nil }
     var defaultClockNow: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     private var uptime: TimeInterval { defaultClockNow() }
@@ -36,12 +41,27 @@ final class KeyboardViewController: UIInputViewController {
     private var preferences = KeyboardPreferences()
     private let runner = BufferPluginRunner()
     private let appleTranslation = AppleTranslationPlugin()
-    private var selectedPlugin: String?
+    private let speaker = BlockSpeaker()
+    private var selectedPlugin: KeyboardPlugin?
     private var languages: [Locale.Language] = []
-    private var translationLanguageMenu: UIMenu?
     private let insertButton = InsertKeycapButton(), stopButton = KeycapButton()
+    /// AI plugins never run on their own: Run is the only trigger.
+    private let runButton = KeycapButton()
+    /// Clipboard text that arrived while iOS's paste alert had focus; added once we are back.
+    private var pendingPaste: String?
+    /// Left of the input line: opens the Buffer/plugin settings panel.
+    private let settingsButton = KeycapButton()
+    /// Left of the output line: display-only light for the output's state.
+    private let statusLight = StatusLight()
+    private var lastRunFailed = false
+    /// Translate settings rows, kept across renders so the rollers keep their position.
+    private let languageRow = LanguagePairRow(), speakRow = PanelSwitchRow()
+    private let shortcuts = PluginShortcutBar()
+    /// Buffer and plugin settings, drawn over the keys.
+    private let panel = KeyboardPanel()
+    private var panelOpen = false
     private var needsPluginResult: Bool { selectedPlugin != nil }
-    private var realtime: Bool { selectedPlugin == appleTranslation.descriptor.id }
+    private var realtime: Bool { selectedPlugin == .translate }
 
     private var currentDocument: UUID?
     private var onscreen = false
@@ -57,6 +77,22 @@ final class KeyboardViewController: UIInputViewController {
     /// Chord mode swaps Delete into the right-hand 中/EN cell and 中/EN into Delete's slot.
     private let chordDelete = RepeatKeycapButton(), bottomLanguage = KeycapButton()
     private var deletionTarget: UUID?
+    /// A held Delete that started on Buffer text stops when the Buffer empties, never
+    /// running on into the app's text.
+    private var deletingBuffer = false
+    private let returnKey = KeycapButton()
+    /// With the Buffer on but empty, Delete and Return act on the app's field directly.
+    private var bufferIsEmpty: Bool {
+        buffer.source.isEmpty && !hasComposition && !buffer.generating && engine.rawInput.isEmpty
+            && (needsPluginResult ? buffer.pluginPending : buffer.pending).isEmpty
+    }
+    private var editsHost: Bool { !bufferEnabled || bufferIsEmpty }
+    /// App text before the caret when it was last known to be ours; nil until read.
+    private var hostSnapshot: String?
+    /// App text after the caret at that time; dictation never changes it, a caret move does.
+    private var hostAfter: String?
+    private var captureTimer: Timer?
+    private var lastHostTextChange: TimeInterval = -.infinity
     private var directEnglish: Bool { scheme == .english || preferences.englishInput }
     private let globe = KeycapButton(), numbers = KeycapButton(), shiftButton = KeycapButton(), spaceKey = SpaceCursorButton()
     private var caretSteps = 0
@@ -77,11 +113,15 @@ final class KeyboardViewController: UIInputViewController {
     private var hasComposition: Bool { !snapshot.preedit.isEmpty || surface.isChordActive }
     private var compositionText: String { [snapshot.preedit, chordPreview].filter { !$0.isEmpty }.joined(separator: " ") }
     private var consentThisSession = Set<String>()
-    private var aiAction: AIAction = .polish
     private struct InsertionContext: Equatable {
-        var target: UUID?, revision: UUID, plugin: String?, blocks: [String]
+        var target: UUID?, revision: UUID, plugin: KeyboardPlugin?, blocks: [String]
     }
     private var pressedInsertion: InsertionContext?
+    /// Smooths streamed output: text arrives in bursts, the line shows it at an even pace.
+    private lazy var reveal = StreamReveal(line: result) { [weak self] in self?.render() }
+    private var revealGeneration: UUID?
+    /// Thinking is shown as readable captions, not a racing ticker.
+    private lazy var caption = ThinkingCaption(line: result)
     private var insertionContext: InsertionContext {
         InsertionContext(target: currentDocument, revision: buffer.sourceRevision, plugin: selectedPlugin,
                          blocks: needsPluginResult ? buffer.pluginPending : buffer.pending)
@@ -91,16 +131,42 @@ final class KeyboardViewController: UIInputViewController {
         preferences = preferencesStore.load(); surface.feedback.enabled = preferences.haptics; surface.feedback.strength = preferences.hapticStrength
         view.backgroundColor = .systemGroupedBackground
         height = view.heightAnchor.constraint(equalToConstant: 240); height.isActive = true
-        for item in [bufferPanel, candidatePanel, surface, bottom, status] { view.addSubview(item) }
-        candidatePanel.addSubview(bufferButton); candidatePanel.addSubview(candidateStrip); candidatePanel.addSubview(moreButton); candidatePanel.addSubview(handPreview)
+        for item in [bufferPanel, candidatePanel, surface, bottom, status, panel] { view.addSubview(item) }
+        panel.isHidden = true
+        panel.onPress = { [weak self] in self?.surface.feedback.send(.press) }
+        panel.onClose = { [weak self] in self?.closePanel() }
+        candidatePanel.addSubview(bufferButton); candidatePanel.addSubview(candidateStrip); candidatePanel.addSubview(moreButton); candidatePanel.addSubview(handPreview); candidatePanel.addSubview(shortcuts)
         typingStats.font = .monospacedDigitSystemFont(ofSize: 16, weight: .medium)
         typingStats.textAlignment = .center
         typingStats.textColor = .secondaryLabel; typingStats.adjustsFontSizeToFitWidth = true; typingStats.minimumScaleFactor = 0.8
         typingStats.accessibilityIdentifier = "keyboard.buffer.metrics"
         typingStats.isUserInteractionEnabled = false
-        bufferPanel.addSubview(aiButton); bufferPanel.addSubview(insertionSlot)
+        bufferPanel.addSubview(aiButton); bufferPanel.addSubview(insertionSlot); bufferPanel.addSubview(runButton); bufferPanel.addSubview(settingsButton); bufferPanel.addSubview(statusLight)
+        statusLight.accessibilityIdentifier = "keyboard.buffer.status"
+        // A tap moves to the next look among those chosen in settings.
+        statusLight.onCycleSkin = { [weak self] in
+            guard let self else { return }
+            let skins = StatusSkin.rotation(self.preferences.statusSkinRotation)
+            let next = skins.firstIndex(of: self.statusLight.skin).map { skins[($0 + 1) % skins.count] } ?? skins[0]
+            self.preferences.statusSkin = next.rawValue; self.preferencesStore.save(self.preferences)
+            self.statusLight.skin = next; self.surface.feedback.send(.press); self.render()
+        }
+        configureLanguageRows()
+        configure(settingsButton, "") { [weak self] in guard let self else { return }; self.panelOpen ? self.closePanel() : self.openSettings(for: self.selectedPlugin) }
+        settingsButton.symbol("slider.horizontal.3", label: L("插件与 Buffer 设置", "Plugin and Buffer settings"))
+        settingsButton.accessibilityHint = L("打开插件与 Buffer 设置", "Open plugin and Buffer settings")
+        configure(runButton, "") { [weak self] in self?.runSelectedPlugin() }
+        // Quick Q&A: tapping the empty input line pastes the clipboard as the question.
+        source.onTapBackground = { [weak self] in self?.pasteQuestion() }
+        runButton.symbol("play.fill", label: L("执行插件", "Run plugin"))
+        shortcuts.onPress = { [weak self] in self?.surface.feedback.send(.press) }
+        shortcuts.onSelect = { [weak self] plugin in self?.openPlugin(plugin) }
+        shortcuts.onSettings = { [weak self] plugin in self?.openSettings(for: plugin) }
         configure(bufferButton, "") { [weak self] in self?.toggleBuffer() }
         bufferButton.symbol("square.stack.3d.up", label: L("Buffer 开关", "Toggle Buffer"))
+        bufferButton.accessibilityHint = L("按住打开 Buffer 设置", "Hold for Buffer settings")
+        let bufferHold = UILongPressGestureRecognizer(target: self, action: #selector(bufferHeld(_:))); bufferHold.minimumPressDuration = 0.45
+        bufferButton.addGestureRecognizer(bufferHold)
         configure(aiButton, "") {}; aiButton.showsMenuAsPrimaryAction = true
         configure(moreButton, "") {}; moreButton.symbol("gearshape", label: L("键盘设置", "Keyboard settings")); moreButton.showsMenuAsPrimaryAction = true
         moreButton.addAction(UIAction { [weak self] _ in self?.surface.cancel(); self?.insertButton.cancelPress(); self?.cancelDeletes() }, for: .touchDown)
@@ -113,7 +179,8 @@ final class KeyboardViewController: UIInputViewController {
             self.deliver(all: action == .all)
         }
         configure(stopButton, "") { [weak self] in
-            self?.cancelRequest(); self?.status.text = L("已停止；继续编辑后重新翻译", "Stopped; edit to translate again"); self?.render()
+            guard let self else { return }
+            self.cancelRequest(); self.status.text = self.realtime ? L("已停止；继续编辑后重新翻译", "Stopped; edit to translate again") : L("已停止；点 ▶ 重新执行", "Stopped; tap ▶ to run again"); self.render()
         }
         stopButton.symbol("stop.fill", label: L("停止处理", "Stop processing"))
         insertionSlot.addSubview(insertButton); insertionSlot.addSubview(stopButton)
@@ -128,12 +195,15 @@ final class KeyboardViewController: UIInputViewController {
             bufferPanel.addSubview(line)
         }
         source.role = .input; result.role = .output
+        // Tapping an output block reads it aloud without sending it; tap again to hear it again.
+        result.onTapBlock = { [weak self] index in self?.readOutputBlock(index) }
+        result.onTapBackground = { [weak self] in if self?.isDefaultBuffer == true { self?.appendTypingSignature() } }
         result.addSubview(typingStats)
-        refreshPluginMenu(); refreshLanguageMenu()
+        refreshPluginMenu()
         if #available(iOS 26, *) {
             Task { [weak self] in
                 let languages = await LanguageAvailability().supportedLanguages
-                guard let self else { return }; self.languages = languages.sorted { $0.minimalIdentifier < $1.minimalIdentifier }; self.refreshLanguageMenu()
+                guard let self else { return }; self.languages = languages.sorted { $0.minimalIdentifier < $1.minimalIdentifier }; self.render()
             }
         }
         surface.onTypingPress = { [weak self] in self?.noteTypingKey() }
@@ -173,7 +243,7 @@ final class KeyboardViewController: UIInputViewController {
                 guard let self, self.onscreen, let target = self.currentDocument,
                       target == DocumentIdentity.read(self.textDocumentProxy) else { return false }
                 self.noteTypingKey(backspace: true)
-                self.deletionTarget = target
+                self.deletionTarget = target; self.deletingBuffer = !self.editsHost
                 self.surface.cancel(); self.insertButton.cancelPress()
                 if delete !== self.deleteButton { self.deleteButton.cancelPress() } else { self.chordDelete.cancelPress() }
                 return true
@@ -181,6 +251,7 @@ final class KeyboardViewController: UIInputViewController {
             delete.onDelete = { [weak self] in
                 guard let self, self.onscreen, self.deletionTarget == self.currentDocument,
                       self.currentDocument == DocumentIdentity.read(self.textDocumentProxy) else { return false }
+                if self.deletingBuffer && self.editsHost { return false }
                 self.backspace(); self.surface.feedback.send(.press); return self.onscreen
             }
         }
@@ -188,7 +259,8 @@ final class KeyboardViewController: UIInputViewController {
         surface.languageCellView = chordDelete
         configure(bottomLanguage, "中") { [weak self] in self?.toggleLanguage() }
         bottomLanguage.titleLabel?.font = .systemFont(ofSize: 18, weight: .medium)
-        let enter = button("") { [weak self] in self?.noteTypingKey(); self?.enter() }; enter.symbol("return", label: L("回车", "Return"))
+        let enter = returnKey; configure(enter, "") { [weak self] in self?.noteTypingKey(); self?.enter() }
+        enter.titleLabel?.adjustsFontSizeToFitWidth = true; enter.titleLabel?.minimumScaleFactor = 0.7
         for item in [globe, numbers, shiftButton, spaceKey, deleteButton, bottomLanguage, enter] { bottom.addArrangedSubview(item) }
         // The functional widths never depend on the optional globe; its removal widens Space.
         for item in [globe, numbers, shiftButton, deleteButton, bottomLanguage, enter] {
@@ -197,10 +269,10 @@ final class KeyboardViewController: UIInputViewController {
         }
         spaceKey.widthAnchor.constraint(greaterThanOrEqualTo: numbers.widthAnchor, multiplier: 2.5).isActive = true
         status.font = .systemFont(ofSize: 11); status.textColor = .secondaryLabel; status.numberOfLines = 2
-        for (item, id) in [(bufferButton, "buffer"), (aiButton, "plugin"), (insertButton, "insert"), (stopButton, "stop"), (moreButton, "more"), (globe, "globe"), (spaceKey, "space"), (shiftButton, "shift"), (deleteButton, "delete"), (chordDelete, "delete.chord"), (bottomLanguage, "mode.bottom"), (enter, "enter")] {
+        for (item, id) in [(bufferButton, "buffer"), (aiButton, "plugin"), (runButton, "plugin.run"), (settingsButton, "buffer.settings"), (insertButton, "insert"), (stopButton, "stop"), (moreButton, "more"), (globe, "globe"), (spaceKey, "space"), (shiftButton, "shift"), (deleteButton, "delete"), (chordDelete, "delete.chord"), (bottomLanguage, "mode.bottom"), (enter, "enter")] {
             item.accessibilityIdentifier = "keyboard.\(id)"
         }
-        NotificationCenter.default.addObserver(self, selector: #selector(protect), name: .NSExtensionHostWillResignActive, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(hostResigned), name: .NSExtensionHostWillResignActive, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(resume), name: .NSExtensionHostDidBecomeActive, object: nil)
         render()
     }
@@ -225,6 +297,14 @@ final class KeyboardViewController: UIInputViewController {
         guard isViewLoaded, view.window != nil else { return }
         onscreen = true; currentDocument = DocumentIdentity.read(textDocumentProxy)
         reloadPreferences(); choose(preferences.scheme); render()
+        applyPendingPaste()
+    }
+    /// The app lost focus for a moment (a system alert, Notification Center): text is still
+    /// cleared, but the Buffer and the open plugin stay, so you carry on where you were.
+    @objc private func hostResigned() {
+        let mode = (bufferEnabled, selectedPlugin)
+        protect()
+        bufferEnabled = mode.0; selectedPlugin = mode.1; refreshPluginMenu(); render()
     }
     @objc private func protect() {
         breakAssociationChain(); saveAssociationHistory()
@@ -232,12 +312,13 @@ final class KeyboardViewController: UIInputViewController {
         cancelDeletes(); surface.shifted = false; shiftButton.isSelected = false
         metrics.sampleMemory(); metrics.save()
         delivery.discardMarkedText()
-        onscreen = false; consentThisSession.removeAll(); surface.retire(); cancelRequest(); engine.clear(); snapshot = .init(); buffer = .init(); bufferEnabled = false; selectedPlugin = nil; status.text = ""; refreshPluginMenu(); render()
+        onscreen = false; consentThisSession.removeAll(); speaker.stop(); session.reset(); statsTimer?.invalidate(); statsTimer = nil; surface.retire(); cancelRequest(); engine.clear(); snapshot = .init(); buffer = .init(); bufferEnabled = false; selectedPlugin = nil; panelOpen = false; status.text = ""; refreshPluginMenu(); render()
     }
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) { cancelDeletes(); insertButton.cancelPress(); surface.retire(); super.viewWillTransition(to: size, with: coordinator); coordinator.animate(alongsideTransition: { _ in self.resize() }) }
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
         delivery.finishDocumentResetIfNeeded()
+        hostTextChanged()
         if currentDocument != DocumentIdentity.read(textDocumentProxy) {
             // A field change within this visible session stops work for the old
             // target, but keeps unsubmitted blocks for another explicit insertion.
@@ -246,7 +327,15 @@ final class KeyboardViewController: UIInputViewController {
             stopDefaultAutoSend(); autoSuspended = true; liveTyping.reset(); breakAssociationChain()
             currentDocument = DocumentIdentity.read(textDocumentProxy); render()
         }
-        if !hasFullAccess && selectedPlugin?.hasPrefix("ai.") == true { cancelRequest(); render() }
+        if !hasFullAccess && selectedPlugin?.isAI == true { cancelRequest(); render() }
+    }
+    override func selectionDidChange(_ textInput: UITextInput?) {
+        super.selectionDidChange(textInput)
+        // A caret move without new text starts over from the new position; dictation
+        // moves the caret along with its text, so that case keeps tracking.
+        if !delivery.isWriting, ProcessInfo.processInfo.systemUptime - lastHostTextChange > 0.3 {
+            captureTimer?.invalidate(); captureTimer = nil; hostSnapshot = nil
+        }
     }
     override func selectionWillChange(_ textInput: UITextInput?) {
         if !delivery.isWriting {
@@ -258,6 +347,48 @@ final class KeyboardViewController: UIInputViewController {
     override func textWillChange(_ textInput: UITextInput?) {
         abandonHostComposition()
         super.textWillChange(textInput)
+    }
+    // MARK: Dictation into the Buffer
+    /// With the Buffer on, text the system writes straight into the app (the dictation
+    /// microphone, mainly) is moved into the Buffer once it pauses for a second.
+    private func hostTextChanged() {
+        captureTimer?.invalidate(); captureTimer = nil
+        lastHostTextChange = ProcessInfo.processInfo.systemUptime
+        guard bufferEnabled, onscreen, currentDocument != nil else { hostSnapshot = nil; return }
+        let ours = delivery.isWriting || ProcessInfo.processInfo.systemUptime - delivery.lastWriteTime < 0.6
+        guard !ours, hostSnapshot != nil else { snapshotHost(); return }
+        let timer = Timer(timeInterval: 1.0, repeats: false) { [weak self] _ in self?.captureHostText() }
+        captureTimer = timer; RunLoop.main.add(timer, forMode: .common)
+    }
+    private func captureHostText() {
+        captureTimer = nil
+        guard bufferEnabled, onscreen, let old = hostSnapshot, let target = currentDocument,
+              target == DocumentIdentity.read(textDocumentProxy),
+              ProcessInfo.processInfo.systemUptime - delivery.lastWriteTime >= 0.6 else { return }
+        let now = textDocumentProxy.documentContextBeforeInput ?? ""
+        guard (textDocumentProxy.documentContextAfterInput ?? "") == (hostAfter ?? ""),
+              let added = Self.appendedText(before: old, after: now), !added.isEmpty, added.count <= 4000 else { snapshotHost(); return }
+        for _ in 0..<added.count { guard delivery.deleteBackward(target: target) else { break } }
+        hostSnapshot = nil
+        surface.cancel(); settle(); insert(added); render()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+            guard let self, self.bufferEnabled, self.onscreen, self.hostSnapshot == nil else { return }
+            self.snapshotHost()
+        }
+    }
+    private func snapshotHost() {
+        hostSnapshot = textDocumentProxy.documentContextBeforeInput ?? ""; hostAfter = textDocumentProxy.documentContextAfterInput ?? ""
+    }
+    /// Text added at the caret between two readings of the context before it. The proxy
+    /// only exposes a window of that context, so an unchanged tail anchors the match.
+    static func appendedText(before old: String, after new: String) -> String? {
+        if old.isEmpty { return new }
+        if new.hasPrefix(old) { return String(new.dropFirst(old.count)) }
+        // Longest tail of the earlier text that still appears; the window may have cut its start.
+        for length in [16, 12, 8, 6, 4] where length <= old.count {
+            if let range = new.range(of: String(old.suffix(length)), options: .backwards) { return String(new[range.upperBound...]) }
+        }
+        return nil
     }
     private func abandonHostComposition() {
         guard !delivery.isWriting, !bufferEnabled, delivery.hasMarkedText else { return }
@@ -374,7 +505,7 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func insert(_ text: String) {
         guard onscreen else { return }
-        if bufferEnabled { if isDefaultBuffer { liveTyping.noteCommit(characterCount: text.count, at: uptime) }; cancelRequest(); buffer.insert(text); sourceChanged() } else if let target = currentDocument { _ = delivery.insert(text,target:target) }
+        if bufferEnabled { if isDefaultBuffer { liveTyping.noteCommit(characterCount: text.count, at: uptime); session.noteCommit(characterCount: text.count, at: uptime, burst: liveTyping) }; cancelRequest(); buffer.insert(text); sourceChanged() } else if let target = currentDocument { _ = delivery.insert(text,target:target) }
     }
     private func type(_ text: String, chord: Bool = false) {
         let start = ProcessInfo.processInfo.systemUptime; defer { metrics.processed(since: start) }
@@ -393,30 +524,74 @@ final class KeyboardViewController: UIInputViewController {
         else { receive(engine.process(key: 0xff0d)) }
     }
     private func space() { surface.cancel(); if !snapshot.preedit.isEmpty { settle() } else { breakAssociationChain(); insert(" "); render() } }
-    private func enter() { surface.cancel(); breakAssociationChain(); if !engine.rawInput.isEmpty { commitRawInput() } else { insert("\n"); render() } }
+    private func enter() {
+        surface.cancel(); breakAssociationChain()
+        if !engine.rawInput.isEmpty { commitRawInput() }
+        // An empty Buffer passes Return to the app, so a chat field sends its message.
+        else if bufferEnabled && bufferIsEmpty, let target = currentDocument { _ = delivery.insert("\n", target: target); render() }
+        else { insert("\n"); render() }
+    }
+    /// Return and Send trade places as the sending key: with Buffer text, Send is lit and
+    /// Return breaks a line in the Buffer; with an empty Buffer, Return is lit with the
+    /// app's own action (Send, Search…) and goes straight to the app.
+    private func refreshReturnKey() {
+        let toApp = bufferEnabled && bufferIsEmpty
+        let type = onscreen ? textDocumentProxy.returnKeyType : nil
+        let action: String? = switch type {
+        case .send?: L("发送", "Send")
+        case .go?, .google?, .yahoo?, .route?: L("前往", "Go")
+        case .search?: L("搜索", "Search")
+        case .done?: L("完成", "Done")
+        case .next?: L("下一项", "Next")
+        case .join?: L("加入", "Join")
+        case .continue?: L("继续", "Continue")
+        case .emergencyCall?: L("紧急", "SOS")
+        default: nil
+        }
+        if toApp, let action {
+            if returnKey.title(for: .normal) != action { returnKey.setImage(nil, for: .normal); returnKey.setTitle(action, for: .normal) }
+            returnKey.accessibilityLabel = action
+        } else if returnKey.image(for: .normal) == nil {
+            returnKey.symbol("return", label: L("回车", "Return"))
+        }
+        returnKey.accessibilityHint = bufferEnabled ? (toApp ? L("直接发给应用", "Goes straight to the app") : L("在 Buffer 中换行", "New line in the Buffer")) : nil
+        if returnKey.isSelected != toApp { returnKey.isSelected = toApp }
+        let sendReady = bufferEnabled && insertButton.isEnabled
+        if insertButton.isSelected != sendReady { insertButton.isSelected = sendReady }
+    }
     private func backspace() {
         guard onscreen, currentDocument == DocumentIdentity.read(textDocumentProxy) else { cancelDeletes(); return }
         surface.cancel(); if !engine.rawInput.isEmpty { receive(engine.process(key: 0xff08)) }
         // Default shows its blocks, so Delete removes a whole block; plugin input
         // shows none and keeps character deletion.
-        else if bufferEnabled { cancelRequest(); if isDefaultBuffer { buffer.deleteBlockBackward() } else { buffer.backspace() }; sourceChanged(); render() }
+        else if bufferEnabled && !bufferIsEmpty { cancelRequest(); if isDefaultBuffer { buffer.deleteBlockBackward() } else { buffer.backspace() }; sourceChanged(); render() }
         else if let target = currentDocument { _ = delivery.deleteBackward(target:target) }
     }
-    private func toggleBuffer() { breakAssociationChain(); stopDefaultAutoSend(); autoSuspended = false; liveTyping.reset(); cancelDeletes(); surface.cancel(); settle(); bufferEnabled.toggle(); if !bufferEnabled { cancelRequest(); selectedPlugin = nil; refreshPluginMenu() }; bufferButton.isSelected = bufferEnabled; render() }
+    private func toggleBuffer() { breakAssociationChain(); stopDefaultAutoSend(); autoSuspended = false; liveTyping.reset(); cancelDeletes(); surface.cancel(); settle(); bufferEnabled.toggle(); if !bufferEnabled { cancelRequest(); selectedPlugin = nil; panelOpen = false; refreshPluginMenu() }; bufferButton.isSelected = bufferEnabled; render() }
     private func render() {
         if onscreen {
             if bufferEnabled { delivery.discardMarkedText() }
             else if let target = currentDocument { delivery.updateMarkedText(compositionText, target: target) }
         }
-        candidateStrip.update(showingAssociations ? associations : snapshot.candidates); renderHandPreview(); refreshLanguageSwap(); renderBuffer(); resize()
+        candidateStrip.update(showingAssociations ? associations : snapshot.candidates); renderHandPreview(); renderShortcuts(); refreshLanguageSwap(); renderBuffer(); resize()
     }
     private func renderHandPreview() {
         let preview = surface.handPreview
         handPreview.update(preview)
         handPreview.isHidden = preview == nil; candidateStrip.isHidden = preview != nil
     }
+    /// An empty candidate row offers the plugins instead.
+    private func renderShortcuts() {
+        let empty = snapshot.preedit.isEmpty && snapshot.candidates.isEmpty && !showingAssociations && !surface.isChordActive && handPreview.isHidden
+        // The empty strip stays in place underneath, so the row keeps its reserved slot.
+        shortcuts.isHidden = !empty
+        shortcuts.selected = bufferEnabled ? selectedPlugin : nil
+    }
     private func renderBuffer() {
         bufferPanel.isHidden = !bufferEnabled; bufferButton.isSelected = bufferEnabled
+        if !bufferEnabled { hostSnapshot = nil; captureTimer?.invalidate(); captureTimer = nil }
+        else if hostSnapshot == nil, captureTimer == nil, onscreen, !delivery.isWriting,
+                ProcessInfo.processInfo.systemUptime - delivery.lastWriteTime >= 0.6 { snapshotHost() }
         // Default shows its delivery blocks in the input line (caret block outlined);
         // plugins send their result, so their output line shows those blocks instead.
         let display = BufferComposition(source: buffer.source, cursor: buffer.cursor, preedit: compositionText,
@@ -427,18 +602,58 @@ final class KeyboardViewController: UIInputViewController {
         source.scrollRangeToVisible(display.caretRange)
         // Every Buffer mode uses the same two lines: a display-only output line
         // above an input line. Default shows its live typing stats as output.
-        let outputBlocks = isDefaultBuffer || buffer.generating ? [] : (needsPluginResult ? buffer.pluginPending : buffer.pending)
+        // Blocks still deliver their line breaks; the one-line display drops the trailing ones
+        // so each poem line reads as its own block, side by side.
+        // Thinking arrives tagged; it streams dimmed with no label, then gives way to the answer.
+        let thinking = buffer.generating && buffer.preview.hasPrefix(ThinkingText.marker)
+        let incoming = (thinking ? String(buffer.preview.dropFirst()) : buffer.preview).split(whereSeparator: \.isNewline).joined(separator: " ")
+        if thinking != result.thinking {
+            result.thinking = thinking
+            // The answer never waits for the thinking: drop the caption and start the answer at once.
+            if !thinking { caption.stop(); if buffer.generating { reveal.clear(); reveal.start() } }
+        }
+        // Still streaming, or the reveal has not yet caught up with what arrived.
+        let streaming = !isDefaultBuffer && (buffer.generating || reveal.isActive || (revealGeneration != nil && reveal.isBehind(incoming)))
+        let outputBlocks = (isDefaultBuffer || streaming ? [] : (needsPluginResult ? buffer.pluginPending : buffer.pending))
+            .map { block in var shown = block; while shown.last?.isNewline == true { shown.removeLast() }; return shown }
         result.setBlocks(BufferBlockStyle.ranges(of: outputBlocks), active: outputBlocks.isEmpty ? nil : 0)
-        result.text = isDefaultBuffer ? "" : buffer.generating ? L("处理中… ", "Working… ") + buffer.preview : outputBlocks.joined()
-        // Streaming output follows its newest text; finished output opens at its start.
-        result.scrollRangeToVisible(NSRange(location: buffer.generating ? (result.text as NSString).length : 0, length: 0))
+        if streaming {
+            // No "working…" words: the status light shows waiting and thinking. The answer is fed
+            // through our own buffer and revealed at an even pace (see `StreamReveal`).
+            if buffer.generating, buffer.generation != revealGeneration {
+                revealGeneration = buffer.generation; reveal.start()
+                // AI answers start from an empty line; live translation keeps what still matches.
+                if !realtime { reveal.clear() }
+            }
+            if thinking { reveal.stop(); caption.update(incoming) }
+            else if !incoming.isEmpty || !buffer.generating { reveal.feed(incoming, finished: !buffer.generating) }
+        } else {
+            let text = isDefaultBuffer ? "" : outputBlocks.joined()
+            if result.text != text {
+                let arriving = revealGeneration != nil
+                result.text = text
+                // A finished stream glides back to its first block, the one Send inserts,
+                // unless the reader has taken over the line.
+                if arriving { revealGeneration = nil; if reveal.following { result.setContentOffset(.zero, animated: true) } } else { result.scrollToStart() }
+            }
+        }
         aiButton.isHidden = !bufferEnabled
         insertionSlot.isHidden = !bufferEnabled
+        settingsButton.isHidden = !bufferEnabled
+        settingsButton.isSelected = panelOpen
+        statusLight.isHidden = !bufferEnabled
+        statusLight.skin = StatusLight.Skin(rawValue: preferences.statusSkin) ?? .light
+        statusLight.set(outputState)
+        runButton.isHidden = !bufferEnabled || selectedPlugin?.isAI != true
+        runButton.isEnabled = !buffer.generating && !buffer.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         stopButton.isHidden = !buffer.generating; insertButton.isHidden = buffer.generating
+        // Quick Q&A invites a paste only when the clipboard has text (checked without reading it).
+        source.placeholder = selectedPlugin == .ask && hasFullAccess && UIPasteboard.general.hasStrings
+            ? L("轻点这里粘贴剪贴板，或直接输入问题", "Tap here to paste, or type a question") : selectedPlugin?.placeholder ?? ""
         let hasOutput = needsPluginResult ? !buffer.pluginPending.isEmpty : !buffer.pending.isEmpty
         insertButton.isEnabled = hasOutput && !buffer.generating && !hasComposition
         if pressedInsertion != insertionContext { insertButton.cancelPress() }
-        refreshMoreMenu(); refreshDefaultBuffer()
+        refreshMoreMenu(); refreshDefaultBuffer(); renderPanel(); refreshReturnKey()
     }
     /// Only the auxiliaries change height. The typing block stays at a fixed offset
     /// from the system's bottom edge, including while a chord is being held.
@@ -473,22 +688,34 @@ final class KeyboardViewController: UIInputViewController {
         }
         let landscape = view.bounds.width > 600
         let bufferRowHeight: CGFloat = landscape ? 28 : 36
-        result.frame = CGRect(x: 0, y: 0, width: max(0, bufferPanel.bounds.width - 36), height: bufferRowHeight)
-        typingStats.frame = CGRect(x: 8, y: 0, width: max(0, result.bounds.width - 16), height: bufferRowHeight)
+        let topLine = CGRect(x: 36, y: 0, width: max(0, bufferPanel.bounds.width - 72), height: bufferRowHeight)
         typingStats.font = .monospacedDigitSystemFont(ofSize: landscape ? 14 : 16, weight: .medium)
         insertionSlot.frame = CGRect(x: bufferPanel.bounds.width - 32, y: 0, width: 32, height: bufferRowHeight)
         // Right column: Send, plugin and the Buffer switch line up above each other;
         // settings sits alone on the left of the candidate row.
         aiButton.frame = CGRect(x: bufferPanel.bounds.width - 32, y: bufferRowHeight + 4, width: 32, height: bufferRowHeight)
-        source.frame = CGRect(x: 0, y: bufferRowHeight + 4, width: max(0, bufferPanel.bounds.width - 36), height: bufferRowHeight)
+        // Input row: [settings] [input line] [Run] [plugin]. Run appears only for AI plugins.
+        // Left column: status light above the settings key, both 1U like the right column.
+        let settingsWidth: CGFloat = settingsButton.isHidden ? 0 : 36, runWidth: CGFloat = runButton.isHidden ? 0 : 36
+        statusLight.frame = CGRect(x: 0, y: 0, width: 32, height: bufferRowHeight)
+        settingsButton.frame = CGRect(x: 0, y: bufferRowHeight + 4, width: 32, height: bufferRowHeight)
+        runButton.frame = CGRect(x: bufferPanel.bounds.width - 68, y: bufferRowHeight + 4, width: 32, height: bufferRowHeight)
+        let bottomLine = CGRect(x: settingsWidth, y: bufferRowHeight + 4, width: max(0, bufferPanel.bounds.width - 36 - runWidth - settingsWidth), height: bufferRowHeight)
+        // Default sends what you type, so the input line sits beside Send and the typing
+        // readout drops below it. Plugins send their output, which stays on top.
+        if isDefaultBuffer { source.frame = topLine; result.frame = bottomLine } else { result.frame = topLine; source.frame = bottomLine }
+        typingStats.frame = CGRect(x: 8, y: 0, width: max(0, result.bounds.width - 16), height: bufferRowHeight)
         bufferButton.frame = CGRect(x: candidatePanel.bounds.width - 32, y: 0, width: 32, height: 32)
         candidateStrip.frame = CGRect(x: 36, y: 0, width: max(0, candidatePanel.bounds.width - 72), height: candidatePanel.bounds.height)
         moreButton.frame = CGRect(x: 0, y: 0, width: 32, height: 32)
         handPreview.frame = CGRect(x: 36, y: 0, width: max(0, candidatePanel.bounds.width - 72), height: 32)
+        shortcuts.frame = handPreview.frame
         handPreview.landscape = landscape
         result.font = .systemFont(ofSize: landscape ? 14 : 15)
         bottom.layoutIfNeeded()
         insertButton.frame = insertionSlot.bounds; stopButton.frame = insertionSlot.bounds
+        // Settings cover the keys only, so the Buffer lines stay visible while choosing.
+        panel.frame = surface.frame.union(bottom.frame).insetBy(dx: -5, dy: 0)
     }
     private func cancelDeletes() { deleteButton.cancelPress(); chordDelete.cancelPress() }
     private func refreshLanguageSwap() {
@@ -549,7 +776,7 @@ final class KeyboardViewController: UIInputViewController {
             if buffer.selectionAnchor != nil { buffer.clearSelection(); renderBuffer() }
         }
         guard isDefaultBuffer else { return }
-        liveTyping.noteKey(at: uptime, isRepeat: false, isBackspace: backspace)
+        liveTyping.noteKey(at: uptime, isRepeat: false, isBackspace: backspace); session.noteKey(at: uptime)
     }
     private func stopDefaultAutoSend() {
         autoTimer?.invalidate(); autoTimer = nil; autoClock.reset(); autoTarget = nil
@@ -558,13 +785,31 @@ final class KeyboardViewController: UIInputViewController {
         stopDefaultAutoSend(); defaultDelay = delay; autoSuspended = false
         UserDefaults.standard.set(delay, forKey: "defaultBuffer.autoDelay")
     }
+    /// The Default readout: live speed (still falling while you pause), keys per character,
+    /// keys per second, and how long you have paused. Tap it to sign the app's text.
+    private func updateTypingStats() {
+        let now = uptime
+        var parts: [String] = []
+        if let cpm = liveTyping.charactersPerMinute(at: now) { parts.append("\(Int(cpm.rounded())) " + L("字/分", "cpm")) }
+        if let code = liveTyping.codeLength { parts.append(String(format: "%.2f ", code) + L("触/字", "keys/char")) }
+        if let keys = liveTyping.keysPerSecond { parts.append(String(format: "%.1f ", keys) + L("触/秒", "keys/s")) }
+        if parts.isEmpty { parts = [L("— 字/分", "— cpm"), L("— 触/字", "— keys/char"), L("— 触/秒", "— keys/s")] }
+        if !liveTyping.isEmpty, let idle = liveTyping.idleSeconds(at: now), idle >= 1 { parts.append(L("停 ", "idle ") + "\(Int(idle))s") }
+        let enabled = [1.0, 2, 3, 5].contains(defaultDelay) && !autoSuspended
+        typingStats.text = parts.joined(separator: " · ") + (enabled ? String(format: " · %.1fs", max(0, defaultDelay - autoClock.headAge)) : "")
+    }
     private func refreshDefaultBuffer() {
         typingStats.isHidden = !isDefaultBuffer
-        guard isDefaultBuffer, onscreen else { stopDefaultAutoSend(); return }
-        let stats = (BufferLiveTypingMetricsFormatter.line(for: liveTyping) ?? BufferLiveTypingMetricsFormatter.idleLine)
-            .replacingOccurrences(of: "码长", with: "触/字").replacingOccurrences(of: "击键", with: "触")
+        guard isDefaultBuffer, onscreen else { statsTimer?.invalidate(); statsTimer = nil; stopDefaultAutoSend(); return }
+        updateTypingStats()
+        if statsTimer == nil {
+            let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+                guard let self, self.isDefaultBuffer, self.onscreen else { self?.statsTimer?.invalidate(); self?.statsTimer = nil; return }
+                self.updateTypingStats()
+            }
+            statsTimer = timer; RunLoop.main.add(timer, forMode: .common)
+        }
         let enabled = [1.0, 2, 3, 5].contains(defaultDelay) && !autoSuspended
-        typingStats.text = stats + (enabled ? String(format: " · %.1fs", max(0, defaultDelay - autoClock.headAge)) : "")
         guard enabled, !buffer.pending.isEmpty, buffer.retainedResults.isEmpty, buffer.result == nil, let target = currentDocument,
               target == DocumentIdentity.read(textDocumentProxy) else { stopDefaultAutoSend(); return }
         if autoTarget != target { stopDefaultAutoSend(); autoTarget = target }
@@ -615,24 +860,6 @@ final class KeyboardViewController: UIInputViewController {
             items.append(UIAction(title: directEnglish ? L("切换中文", "Switch to Chinese") : L("切换英文", "Switch to English"), image: UIImage(systemName: "globe")) { [weak self] _ in self?.toggleLanguage() })
             items.append(UIAction(title: L("表情", "Emoji"), image: UIImage(systemName: "face.smiling")) { [weak self] _ in self?.surface.showEmoji() })
         }
-        if bufferEnabled {
-            if isDefaultBuffer {
-                items.append(UIMenu(title: L("Default 延迟上屏", "Default automatic insertion"), children: [0.0, 1, 2, 3, 5].map { delay in
-                    UIAction(title: delay == 0 ? L("关闭", "Off") : "\(Int(delay)) s", state: defaultDelay == delay && !autoSuspended ? .on : .off) { [weak self] _ in
-                        guard let self else { return }
-                        self.setDefaultDelay(delay); self.render()
-                    }
-                }))
-            }
-            if realtime, let translationLanguageMenu { items.append(translationLanguageMenu) }
-            let source = UIAction(title: L("插入原文", "Insert source"), image: UIImage(systemName: "text.insert"), attributes: buffer.source.isEmpty || buffer.generating ? [.disabled] : []) { [weak self] _ in self?.deliverSource() }
-            let left = UIAction(title: L("光标左移", "Move cursor left"), image: UIImage(systemName: "arrow.left")) { [weak self] _ in self?.settle(); self?.buffer.moveCursor(-1); self?.render() }
-            let right = UIAction(title: L("光标右移", "Move cursor right"), image: UIImage(systemName: "arrow.right")) { [weak self] _ in self?.settle(); self?.buffer.moveCursor(1); self?.render() }
-            let clear = UIAction(title: L("清空 Buffer", "Clear Buffer"), image: UIImage(systemName: "trash"), attributes: [.destructive]) { [weak self] _ in
-                guard let self else { return }; self.surface.cancel(); self.cancelRequest(); self.engine.clear(); self.snapshot = .init(); self.buffer = .init(); self.status.text = ""; self.render()
-            }
-            items += [source, UIMenu(title: L("光标", "Cursor"), children: [left, right]), clear]
-        }
         items.append(haptics)
         if !loadedAssociationHistory().isEmpty {
             items.append(UIAction(title: L("清除联想记录", "Clear learned associations"), image: UIImage(systemName: "text.badge.xmark"), attributes: [.destructive]) { [weak self] _ in self?.clearAssociationHistory() })
@@ -645,6 +872,60 @@ final class KeyboardViewController: UIInputViewController {
         let blocks = needsPluginResult ? buffer.pluginPending : buffer.pending
         let text = all ? blocks.joined() : blocks.first ?? ""
         guard !text.isEmpty, let target = currentDocument, delivery.insert(text, target: target) else { return false }
+        // Read aloud exactly what was sent: one block per tap, everything on a hold.
+        if realtime && preferences.speakTranslation { speaker.speak(text, language: preferences.targetLanguage) }
+        return finishDelivery(all: all)
+    }
+    /// Appends this session's typing figures and a RIMES credit to the end of the app's
+    /// text, like an email signature.
+    private func appendTypingSignature() {
+        guard onscreen, let target = currentDocument, target == DocumentIdentity.read(textDocumentProxy) else { return }
+        guard let line = typingSignature() else { status.text = L("先打几个字，再点这里附上打字数据", "Type a little first, then tap here to add your typing stats"); render(); return }
+        surface.cancel(); settle()
+        // The proxy only sees a window of text after the caret: walk it to the end.
+        for _ in 0..<64 {
+            guard let after = textDocumentProxy.documentContextAfterInput, !after.isEmpty,
+                  delivery.moveCaret(by: after.count, target: target) else { break }
+        }
+        let before = textDocumentProxy.documentContextBeforeInput ?? ""
+        let gap = before.isEmpty ? "" : before.hasSuffix("\n\n") ? "" : before.hasSuffix("\n") ? "\n" : "\n\n"
+        guard delivery.insert(gap + line, target: target) else { return }
+        // Signed and sent: the next signature starts from zero, and the readout clears now.
+        session.reset(); liveTyping.reset(); updateTypingStats()
+        surface.feedback.send(.commit); status.text = L("已在末尾附上打字数据", "Typing stats added at the end"); render()
+    }
+    func typingSignature() -> String? {
+        guard !session.isEmpty else { return nil }
+        var figures = [L("共 \(session.characters) 字", "\(session.characters) characters")]
+        if let cpm = session.charactersPerMinute { figures.append(L("平均 \(Int(cpm.rounded())) 字/分", "avg \(Int(cpm.rounded())) cpm")) }
+        if session.peakCharactersPerMinute > 0 { figures.append(L("最快 \(Int(session.peakCharactersPerMinute.rounded())) 字/分", "peak \(Int(session.peakCharactersPerMinute.rounded())) cpm")) }
+        if let code = session.codeLength { figures.append(String(format: L("码长 %.2f 触/字", "%.2f keys/char"), code)) }
+        if let keys = session.keysPerSecond { figures.append(String(format: L("击键 %.1f 触/秒", "%.1f keys/s"), keys)) }
+        return "—\n" + figures.joined(separator: " · ") + "\n" + L("来自 RIMES 免费开源输入法", "Sent from RIMES, the free open-source input method")
+    }
+    private func pasteQuestion() {
+        guard bufferEnabled, selectedPlugin == .ask, buffer.source.isEmpty, !hasComposition else { return }
+        guard hasFullAccess else { status.text = L("读取剪贴板需要为 RIMES 开启“完全访问”", "Pasting needs Full Access for RIMES"); render(); return }
+        // iOS may ask "Allow Paste?" here. The read waits for the answer, and the alert takes
+        // focus meanwhile, so keep the text and add it once the keyboard is back if needed.
+        let text = String((UIPasteboard.general.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(4000))
+        guard !text.isEmpty else { status.text = L("剪贴板里没有文字", "Nothing to paste"); render(); return }
+        pendingPaste = text
+        if onscreen { applyPendingPaste() }
+    }
+    private func applyPendingPaste() {
+        guard let text = pendingPaste else { return }
+        pendingPaste = nil
+        guard onscreen, bufferEnabled, selectedPlugin == .ask, buffer.source.isEmpty else { return }
+        surface.cancel(); surface.feedback.send(.commit)
+        insert(text); status.text = L("已粘贴，点 ▶ 提问", "Pasted; tap ▶ to ask"); render()
+    }
+    private func readOutputBlock(_ index: Int) {
+        guard onscreen, needsPluginResult, selectedPlugin != .art, !buffer.generating, buffer.pluginPending.indices.contains(index) else { return }
+        surface.feedback.send(.press)
+        speaker.replay(buffer.pluginPending[index], language: realtime ? preferences.targetLanguage : nil)
+    }
+    private func finishDelivery(all: Bool) -> Bool {
         if needsPluginResult { buffer.consumePlugin(all: all) } else { autoClock.consumed(all: all); buffer.consumed(all: all) }
         // Delivery is not a source edit: never schedule a translation of a remainder.
         surface.feedback.send(.commit); render(); return true
@@ -655,50 +936,185 @@ final class KeyboardViewController: UIInputViewController {
               let target = currentDocument, delivery.insert(buffer.source, target: target) else { return }
         cancelRequest(); buffer.consumeSource(); surface.feedback.send(.commit); render()
     }
-    private func cancelRequest() { insertButton.cancelPress(); pressedInsertion = nil; runner.cancel(); buffer.cancel() }
+    private func cancelRequest() { insertButton.cancelPress(); pressedInsertion = nil; lastRunFailed = false; runner.cancel(); buffer.cancel(); reveal.stop(); caption.stop(); revealGeneration = nil }
+    private var outputState: StatusLight.State {
+        if buffer.generating { return buffer.preview.isEmpty ? .waiting : .streaming }
+        if lastRunFailed { return .failed }
+        return (needsPluginResult ? buffer.pluginPending : buffer.pending).isEmpty ? .idle : .ready
+    }
     private func reloadPreferences() {
         config = store.load(); preferences = preferencesStore.load()
         preferences.reconcile(scheme: config.scheme, revision: config.schemeSelectionRevision)
+        // A rotation picked in the RIMES app applies once, then the keyboard's own edits stand.
+        if let revision = config.statusSkinsRevision, revision != preferences.appliedSkinRevision {
+            preferences.statusSkinRotation = config.statusSkins ?? []; preferences.appliedSkinRevision = revision
+            let rotation = StatusSkin.rotation(preferences.statusSkinRotation)
+            if let current = StatusSkin(rawValue: preferences.statusSkin), !rotation.contains(current) { preferences.statusSkin = rotation[0].rawValue }
+        }
         preferencesStore.save(preferences); surface.feedback.enabled = preferences.haptics; surface.feedback.strength = preferences.hapticStrength
         engine.traditional = preferences.traditional
-        refreshPluginMenu(); refreshLanguageMenu()
+        refreshPluginMenu(); render()
     }
     private func refreshPluginMenu() {
-        let original = UIAction(title: L("Default · 原文", "Default · Original"), state: selectedPlugin == nil ? .on : .off) { [weak self] _ in
-            guard let self else { return }; self.cancelRequest(); self.buffer.invalidateResult(); self.selectedPlugin = nil; self.status.text = ""; self.refreshPluginMenu(); self.render()
+        let original = UIAction(title: L("Default · 原文", "Default · Original"), state: selectedPlugin == nil ? .on : .off) { [weak self] _ in self?.selectPlugin(nil) }
+        // Each plugin stands alone; choosing one only opens it.
+        let plugins = KeyboardPlugin.allCases.map { plugin in
+            UIAction(title: plugin.title, image: UIImage(systemName: plugin.symbol), state: selectedPlugin == plugin ? .on : .off) { [weak self] _ in
+                guard let self else { return }; self.surface.cancel(); self.settle(); self.selectPlugin(plugin)
+            }
         }
-        let translate = UIAction(title: appleTranslation.descriptor.title, state: realtime ? .on : .off) { [weak self] _ in
-            guard let self else { return }; self.settle(); self.cancelRequest(); self.buffer.invalidateResult(); self.selectedPlugin = self.appleTranslation.descriptor.id; self.refreshPluginMenu(); self.sourceChanged(); self.render()
-        }
-        let ai = UIMenu(title: L("AI 服务", "AI service"), children: AIAction.allCases.map { action in
-            UIAction(title: action.title) { [weak self] _ in self?.aiAction = action; self?.generate() }
-        })
-        aiButton.menu = UIMenu(children: [original, translate, ai])
-        aiButton.symbol(realtime ? "translate" : selectedPlugin == nil ? "puzzlepiece.extension" : "sparkles", label: realtime ? L("苹果翻译", "Apple Translation") : selectedPlugin == nil ? L("选择插件", "Choose plugin") : L("AI 服务", "AI service"))
+        aiButton.menu = UIMenu(children: [original] + plugins)
+        aiButton.symbol(selectedPlugin?.symbol ?? "puzzlepiece.extension", label: selectedPlugin?.title ?? L("选择插件", "Choose plugin"))
         aiButton.isSelected = selectedPlugin != nil
-        bufferButton.menu = nil
         refreshMoreMenu()
     }
-    private func refreshLanguageMenu() {
-        let values = languages.isEmpty ? [Locale.Language(identifier: "zh-Hans"), Locale.Language(identifier: "en")] : languages
-        func name(_ id: String) -> String { Locale.current.localizedString(forIdentifier: id) ?? id }
-        func choices(source: Bool) -> UIMenu {
-            UIMenu(title: source ? L("原文语言", "Source language") : L("译文语言", "Target language"), children: values.map { value in
-                let id = value.minimalIdentifier
-                return UIAction(title: name(id), state: id == (source ? preferences.sourceLanguage : preferences.targetLanguage) ? .on : .off) { [weak self] _ in
-                    guard let self else { return }
-                    if source { self.preferences.sourceLanguage = id } else { self.preferences.targetLanguage = id }
-                    self.languageChanged()
-                }
+    /// Opens a plugin from the candidate-row shortcuts, turning the Buffer on. Tapping
+    /// the open plugin again returns to Default.
+    private func openPlugin(_ plugin: KeyboardPlugin) {
+        guard onscreen else { return }
+        surface.cancel(); settle(); breakAssociationChain(); collapseCandidates()
+        if bufferEnabled && selectedPlugin == plugin { selectPlugin(nil); return }
+        if !bufferEnabled { stopDefaultAutoSend(); autoSuspended = false; liveTyping.reset(); cancelDeletes(); bufferEnabled = true }
+        selectPlugin(plugin)
+    }
+    private func selectPlugin(_ plugin: KeyboardPlugin?) {
+        cancelRequest(); buffer.invalidateResult(); selectedPlugin = plugin
+        if plugin != .translate { speaker.stop() }
+        status.text = plugin?.isAI == true ? aiReadinessHint() ?? "" : ""
+        refreshPluginMenu(); sourceChanged(); render()
+    }
+    private func aiReadinessHint() -> String? {
+        if !hasFullAccess { return L("AI 插件需要在系统设置中为 RIMES 开启“完全访问”", "AI plugins need Full Access for RIMES in Settings") }
+        if config.provider == nil { return L("请先在 RIMES App 中配置 AI 服务", "Configure an AI service in the RIMES app first") }
+        return nil
+    }
+    // MARK: Settings panel
+    @objc private func bufferHeld(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began else { return }
+        surface.feedback.send(.press); openSettings(for: selectedPlugin)
+    }
+    /// Opens the panel for a plugin (nil for Default), turning the Buffer on first.
+    private func openSettings(for plugin: KeyboardPlugin?) {
+        guard onscreen else { return }
+        surface.cancel(); settle(); cancelDeletes(); insertButton.cancelPress(); collapseCandidates()
+        if !bufferEnabled { stopDefaultAutoSend(); autoSuspended = false; liveTyping.reset(); bufferEnabled = true }
+        if plugin != selectedPlugin { selectPlugin(plugin) }
+        panelOpen = true; render()
+    }
+    private func closePanel() { panelOpen = false; render() }
+    private func renderPanel() {
+        panel.isHidden = !panelOpen
+        guard panelOpen else { return }
+        view.bringSubviewToFront(panel)
+        panel.show(title: L("Buffer 设置", "Buffer settings"), sections: panelSections())
+    }
+    private func panelSections() -> [PanelSection] {
+        var sections: [PanelSection] = []
+        let plugins = [PanelItem(id: "default", title: L("Default · 原文", "Default"), selected: selectedPlugin == nil)]
+            + KeyboardPlugin.allCases.map { PanelItem(id: $0.rawValue, title: $0.title, selected: selectedPlugin == $0) }
+        sections.append(PanelSection(title: L("插件", "Plugin"), items: plugins) { [weak self] id in self?.selectPlugin(KeyboardPlugin(rawValue: id)) })
+        switch selectedPlugin {
+        case nil:
+            let delays = [0.0, 1, 2, 3, 5].map { PanelItem(id: "\($0)", title: $0 == 0 ? L("关闭", "Off") : "\(Int($0)) s", selected: defaultDelay == $0) }
+            sections.append(PanelSection(title: L("自动上屏", "Automatic insertion"), note: L("停止输入达到所选时长后，自动插入最前面的一块。", "Inserts the first block after you pause for the chosen time."), items: delays) { [weak self] id in
+                self?.setDefaultDelay(Double(id) ?? 0); self?.render()
             })
+        case .translate?:
+            refreshLanguageRows()
+            sections.append(PanelSection(title: L("语言", "Languages"), custom: languageRow, customHeight: 102,
+                                         customKey: "\(preferences.sourceLanguage)>\(preferences.targetLanguage)|\(languages.count)"))
+            speakRow.toggle.setOn(preferences.speakTranslation, animated: false)
+            sections.append(PanelSection(title: L("朗读", "Read aloud"), note: L("开启后，发送时朗读发出的块。不开启也可以点按输出块来听。", "When on, blocks are read as you send them. Tap an output block to hear it any time."),
+                                         custom: speakRow, customHeight: 36, customKey: "\(preferences.speakTranslation)"))
+        case .art?:
+            let art = preferences.art
+            func change(_ edit: @escaping (inout TextArtOptions, String) -> Void) -> (String) -> Void {
+                { [weak self] id in guard let self else { return }; edit(&self.preferences.art, id); self.preferencesStore.save(self.preferences); self.render() }
+            }
+            sections.append(PanelSection(title: L("画法", "Style"), note: L("每行固定同样多的字符，逐行发送不散架。彩色方块在任何应用里都等宽；任意字符可用汉字、符号、emoji，全角字符对得最齐。", "Every row has the same number of characters, so rows sent one by one keep the frame. Colour blocks are equal width everywhere; any characters allows Chinese, symbols and emoji, and full-width ones line up best."),
+                                         items: TextArtStyle.allCases.map { PanelItem(id: $0.rawValue, title: $0.title, selected: art.style == $0) }, action: change { value, id in value.style = TextArtStyle(rawValue: id) ?? .blocks }))
+            sections.append(PanelSection(title: L("画框（宽 × 高）", "Frame (width × height)"), items: TextArtOptions.sizes.map { PanelItem(id: "\($0)", title: "\($0) × \($0)", selected: art.width == $0 && art.height == $0) },
+                                         action: change { value, id in let size = Int(id) ?? 10; value.width = size; value.height = size }))
+        case .polish?, .ask?:
+            sections.append(PanelSection(title: L("AI 服务", "AI service"), note: config.provider.map { "\($0.name) · \($0.model)" } ?? L("未配置。请在 RIMES App 的“AI 服务”中添加。", "Not set up. Add one under AI services in the RIMES app."), items: []) { _ in })
+        case .poem?:
+            let options = preferences.poem, library = config.poemLibrary
+            func change(_ edit: @escaping (inout PoemOptions, String) -> Void) -> (String) -> Void {
+                { [weak self] id in guard let self else { return }; edit(&self.preferences.poem, id); self.preferencesStore.save(self.preferences); self.render() }
+            }
+            sections.append(PanelSection(title: L("模式", "Mode"), items: PoemMode.allCases.map { PanelItem(id: $0.rawValue, title: $0.title, selected: options.mode == $0) }, action: change { value, id in value.mode = PoemMode(rawValue: id) ?? .improvise }))
+            sections.append(PanelSection(title: L("每句字数", "Characters per line"), items: PoemLineLength.allCases.map { PanelItem(id: "\($0.rawValue)", title: $0.title, selected: options.lineLength == $0) }, action: change { value, id in value.lineLength = Int(id).flatMap(PoemLineLength.init(rawValue:)) ?? .free }))
+            sections.append(PanelSection(title: L("句式", "Pattern"), items: library.allPatterns.map { PanelItem(id: $0.id, title: $0.name, selected: options.patternID == $0.id) }, action: change { value, id in value.patternID = id }))
+            sections.append(PanelSection(title: L("词卡", "Word cards"), note: library.cards.isEmpty ? L("在 RIMES App 的“AI 作诗”中添加词卡。", "Add word cards under AI Poem in the RIMES app.") : nil,
+                                         items: library.cards.map { PanelItem(id: $0.id.uuidString, title: $0.name, selected: options.cardIDs.contains($0.id)) }, action: change { value, id in
+                guard let card = UUID(uuidString: id) else { return }
+                if value.cardIDs.contains(card) { value.cardIDs.removeAll { $0 == card } } else { value.cardIDs.append(card) }
+            }))
         }
-        translationLanguageMenu = UIMenu(title: "\(name(preferences.sourceLanguage)) → \(name(preferences.targetLanguage))", image: UIImage(systemName: "translate"), children: [choices(source: true), choices(source: false), UIAction(title: L("交换方向", "Swap direction")) { [weak self] _ in
-            guard let self else { return }; let old = self.preferences.sourceLanguage; self.preferences.sourceLanguage = self.preferences.targetLanguage; self.preferences.targetLanguage = old; self.languageChanged()
-        }])
-        refreshMoreMenu()
+        let skin = StatusSkin(rawValue: preferences.statusSkin) ?? .light
+        let rotation = StatusSkin.rotation(preferences.statusSkinRotation)
+        sections.append(PanelSection(title: L("状态灯", "Status light"),
+                                     note: L("轻点状态灯，在选中的样式间轮换（当前：\(skin.title)）。动画宠物来自 Google Noto Animated Emoji（CC BY 4.0）。",
+                                             "Tap the light to rotate through the selected looks (now: \(skin.title)). Animated pets: Google Noto Animated Emoji (CC BY 4.0)."),
+                                     items: StatusSkin.allCases.map { PanelItem(id: $0.rawValue, title: $0.title, selected: rotation.contains($0)) }) { [weak self] id in
+            guard let self, let chosen = StatusSkin(rawValue: id) else { return }
+            var next = StatusSkin.rotation(self.preferences.statusSkinRotation)
+            if next.contains(chosen) { if next.count > 1 { next.removeAll { $0 == chosen } } } else { next.append(chosen) }
+            self.preferences.statusSkinRotation = StatusSkin.allCases.filter(next.contains).map(\.rawValue)
+            // Taking out the look on show moves the light to the first one left; adding one shows it.
+            if !next.contains(self.statusLight.skin) || !rotation.contains(chosen) {
+                self.preferences.statusSkin = (next.contains(chosen) ? chosen : next[0]).rawValue
+            }
+            self.preferencesStore.save(self.preferences); self.render()
+        })
+        sections.append(PanelSection(title: L("Buffer", "Buffer"), items: [
+            PanelItem(id: "source", title: L("插入原文", "Insert source"), role: .action, enabled: !buffer.source.isEmpty && !buffer.generating),
+            PanelItem(id: "clear", title: L("清空 Buffer", "Clear Buffer"), role: .destructive, enabled: !buffer.source.isEmpty || !buffer.pluginPending.isEmpty),
+        ]) { [weak self] id in
+            guard let self else { return }
+            if id == "source" { self.deliverSource() }
+            else { self.surface.cancel(); self.cancelRequest(); self.engine.clear(); self.snapshot = .init(); self.buffer = .init(); self.status.text = ""; self.render() }
+        })
+        return sections
+    }
+    private var languageChoices: [Locale.Language] {
+        languages.isEmpty ? [Locale.Language(identifier: "zh-Hans"), Locale.Language(identifier: "en")] : languages
+    }
+    private func configureLanguageRows() {
+        speakRow.label.text = L("发送时朗读", "Read when sending")
+        speakRow.toggle.accessibilityIdentifier = "keyboard.panel.speak"
+        speakRow.toggle.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            self.surface.feedback.send(.press)
+            self.preferences.speakTranslation = self.speakRow.toggle.isOn; self.preferencesStore.save(self.preferences)
+            if !self.preferences.speakTranslation { self.speaker.stop() }
+            self.render()
+        }, for: .valueChanged)
+        for (drum, isSource) in [(languageRow.source, true), (languageRow.target, false)] {
+            drum.onTick = { [weak self] in self?.surface.feedback.send(.selection, combination: UUID().uuidString) }
+            drum.onChange = { [weak self] index in
+                guard let self, self.languageChoices.indices.contains(index) else { return }
+                let id = self.languageChoices[index].minimalIdentifier
+                if isSource { self.preferences.sourceLanguage = id } else { self.preferences.targetLanguage = id }
+                self.languageChanged()
+            }
+        }
+        languageRow.swap.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            self.surface.feedback.send(.press)
+            let old = self.preferences.sourceLanguage
+            self.preferences.sourceLanguage = self.preferences.targetLanguage; self.preferences.targetLanguage = old; self.languageChanged()
+        }, for: .touchUpInside)
+    }
+    private func refreshLanguageRows() {
+        let values = languageChoices
+        let names = values.map { Locale.current.localizedString(forIdentifier: $0.minimalIdentifier) ?? $0.minimalIdentifier }
+        func index(_ id: String) -> Int { values.firstIndex { $0.minimalIdentifier == id } ?? 0 }
+        languageRow.source.set(items: names, selected: index(preferences.sourceLanguage))
+        languageRow.target.set(items: names, selected: index(preferences.targetLanguage))
     }
     private func languageChanged() {
-        preferencesStore.save(preferences); cancelRequest(); buffer.invalidateResult(); refreshLanguageMenu(); sourceChanged(); render()
+        preferencesStore.save(preferences); cancelRequest(); buffer.invalidateResult(); sourceChanged(); render()
     }
     private func sourceChanged() {
         guard realtime, bufferEnabled, onscreen, snapshot.preedit.isEmpty, !buffer.source.isEmpty else { return }
@@ -708,7 +1124,10 @@ final class KeyboardViewController: UIInputViewController {
         cancelRequest(); status.text = ""
         let revision = buffer.sourceRevision, id = buffer.begin()
         let networkPlugin = plugin.descriptor.id.hasPrefix("ai.")
-        let request = BufferPluginRequest(source: buffer.source, revision: revision, options: ["source": preferences.sourceLanguage, "target": preferences.targetLanguage])
+        var options = ["source": preferences.sourceLanguage, "target": preferences.targetLanguage]
+        // Translation works clause by clause so its output comes back as matching blocks.
+        if plugin === appleTranslation { options["blocks"] = DefaultBlockSegmenter.segments(from: buffer.source).joined(separator: AppleTranslationPlugin.blockSeparator) }
+        let request = BufferPluginRequest(source: buffer.source, revision: revision, options: options)
         runner.submit(plugin: plugin, request: request, delayNanoseconds: delay, preview: { [weak self] text in
             guard let self, self.onscreen else { return }; if networkPlugin && !self.hasFullAccess { self.cancelRequest(); self.render(); return }; self.buffer.receive(text, id: id); self.renderBuffer(); self.resize()
         }, completion: { [weak self] result in
@@ -716,30 +1135,55 @@ final class KeyboardViewController: UIInputViewController {
             if networkPlugin && !self.hasFullAccess { self.cancelRequest(); self.render(); return }
             switch result {
             case .success(let output):
-                guard output.revision == revision else { return }; self.buffer.finish(output.text, id: id)
+                guard output.revision == revision else { return }; self.buffer.finish(output.text, id: id, blocks: output.blocks)
             case .failure(let error):
-                self.buffer.cancel(); self.status.text = (error as? LocalizedError)?.errorDescription ?? L("请求未完成，原文已保留", "Request failed; source preserved")
+                self.buffer.cancel(); self.reveal.stop(); self.caption.stop(); self.revealGeneration = nil; self.lastRunFailed = true; self.status.text = (error as? LocalizedError)?.errorDescription ?? L("请求未完成，原文已保留", "Request failed; source preserved")
             }
             self.metrics.sampleMemory(); self.metrics.save(); self.render()
         })
         render()
     }
-    private func generate() {
+    private func runSelectedPlugin() {
+        guard let plugin = selectedPlugin else { return }
+        if plugin == .translate { settle(); if !buffer.source.isEmpty { run(appleTranslation, delay: 0) }; render(); return }
+        generate(plugin)
+    }
+    private func generate(_ plugin: KeyboardPlugin) {
         defer { render() }
         surface.cancel(); settle()
-        guard onscreen, hasFullAccess, !buffer.source.isEmpty, let provider = config.provider else { status.text = L("请在 RIMES App 中配置 AI 服务", "Configure an AI service in RIMES"); return }
+        guard onscreen, bufferEnabled, selectedPlugin == plugin, plugin.isAI else { return }
+        if let hint = aiReadinessHint() { status.text = hint; return }
+        guard !buffer.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let provider = config.provider else {
+            status.text = L("先在输入行写下内容", "Write something in the input line first"); return
+        }
+        let instruction: String
+        do {
+            switch plugin {
+            case .poem: instruction = try PoemPrompt.instruction(source: buffer.source, options: preferences.poem, library: config.poemLibrary)
+            case .art: instruction = TextArt.instruction(options: preferences.art)
+            case .ask: instruction = AIPrompt.ask
+            default: instruction = AIPrompt.polish
+            }
+        } catch let error as PoemError { status.text = error.message; return }
+        catch { status.text = error.localizedDescription; return }
         let identity = provider.consentIdentity
         guard config.consents.contains(identity) || consentThisSession.contains(identity) else {
             let alert = UIAlertController(title: L("发送到 AI 服务", "Send to AI service"), message: "\(provider.name)\n\(identity)\n\n" + L("仅发送当前 Buffer 原文，不读取宿主全文。接收方的数据政策适用。", "Only the current Buffer text will be sent. Host documents are not read. The recipient's data policy applies."), preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: L("取消", "Cancel"), style: .cancel))
-            alert.addAction(UIAlertAction(title: L("同意并发送", "Agree and send"), style: .default) { [weak self] _ in self?.consentThisSession.insert(identity); self?.generate() }); present(alert, animated: true); return
+            alert.addAction(UIAlertAction(title: L("同意并发送", "Agree and send"), style: .default) { [weak self] _ in self?.consentThisSession.insert(identity); self?.generate(plugin) }); present(alert, animated: true); return
         }
         do {
             let key = try secrets.read(provider.id)
             guard !key.isEmpty else { status.text = L("请在 App 中保存 API Key", "Save your API Key in the app"); return }
-            cancelRequest(); buffer.invalidateResult(); selectedPlugin = "ai.\(aiAction.rawValue)"; refreshPluginMenu()
-            run(AITextPlugin(provider: provider, key: key, consent: identity, action: aiAction), delay: 0)
-        } catch { status.text = (error as? CoreError)?.localizedDescription ?? L("无法读取 AI 配置", "Unable to read AI configuration"); render() }
+            cancelRequest(); buffer.invalidateResult(); status.text = ""
+            // Text art is forced onto its grid, one row per block, so rows sent one by one keep the frame.
+            let art = preferences.art
+            let shape: ((String) -> [String])? = plugin == .art ? { reply in
+                let rows = TextArt.normalize(reply, options: art)
+                return rows.enumerated().map { $0.offset == rows.count - 1 ? $0.element : $0.element + "\n" }
+            } : nil
+            run(AITextPlugin(id: plugin.rawValue, title: plugin.title, provider: provider, key: key, consent: identity, instruction: instruction, shape: shape), delay: 0)
+        } catch { status.text = (error as? CoreError)?.localizedDescription ?? L("无法读取 AI 配置", "Unable to read AI configuration") }
     }
     #if KEYBOARD_LAYOUT_TESTS
     var layoutViews: (buffer: UIView, candidates: CandidateStrip, keys: KeySurface, settings: KeycapButton, bottom: UIStackView, source: SingleLineTextView, insert: InsertKeycapButton, globe: KeycapButton, result: SingleLineTextView, stop: KeycapButton) {
@@ -750,6 +1194,25 @@ final class KeyboardViewController: UIInputViewController {
     func developmentChoose(_ value: InputScheme) { preferences.select(value); choose(value); render() }
     func developmentChord(_ text: String) { type(text, chord: true) }
     var developmentHandPreview: ChordHandPreviewView { handPreview }
+    var developmentShortcuts: PluginShortcutBar { shortcuts }
+    var developmentSelectedPlugin: KeyboardPlugin? { selectedPlugin }
+    var developmentPluginControls: (run: KeycapButton, plugin: KeycapButton, settings: KeycapButton) { (runButton, aiButton, settingsButton) }
+    func developmentHostResigned() { hostResigned() }
+    func developmentPreview(_ text: String) { if let id = buffer.generation { buffer.receive(text, id: id); render() } }
+    /// Opens a plugin with sample text, optionally a finished output or a running request.
+    func developmentPlugin(_ plugin: KeyboardPlugin?, source: String, output: String? = nil, generating: Bool = false) {
+        cancelRequest(); buffer = .init(); bufferEnabled = true; selectedPlugin = plugin; panelOpen = false; breakAssociationChain()
+        buffer.edit(source)
+        if let output { let id = buffer.begin(); buffer.finish(output, id: id) }
+        if generating { _ = buffer.begin() }
+        status.text = ""; refreshPluginMenu(); render()
+    }
+    func developmentSkin(_ skin: StatusSkin) { preferences.statusSkin = skin.rawValue; render() }
+    func developmentOpenSettings() { openSettings(for: selectedPlugin) }
+    func developmentClosePanel() { closePanel() }
+    func developmentClearAssociations() { breakAssociationChain(); render() }
+    func developmentFinish(_ output: String) { if let id = buffer.generation { buffer.finish(output, id: id); render() } }
+    var developmentPanel: KeyboardPanel? { panelOpen ? panel : nil }
     var developmentSpaceKey: SpaceCursorButton { spaceKey }
     var developmentBufferSelection: Range<Int>? { buffer.selection }
     var developmentAssociations: [String] { showingAssociations ? associations : [] }
@@ -764,9 +1227,15 @@ final class KeyboardViewController: UIInputViewController {
     func developmentEnter() { enter() }
     func developmentSpace() { space() }
     func developmentBackspace() { backspace() }
+    func developmentHostTextChanged() { hostTextChanged() }
+    func developmentCaptureHostText() { captureHostText() }
+    var developmentCapturePending: Bool { captureTimer != nil }
     func developmentAutoDelay(_ delay: Double) { setDefaultDelay(delay); render() }
     func developmentAutoTick() { tickDefaultBuffer() }
     var developmentTypingMetrics: BufferLiveTypingMetrics { liveTyping }
+    var developmentTypingSession: TypingSessionTotals { session }
+    func developmentRefreshTypingStats() { updateTypingStats() }
+    func developmentAppendSignature() { appendTypingSignature() }
     var developmentDelete: RepeatKeycapButton { deleteButton }
     var developmentRaw: String { engine.rawInput }
     func developmentSetLayout(_ value: ChordLayout) { changeLayout(value) }
@@ -776,7 +1245,7 @@ final class KeyboardViewController: UIInputViewController {
         snapshot = .init(preedit: preedit, candidates: candidates); render()
     }
     func developmentBuffer(_ text: String?, plugin: Bool = false, output: String? = nil, generating: Bool = false) {
-        buffer = .init(); bufferEnabled = text != nil; selectedPlugin = plugin ? appleTranslation.descriptor.id : nil
+        buffer = .init(); bufferEnabled = text != nil; selectedPlugin = plugin ? .translate : nil
         if let text { buffer.edit(text) }
         if let output { let id = buffer.begin(); buffer.finish(output, id: id) }
         if generating { _ = buffer.begin() }
@@ -789,11 +1258,115 @@ final class KeyboardViewController: UIInputViewController {
         loadViewIfNeeded(); preferences = .init(); choose(chord ? .chord : .pinyin)
         self.expanded = expanded; bufferEnabled = bufferText != nil
         if let bufferText {
-            selectedPlugin = appleTranslation.descriptor.id; buffer.edit(bufferText); let id = buffer.begin(); buffer.finish("Hello, this is the translation preview.", id: id); refreshPluginMenu()
+            selectedPlugin = .translate; buffer.edit(bufferText); let id = buffer.begin(); buffer.finish("Hello, this is the translation preview.", id: id); refreshPluginMenu()
         }
         snapshot = .init(preedit: "nihao", candidates: ["你好", "您好", "你们好", "你好世界", "拟好", "倪皓"])
         render(); return (bufferPanel, candidateStrip, surface)
     }
     #endif
 
+}
+
+/// Our own buffer between a stream and the output line. Tokens come in bursts; the line reveals
+/// them at an even pace that speeds up with the backlog (so it never lags far behind) and
+/// follows the newest text smoothly, until the reader drags the line themselves.
+@MainActor final class StreamReveal: NSObject {
+    private weak var line: SingleLineTextView?
+    private let settled: () -> Void
+    private var target: [Character] = []
+    private var shown: Double = 0
+    private var finished = false
+    private var link: CADisplayLink?
+    private var last: CFTimeInterval = 0
+    private(set) var following = true
+    /// True while characters are still being revealed.
+    var isActive: Bool { link != nil }
+    init(line: SingleLineTextView, settled: @escaping () -> Void) { self.line = line; self.settled = settled }
+    /// A new stream: follow it. What is already shown stays, so a revised text continues from
+    /// the part that still matches.
+    func start() { link?.invalidate(); link = nil; following = true; finished = false; line?.scrollToStart() }
+    func isBehind(_ text: String) -> Bool { Int(shown) < text.count }
+    /// Empty line, nothing pending.
+    func clear() { stop(); line?.text = "" }
+    func stop() { link?.invalidate(); link = nil; target = []; shown = 0; finished = false }
+    func feed(_ text: String, finished done: Bool) {
+        let next = Array(text)
+        if !next.starts(with: target) { shown = min(shown, Double(zip(next, target).prefix { $0 == $1 }.count)) }
+        target = next; finished = done
+        guard link == nil else { return }
+        guard Int(shown) < target.count else { if done { settled() }; return }
+        last = CACurrentMediaTime()
+        let link = CADisplayLink(target: self, selector: #selector(tick(_:))); link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+    @objc private func tick(_ link: CADisplayLink) {
+        guard let line else { stop(); return }
+        let now = link.timestamp, dt = min(0.1, max(0, now - last)); last = now
+        let backlog = Double(target.count) - shown
+        // At least ~28 characters a second, and fast enough to clear any backlog in ~0.45 s.
+        shown = min(Double(target.count), shown + max(28, backlog / 0.45) * dt)
+        let text = String(target.prefix(Int(shown)))
+        if line.text != text { line.text = text }
+        if line.isTracking || line.isDragging { following = false }
+        if following {
+            line.layoutIfNeeded()
+            // Ease towards the end of the text rather than jumping to it.
+            let end = max(0, line.contentSize.width - line.bounds.width), gap = end - line.contentOffset.x
+            if gap > 0.5 { line.contentOffset.x += max(0.5, gap * 0.2) }
+        }
+        guard Int(shown) >= target.count else { return }
+        // Caught up: rest until more arrives, or hand over to the finished blocks.
+        self.link?.invalidate(); self.link = nil
+        if finished { settled() }
+    }
+}
+
+/// The model's thinking as subtitles: the newest complete sentence, faded in and held long
+/// enough to read. If thinking outpaces reading, older sentences are skipped — the caption is
+/// never behind, and never delays the answer.
+@MainActor final class ThinkingCaption {
+    static let dwell: CFTimeInterval = 1.1
+    private weak var line: SingleLineTextView?
+    private var latest = "", shown = ""
+    private var lastChange: CFTimeInterval = 0
+    private var timer: Timer?
+    init(line: SingleLineTextView) { self.line = line }
+    var current: String { shown }
+    func update(_ reasoning: String) {
+        latest = Self.caption(reasoning)
+        guard !latest.isEmpty else { return }
+        if shown.isEmpty || CACurrentMediaTime() - lastChange >= Self.dwell { show() }
+        guard timer == nil else { return }
+        let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.latest != self.shown, CACurrentMediaTime() - self.lastChange >= Self.dwell else { return }
+                self.show()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common); self.timer = timer
+    }
+    func stop() { timer?.invalidate(); timer = nil; latest = ""; shown = "" }
+    private func show() {
+        guard let line, latest != shown else { return }
+        shown = latest; lastChange = CACurrentMediaTime()
+        let fade = CATransition(); fade.type = .fade; fade.duration = 0.25
+        line.layer.add(fade, forKey: "caption")
+        line.text = shown; line.layoutIfNeeded()
+        // A sentence wider than the line shows its newest words.
+        line.contentOffset.x = max(0, line.contentSize.width - line.bounds.width)
+    }
+    /// The last finished sentence; before the first one finishes, a long enough unfinished tail.
+    static func caption(_ text: String) -> String {
+        let enders: Set<Character> = ["。", "！", "？", ".", "!", "?", "；", ";", "…"]
+        var sentences: [String] = [], current = ""
+        for c in text {
+            current.append(c)
+            if enders.contains(c) {
+                let s = current.trimmingCharacters(in: .whitespaces); if s.count > 1 { sentences.append(s) }; current = ""
+            }
+        }
+        let tail = current.trimmingCharacters(in: .whitespaces)
+        if let last = sentences.last, tail.count < 24 { return String(last.suffix(80)) }
+        return tail.count >= 10 ? String(tail.suffix(80)) : ""
+    }
 }
