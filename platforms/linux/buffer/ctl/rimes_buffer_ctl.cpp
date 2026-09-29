@@ -133,14 +133,27 @@ int main(int argc, char** argv) {
         return 1;
     }
     const std::string command = std::string("{\"v\":1,\"op\":\"") + wire_op + "\"}";
+    // AcceptClient publishes immediately. Drain that snapshot so mutating
+    // ops wait for HandleCommand's later Publish on the Fcitx thread.
+    std::string connect_snapshot;
+    if (!ReadSnapshot(fd, &connect_snapshot, 3000)) {
+        close(fd);
+        std::cerr << "rimes-buffer-ctl: no snapshot\n";
+        return 1;
+    }
     if (!SendJson(fd, command)) {
         close(fd);
         return 1;
     }
+    if (wire_op == "hello" || wire_op == "status") {
+        std::cout << connect_snapshot << '\n';
+        close(fd);
+        return 0;
+    }
     std::string snapshot;
     if (!ReadSnapshot(fd, &snapshot, 3000)) {
         close(fd);
-        std::cerr << "rimes-buffer-ctl: no snapshot\n";
+        std::cerr << "rimes-buffer-ctl: no snapshot after " << op << '\n';
         return 1;
     }
     std::cout << snapshot << '\n';

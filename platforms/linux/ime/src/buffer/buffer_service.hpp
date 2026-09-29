@@ -87,6 +87,7 @@ private:
     rimes::buffer::BufferModel model_;
     rimes::buffer::ReturnGesture gesture_;
     std::string socket_path_;
+    std::string dump_path_;
     int listen_fd_ = -1;
     std::vector<Client> clients_;
     std::recursive_mutex clients_mu_;

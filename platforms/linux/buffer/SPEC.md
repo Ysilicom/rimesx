@@ -45,7 +45,8 @@ content; blocks are not persisted.
    workbench, and keeps blocks.
 3. While capturing, Space/number commits go to Buffer, not the host.
 4. While capturing, a composing Return is fed to Rime so it can settle into a
-   block. That same physical press must not send.
+   block. rime_ice uses `commit_raw_input`, so `nihao` + Return stages
+   `nihao`. That same physical press must not send.
 5. A ready Return tap (`< 1.2s`) is `sendNext`. Holding Return for 1.2s is
    `sendAll`. The paper-plane button is `sendNext` only.
 6. Backspace edits an open direct tail or removes the last block. It never
@@ -115,7 +116,13 @@ The IME owns the model. The UI and `rimes-buffer-ctl` are clients.
 
 Commands: `hello`, `status`, `toggle`, `show`, `close`, `send_next`,
 `send_all`, `remove_last`, `select_all`, `paste`, `set_insertion`.
+Connecting publishes the current snapshot immediately; mutating commands
+are applied on the Fcitx thread and publish again. `rimes-buffer-ctl`
+and the DBus e2e client drain the connect snapshot before treating a
+mutating op as done.
 
-Environment for tests: `RIMES_BUFFER_HEADLESS=1` (no GTK spawn),
+Environment for tests: `RIMES_BUFFER_HEADLESS=1` (no GTK spawn; ignore
+focus-out so testfrontend/DBus virtual ICs keep capture),
 `RIMES_BUFFER_AUTO_CAPTURE=1` (capture on activate),
-`RIMES_BUFFER_CLOSE_AFTER_LAST=0`.
+`RIMES_BUFFER_CLOSE_AFTER_LAST=0`,
+`RIMES_BUFFER_DUMP=/path.json` (atomic snapshot file for in-process e2e).

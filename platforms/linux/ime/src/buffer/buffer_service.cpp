@@ -2,6 +2,7 @@
 
 #include <cerrno>
 #include <chrono>
+#include <cstdio>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -99,12 +100,14 @@ BufferService::BufferService(Instance* instance, PostFn post)
     : instance_(instance),
       post_(std::move(post)),
       socket_path_(DefaultSocketPath()),
+      dump_path_(std::getenv("RIMES_BUFFER_DUMP") ? std::getenv("RIMES_BUFFER_DUMP") : ""),
       auto_capture_(EnvFlag("RIMES_BUFFER_AUTO_CAPTURE")),
       headless_(EnvFlag("RIMES_BUFFER_HEADLESS")) {
     if (const char* close_after = std::getenv("RIMES_BUFFER_CLOSE_AFTER_LAST")) {
         model_.set_close_after_last(std::strcmp(close_after, "0") != 0);
     }
     StartSocket();
+    Publish();
 }
 
 BufferService::~BufferService() {
@@ -328,6 +331,9 @@ void BufferService::OnActivate(InputContext* ic) {
         return;
     }
     const auto token = TokenFor(ic);
+    FCITX_LOGC(rimes_buffer_log, Info)
+        << "activate token=" << token << " capturing=" << model_.capture_enabled()
+        << " auto=" << auto_capture_ << " headless=" << headless_;
     if (model_.capture_enabled() && !model_.captures(token)) {
         model_.route_direct_preserving_content("focus-changed");
         gesture_.cancel();
@@ -341,8 +347,16 @@ void BufferService::OnActivate(InputContext* ic) {
 }
 
 void BufferService::OnDeactivate(InputContext* ic, bool switching_im) {
+    FCITX_LOGC(rimes_buffer_log, Info)
+        << "deactivate switch_im=" << switching_im << " headless=" << headless_
+        << " capturing=" << model_.capture_enabled();
     if (switching_im && model_.captures(TokenFor(ic))) {
         CloseAndPause();
+        return;
+    }
+    if (headless_) {
+        // testfrontend / DBus virtual ICs lose and regain focus around deploy
+        // and between synthetic keys. That is not a user field change.
         return;
     }
     if (model_.captures(TokenFor(ic))) {
@@ -374,6 +388,10 @@ void BufferService::OnPasswordField(InputContext* ic, bool password) {
 }
 
 void BufferService::Toggle(InputContext* ic) {
+    FCITX_LOGC(rimes_buffer_log, Info)
+        << "toggle visible=" << model_.visible()
+        << " capturing=" << model_.capture_enabled()
+        << " token=" << model_.capture_token();
     if (model_.visible() && model_.capture_enabled()) {
         CloseAndPause();
         return;
@@ -757,7 +775,20 @@ void BufferService::WriteAll(const std::string& payload) {
 }
 
 void BufferService::Publish() {
-    WriteAll(rimes::buffer::EncodeSnapshot(rimes::buffer::MakeSnapshot(model_)));
+    const auto json = rimes::buffer::EncodeSnapshot(rimes::buffer::MakeSnapshot(model_));
+    WriteAll(json);
+    if (dump_path_.empty()) {
+        return;
+    }
+    const auto tmp = dump_path_ + ".tmp";
+    FILE* file = std::fopen(tmp.c_str(), "w");
+    if (file == nullptr) {
+        return;
+    }
+    std::fwrite(json.data(), 1, json.size(), file);
+    std::fputc('\n', file);
+    std::fclose(file);
+    std::rename(tmp.c_str(), dump_path_.c_str());
 }
 
 void BufferService::ArmHoldTimer() {

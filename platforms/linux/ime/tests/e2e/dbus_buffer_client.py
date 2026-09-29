@@ -40,6 +40,30 @@ def socket_path() -> str:
     return f"/tmp/rimes-buffer-{os.getuid()}.sock"
 
 
+def _recv_snapshot(sock: socket.socket) -> dict:
+    header = sock.recv(4)
+    if len(header) < 4:
+        raise RuntimeError("short header")
+    (length,) = struct.unpack(">I", header)
+    body = b""
+    while len(body) < length:
+        chunk = sock.recv(length - len(body))
+        if not chunk:
+            raise RuntimeError("short body")
+        body += chunk
+    return json.loads(body.decode())
+
+
+def _matches(op: str, snapshot: dict, baseline_generation: int) -> bool:
+    if op in ("hello", "status"):
+        return True
+    if op == "show":
+        return bool(snapshot.get("capturing"))
+    if op == "close":
+        return not snapshot.get("visible")
+    return int(snapshot.get("generation") or 0) > baseline_generation
+
+
 def ctl(op: str, timeout: float = 3.0) -> dict:
     path = socket_path()
     deadline = time.monotonic() + timeout
@@ -49,21 +73,31 @@ def ctl(op: str, timeout: float = 3.0) -> dict:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             sock.settimeout(2.0)
             sock.connect(path)
+            # AcceptClient publishes the current model before the command runs
+            # on the Fcitx thread. Drain that snapshot, then wait for the
+            # command's Publish.
+            connect_snapshot = _recv_snapshot(sock)
             payload = json.dumps({"v": 1, "op": op}).encode()
             sock.sendall(struct.pack(">I", len(payload)) + payload)
-            header = sock.recv(4)
-            if len(header) < 4:
-                raise RuntimeError("short header")
-            (length,) = struct.unpack(">I", header)
-            body = b""
-            while len(body) < length:
-                chunk = sock.recv(length - len(body))
-                if not chunk:
-                    raise RuntimeError("short body")
-                body += chunk
+            baseline = int(connect_snapshot.get("generation") or 0)
+            if op in ("hello", "status") or (
+                op == "show" and connect_snapshot.get("capturing")
+            ) or (op == "close" and not connect_snapshot.get("visible")):
+                sock.close()
+                return connect_snapshot
+            last = connect_snapshot
+            while time.monotonic() < deadline:
+                sock.settimeout(max(0.05, deadline - time.monotonic()))
+                last = _recv_snapshot(sock)
+                if _matches(op, last, baseline):
+                    sock.close()
+                    return last
             sock.close()
-            return json.loads(body.decode())
+            return last
         except OSError as error:
+            last_error = error
+            time.sleep(0.1)
+        except RuntimeError as error:
             last_error = error
             time.sleep(0.1)
     raise RuntimeError(f"buffer socket failed: {last_error}")

@@ -43,8 +43,9 @@ For each host above, switch to **RIMES** (雾凇全拼) first.
    remaining chips are inserted in order and disappear. The 2px progress bar
    appears while holding.
 7. **Settle without sending.** Type `nihao` (do not press Space) then Return.
-   Composition becomes a chip. That same press must not insert into the host.
-   A second Return sends the chip.
+   rime_ice maps Return to `commit_raw_input`, so the chip is `nihao` (not
+   `你好`). That same press must not insert into the host. A second Return
+   sends the chip.
 8. **Backspace.** Stage one chip, press Backspace. The chip is gone. The host
    does not delete existing text.
 9. **Escape / hotkey close.** Stage a chip, press Escape (or the hotkey, or
