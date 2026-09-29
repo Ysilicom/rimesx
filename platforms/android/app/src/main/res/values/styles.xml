@@ -1,0 +1,8 @@
+<resources>
+    <style name="RimesTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#117F78</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>
+

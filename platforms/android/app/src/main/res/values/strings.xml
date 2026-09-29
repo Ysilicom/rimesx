@@ -1,0 +1,24 @@
+<resources>
+    <string name="app_name">RIMES Dev</string>
+    <string name="english_keyboard">English</string>
+    <string name="welcome">RIMES for Android</string>
+    <string name="scope">Development preview: English, numbers, symbols and an in-memory Buffer. Chinese input and AI are still being developed.</string>
+    <string name="privacy">Typing stays on this device. Buffer drafts clear when the keyboard closes or the input field changes. Buffer is disabled in password and private fields.</string>
+    <string name="enable_keyboard">Enable keyboard</string>
+    <string name="choose_keyboard">Choose keyboard</string>
+    <string name="try_typing">Try typing here</string>
+    <string name="second_field">Second field — test target switching</string>
+    <string name="password_field">Password — Buffer must stay off</string>
+    <string name="buffer_on">Buffer on</string>
+    <string name="buffer_off">Buffer off</string>
+    <string name="buffer_empty">Compose before inserting</string>
+    <string name="insert_next">Insert</string>
+    <string name="insert_all">Insert all</string>
+    <string name="clear">Clear</string>
+    <string name="backspace">Delete</string>
+    <string name="space">Space</string>
+    <string name="enter">Enter</string>
+    <string name="switch_keyboard">Switch keyboard</string>
+    <string name="buffer_limit">Buffer is full. Insert or clear it first.</string>
+</resources>
+
