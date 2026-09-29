@@ -7,7 +7,6 @@ on:
   pull_request:
     branches:
       - main
-      - cursor/linux-fcitx5-ime-ba51
     paths:
       - "platforms/linux/**"
       - "rime-data/**"
@@ -16,7 +15,6 @@ on:
   push:
     branches:
       - main
-      - cursor/linux-fcitx5-ime-ba51
     paths:
       - "platforms/linux/**"
       - "rime-data/**"

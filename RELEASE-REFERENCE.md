@@ -147,11 +147,16 @@ CI 和 `scripts/release.sh` 都会用 `--check` 阻止版本或文档漂移。�
 | `CI`（[ci.yml](.github/workflows/ci.yml)） | push / PR 到 main | 发布工具单元测试、`release.sh` 语法、`Info.plist` 版本占位、PR 提交信息、公开 Release 驱动的 CHANGELOG 警告；以及 macOS `swift build` 与纯 Swift smoke |
 | `Platform Preview Data` | 每周 / 手动 | 跨平台数据闭包校验与 Windows / Linux 包事务；维护性检查，不阻断 macOS 发布 |
 | `Windows Native Foundation` | 每周 / 手动 | Windows 原生 x64 / x86 构建与测试；维护性检查，不阻断 macOS 发布 |
+| `Windows IME` | 相关路径的 PR / push 到 main、手动 | x64 / x86 构建、Fake TSF + 真 Broker 打字测试和独立 Artifact；不是安装包发布 |
+| `Linux IME` | 相关路径的 PR / push 到 main、手动 | Fcitx5 / Buffer / Capsule 构建与 headless E2E、独立 Artifact |
+| `iOS checks` | 相关路径的 PR / push 到 main、手动 | 共享测试、iOS 构建和模拟器测试；无商店提交 |
+| `Release iOS to App Store` | `ios-v*` tag | 必须来自 main 历史；独立签名、build number 与审核流程，见 iOS CI_RELEASE.md |
 | `Release macOS`（演练） | 打包相关 PR、每日定时、手动 | 完整通用构建、打包、从最新 Release 升级安装，不发布 |
 | `Release macOS`（发布） | `v*` tag | 见第一节 |
 
 main 的 ruleset 只要求 `CI` 的 `Release tooling` 与 macOS `build` 成功；`Release macOS` 演练带路径过滤，
-不作为必需检查，由定时运行兜底。Windows / Linux 维护 workflow 不属于 PR 或 macOS 发布门禁。
+不作为必需检查，由定时运行兜底。Windows / Linux IME 的 PR 检查提供平台证据，但不加入 macOS
+发布门禁；平台验收与正式发布是各自独立的决定。完整维护约定见 [MAINTENANCE.md](MAINTENANCE.md)。
 
 ## 六、安装器（[`scripts/make-pkg.sh`](scripts/make-pkg.sh)）
 
