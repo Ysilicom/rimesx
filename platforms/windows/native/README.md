@@ -20,8 +20,8 @@ The in-process TSF DLL stays small:
 
 TSF still must not load `librime` or do network I/O. Broker failure fail-opens.
 
-This is not a signed Windows release. Buffer, Capsule, Mailbox, MSI, and
-SmartScreen are out of scope.
+This is not a signed Windows release. Buffer, Capsule, Mailbox, installation
+and signing are upcoming milestones in the [platform roadmap](../../../PLATFORM-ROADMAP.md).
 
 ## Interaction (macOS-aligned)
 
@@ -104,6 +104,35 @@ With no path flags, Broker uses:
 First TSF activation also launches `RimesBroker.exe` from the same directory
 as `RimesTsf.dll` when the pipe is missing.
 
+## Product shared data
+
+The native Broker needs the product Lua files as well as OpenCC's standard
+`s2t.json` and its referenced dictionaries. The pinned DLL does not supply them.
+Stage a complete data directory using Python 3.10+ and an explicit OpenCC build:
+
+```powershell
+python ..\scripts\prepare-native-data.py stage `
+  --opencc-data C:\OpenCC\share\opencc `
+  --opencc-license C:\OpenCC\source\LICENSE `
+  --opencc-revision 'REPLACE_WITH_FULL_OPENCC_SOURCE_COMMIT' `
+  --output C:\RimesTest\shared
+python ..\scripts\prepare-native-data.py verify C:\RimesTest\shared
+python -m unittest discover -s ..\tests -p test_native_data.py
+```
+
+Use a new output directory. The tool copies only the reviewed 55-file RIMES
+closure, the dictionaries referenced by `s2t.json`, and OpenCC's license. The
+standard configuration adds four files (59 total, plus the manifest). It refuses
+missing dependencies, unsafe paths, symlinks and existing output; verification
+detects extra files and changed bytes after transfer. The source revision records
+the supplied OpenCC build's provenance; the manifest is not a signature or an
+independent attestation of that external build.
+
+Place the resulting `shared` beside `RimesBroker.exe` or pass `--shared-data-dir`.
+Run `RimesEngineSmoke` with the matching-architecture DLL and a **fresh test user
+directory**, then complete [real-host checks](MANUAL-TEST.md). Successful staging
+alone does not prove Windows librime, TSF or a signed installer works.
+
 ## Safety boundaries
 
 - The TSF DLL must not perform network requests or load `librime`.
@@ -116,8 +145,8 @@ as `RimesTsf.dll` when the pipe is missing.
 
 ## Later-step blockers
 
-- Product `rime_ice` still needs the RIMES lua tree in shared data; the
-  official MSVC `rime.dll` embeds librime-lua but not those scripts.
+- Product data can now be staged with the tool above. The complete product
+  schemas still need to be exercised on Windows with the pinned MSVC DLL.
 - Display-attribute underline depends on the host querying
   `ITfDisplayAttributeProvider`. The registrar does not add a new TSF
   category, so some hosts may skip the dotted underline.
