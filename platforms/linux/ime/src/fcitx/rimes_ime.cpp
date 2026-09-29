@@ -1,6 +1,7 @@
 #include "rimes_ime.hpp"
 
 #include <filesystem>
+#include <functional>
 
 #include <fcitx-utils/log.h>
 #include <fcitx/inputcontextmanager.h>
@@ -54,6 +55,15 @@ RimesIme::RimesIme(Instance* instance)
         FCITX_LOGC(rimes_log, Info)
             << "librime background deploy started; keys pass through until ready";
     }
+
+    buffer_ = std::make_unique<BufferService>(
+        instance_, [this, alive = alive_](std::function<void()> work) {
+            dispatcher_.schedule([this, alive, work = std::move(work)]() {
+                if (alive && alive->load()) {
+                    work();
+                }
+            });
+        });
 }
 
 RimesIme::~RimesIme() {
@@ -95,9 +105,13 @@ void RimesIme::OnDeployReady() {
 void RimesIme::keyEvent(const InputMethodEntry& entry, KeyEvent& keyEvent) {
     FCITX_UNUSED(entry);
     auto* state = keyEvent.inputContext()->propertyFor(&factory_);
-    if (state != nullptr) {
-        state->keyEvent(keyEvent);
+    if (state == nullptr) {
+        return;
     }
+    if (buffer_ && buffer_->HandleEarlyKey(keyEvent, state->composing())) {
+        return;
+    }
+    state->keyEvent(keyEvent);
 }
 
 void RimesIme::activate(const InputMethodEntry& entry, InputContextEvent& event) {
@@ -106,6 +120,9 @@ void RimesIme::activate(const InputMethodEntry& entry, InputContextEvent& event)
     if (state != nullptr) {
         state->activate();
     }
+    if (buffer_) {
+        buffer_->OnActivate(event.inputContext());
+    }
 }
 
 void RimesIme::deactivate(const InputMethodEntry& entry, InputContextEvent& event) {
@@ -113,6 +130,10 @@ void RimesIme::deactivate(const InputMethodEntry& entry, InputContextEvent& even
     auto* state = event.inputContext()->propertyFor(&factory_);
     if (state != nullptr) {
         state->deactivate(event);
+    }
+    if (buffer_) {
+        buffer_->OnDeactivate(event.inputContext(),
+                              event.type() == EventType::InputContextSwitchInputMethod);
     }
 }
 
@@ -137,9 +158,11 @@ std::string RimesIme::subMode(const InputMethodEntry& entry, InputContext& input
 }
 
 void RimesIme::commitText(InputContext* ic, std::string_view text) {
-    // Single commit path. Buffer/Capsule/Mailbox must hook here later.
     static_cast<void>(rimes::linuxime::kCommitHookNote);
     if (ic == nullptr || text.empty()) {
+        return;
+    }
+    if (buffer_ && buffer_->OnCommit(ic, text)) {
         return;
     }
     ic->commitString(std::string(text));

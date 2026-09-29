@@ -22,6 +22,7 @@ public:
     void page(bool next);
     void applySnapshot(const rimes::linuxime::EngineSnapshot& snapshot);
     std::string schemaId() const { return schema_id_; }
+    bool composing() const { return composing_; }
 
 private:
     rimes::linuxime::RimeEngine::SessionId EnsureSession();

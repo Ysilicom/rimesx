@@ -11,6 +11,7 @@
 #include <fcitx/inputmethodengine.h>
 #include <fcitx/instance.h>
 
+#include "buffer/buffer_service.hpp"
 #include "engine/rime_engine.hpp"
 
 namespace fcitx {
@@ -31,8 +32,10 @@ public:
     Instance* instance() { return instance_; }
     rimes::linuxime::RimeEngine& engine() { return engine_; }
     FactoryFor<RimesState>& factory() { return factory_; }
+    BufferService& buffer() { return *buffer_; }
 
-    // Single commit path. Later Linux Buffer hooks here (see rime_hooks.hpp).
+    // Single commit path. Buffer intercepts here the way macOS intercepts
+    // before Delivery.insert (see rime_hooks.hpp).
     void commitText(InputContext* ic, std::string_view text);
 
     void applySnapshot(InputContext* ic, const rimes::linuxime::EngineSnapshot& snapshot);
@@ -46,6 +49,7 @@ private:
     FactoryFor<RimesState> factory_;
     EventDispatcher dispatcher_;
     std::shared_ptr<std::atomic<bool>> alive_;
+    std::unique_ptr<BufferService> buffer_;
     bool deploy_announced_ = false;
 };
 

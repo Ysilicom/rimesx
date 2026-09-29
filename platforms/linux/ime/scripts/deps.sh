@@ -13,18 +13,20 @@ Debian / Ubuntu (Noble and later):
     librime-dev librime-plugin-lua librime-bin \
     libopencc-dev libopencc-data \
     xvfb xdotool dbus-x11 python3-gi gir1.2-gtk-3.0 libgtk-3-dev \
-    qtbase5-dev fonts-noto-cjk weston wtype
+    libgtk-layer-shell-dev \
+    qtbase5-dev fonts-noto-cjk weston wtype sway
 
 Arch:
   sudo pacman -S --needed base-devel cmake extra-cmake-modules fcitx5 fcitx5-qt \
     librime librime-lua opencc pkgconf gettext gtk3 qt5-base \
-    xorg-server-xvfb xdotool python-gobject weston wtype
+    xorg-server-xvfb xdotool python-gobject weston wtype \
+    gtk-layer-shell sway
 
 Fedora:
   sudo dnf install gcc-c++ cmake extra-cmake-modules pkgconf-pkg-config gettext \
     fcitx5-devel librime-devel librime-lua opencc-devel \
     gtk3-devel qt5-qtbase-devel xorg-x11-server-Xvfb xdotool \
-    python3-gobject weston wtype
+    python3-gobject weston wtype gtk-layer-shell sway
 EOF
 }
 
@@ -37,7 +39,8 @@ if [[ "${1:-}" == "--install" ]]; then
             librime-dev librime-plugin-lua librime-bin \
             libopencc-dev libopencc-data \
             xvfb xdotool dbus-x11 python3-gi gir1.2-gtk-3.0 libgtk-3-dev \
-            qtbase5-dev fonts-noto-cjk weston wtype
+            libgtk-layer-shell-dev \
+            qtbase5-dev fonts-noto-cjk weston wtype sway
     else
         echo "Use --print and install the matching packages for this distro." >&2
         exit 1

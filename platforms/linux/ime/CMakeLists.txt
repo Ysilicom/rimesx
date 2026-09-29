@@ -18,6 +18,8 @@ find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
 pkg_check_modules(Rime REQUIRED IMPORTED_TARGET rime>=1.7.0)
 
+set(RIMES_BUFFER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../buffer")
+
 function(rimes_harden target)
     target_compile_options(${target} PRIVATE
         -Wall
@@ -27,6 +29,18 @@ function(rimes_harden target)
         -Wno-missing-field-initializers
     )
 endfunction()
+
+add_library(RimesBufferCore STATIC
+    "${RIMES_BUFFER_ROOT}/core/buffer_ids.cpp"
+    "${RIMES_BUFFER_ROOT}/core/buffer_model.cpp"
+    "${RIMES_BUFFER_ROOT}/core/buffer_protocol.cpp"
+    "${RIMES_BUFFER_ROOT}/core/buffer_return.cpp"
+)
+target_include_directories(RimesBufferCore PUBLIC
+    "${RIMES_BUFFER_ROOT}/core"
+)
+set_target_properties(RimesBufferCore PROPERTIES POSITION_INDEPENDENT_CODE ON)
+rimes_harden(RimesBufferCore)
 
 add_library(RimesEngine STATIC
     src/engine/rime_engine.cpp
@@ -51,8 +65,9 @@ if(RIMES_BUILD_FCITX5)
         src/fcitx/rimes_candidate.cpp
         src/fcitx/rimes_ime.cpp
         src/fcitx/rimes_state.cpp
+        src/buffer/buffer_service.cpp
     )
-    target_link_libraries(rimes PRIVATE Fcitx5::Core RimesEngine)
+    target_link_libraries(rimes PRIVATE Fcitx5::Core RimesEngine RimesBufferCore)
     target_compile_definitions(rimes PRIVATE
         RIMES_INSTALL_SHARED_DIR="${CMAKE_INSTALL_FULL_DATADIR}/rimes/data"
     )
@@ -87,6 +102,39 @@ if(RIMES_BUILD_FCITX5)
             DESTINATION "${FCITX_INSTALL_PKGDATADIR}/inputmethod")
     install(FILES "${CMAKE_BINARY_DIR}/org.fcitx.Fcitx5.Addon.Rimes.metainfo.xml"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/metainfo")
+
+    pkg_check_modules(GTK3 gtk+-3.0)
+    if(GTK3_FOUND)
+        pkg_check_modules(GTK_LAYER_SHELL gtk-layer-shell-0)
+        add_executable(rimes-buffer
+            "${RIMES_BUFFER_ROOT}/ui/rimes_buffer_app.cpp"
+        )
+        target_include_directories(rimes-buffer PRIVATE ${GTK3_INCLUDE_DIRS})
+        target_link_libraries(rimes-buffer PRIVATE RimesBufferCore ${GTK3_LIBRARIES})
+        target_compile_options(rimes-buffer PRIVATE ${GTK3_CFLAGS_OTHER})
+        if(GTK_LAYER_SHELL_FOUND)
+            target_include_directories(rimes-buffer PRIVATE ${GTK_LAYER_SHELL_INCLUDE_DIRS})
+            target_link_libraries(rimes-buffer PRIVATE ${GTK_LAYER_SHELL_LIBRARIES})
+            target_compile_options(rimes-buffer PRIVATE ${GTK_LAYER_SHELL_CFLAGS_OTHER})
+            target_compile_definitions(rimes-buffer PRIVATE HAVE_GTK_LAYER_SHELL=1)
+        endif()
+        rimes_harden(rimes-buffer)
+        set_target_properties(rimes-buffer PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+        )
+        install(TARGETS rimes-buffer DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/rimes")
+        install(TARGETS rimes-buffer DESTINATION "${CMAKE_INSTALL_BINDIR}")
+    endif()
+
+    add_executable(rimes-buffer-ctl
+        "${RIMES_BUFFER_ROOT}/ctl/rimes_buffer_ctl.cpp"
+    )
+    target_link_libraries(rimes-buffer-ctl PRIVATE RimesBufferCore)
+    rimes_harden(rimes-buffer-ctl)
+    set_target_properties(rimes-buffer-ctl PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+    )
+    install(TARGETS rimes-buffer-ctl DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
 
 if(RIMES_BUILD_TESTS)
@@ -106,9 +154,30 @@ if(RIMES_BUILD_TESTS)
     target_link_libraries(rimes-engine-smoke PRIVATE RimesEngine)
     rimes_harden(rimes-engine-smoke)
 
+    add_executable(rimes-buffer-model-tests
+        "${RIMES_BUFFER_ROOT}/tests/buffer_model_tests.cpp"
+    )
+    target_link_libraries(rimes-buffer-model-tests PRIVATE RimesBufferCore)
+    rimes_harden(rimes-buffer-model-tests)
+
+    add_executable(rimes-buffer-return-tests
+        "${RIMES_BUFFER_ROOT}/tests/buffer_return_tests.cpp"
+    )
+    target_link_libraries(rimes-buffer-return-tests PRIVATE RimesBufferCore)
+    rimes_harden(rimes-buffer-return-tests)
+
+    add_executable(rimes-buffer-protocol-tests
+        "${RIMES_BUFFER_ROOT}/tests/buffer_protocol_tests.cpp"
+    )
+    target_link_libraries(rimes-buffer-protocol-tests PRIVATE RimesBufferCore)
+    rimes_harden(rimes-buffer-protocol-tests)
+
     add_test(NAME RimesKey COMMAND rimes-key-tests)
     add_test(NAME RimesSnapshot COMMAND rimes-snapshot-tests)
     add_test(NAME RimesPaths COMMAND rimes-paths-tests)
+    add_test(NAME RimesBufferModel COMMAND rimes-buffer-model-tests)
+    add_test(NAME RimesBufferReturn COMMAND rimes-buffer-return-tests)
+    add_test(NAME RimesBufferProtocol COMMAND rimes-buffer-protocol-tests)
 
     pkg_check_modules(GTK3 gtk+-3.0)
     if(GTK3_FOUND)
@@ -137,6 +206,15 @@ if(RIMES_BUILD_TESTS)
             RimesEngine
         )
         rimes_harden(rimes-fcitx-e2e)
+
+        add_executable(rimes-buffer-fcitx-e2e tests/buffer_fcitx_e2e.cpp)
+        target_link_libraries(rimes-buffer-fcitx-e2e PRIVATE
+            Fcitx5::Core
+            Fcitx5::Module::TestFrontend
+            RimesEngine
+            RimesBufferCore
+        )
+        rimes_harden(rimes-buffer-fcitx-e2e)
 
         # Layout expected by fcitx::setupTestingEnvironment.
         # setupTestingEnvironment treats each data dir as an fcitx5 data root,

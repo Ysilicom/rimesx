@@ -1,5 +1,8 @@
 #include "rimes_state.hpp"
 
+#include <cstdint>
+#include <string>
+
 #include <fcitx-utils/capabilityflags.h>
 #include <fcitx-utils/key.h>
 #include <fcitx-utils/log.h>
@@ -111,6 +114,7 @@ void RimesState::keyEvent(KeyEvent& event) {
         return;
     }
     applySnapshot(snapshot);
+    ime_->buffer().AfterRime(ic_, event, snapshot.handled, composing_, snapshot.preedit);
     if (snapshot.handled) {
         event.filterAndAccept();
     }
@@ -190,8 +194,21 @@ void RimesState::UpdateUI(const rimes::linuxime::EngineSnapshot& snapshot) {
         preedit.append(snapshot.preedit, TextFormatFlag::Underline);
         preedit.setCursor(static_cast<int>(snapshot.caret_utf8));
     }
-    // Stock fcitx5-rime: inline preedit XOR popup preedit row.
-    if (ic_->capabilityFlags().test(CapabilityFlag::Preedit)) {
+    const bool capturing = ime_->buffer().model().captures(
+        std::to_string(reinterpret_cast<std::uintptr_t>(ic_)));
+    // While Buffer owns this field, keep an invisible ZWSP guard in the host
+    // (macOS U+200B analogue) and project real preedit into the workbench.
+    if (capturing) {
+        Text guard;
+        guard.append("\u200B");
+        if (ic_->capabilityFlags().test(CapabilityFlag::Preedit)) {
+            panel.setClientPreedit(guard);
+            panel.setPreedit(Text());
+        } else {
+            panel.setClientPreedit(Text());
+            panel.setPreedit(Text());
+        }
+    } else if (ic_->capabilityFlags().test(CapabilityFlag::Preedit)) {
         panel.setClientPreedit(preedit);
         panel.setPreedit(Text());
     } else {

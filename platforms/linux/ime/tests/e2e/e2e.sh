@@ -62,7 +62,7 @@ STAGE_DIR=$(mktemp -d /tmp/rimes-ime-e2e.XXXXXX)
 cleanup() {
     local status=$?
     local pid_var pid
-    for pid_var in FCITX_PID GTK_PID QT_PID WESTON_PID XVFB_PID DBUS_SESSION_BUS_PID; do
+    for pid_var in FCITX_PID GTK_PID QT_PID WESTON_PID SWAY_PID BUFFER_UI_PID XVFB_PID DBUS_SESSION_BUS_PID; do
         pid=${!pid_var-}
         if [[ -n "$pid" ]]; then
             kill "$pid" >/dev/null 2>&1 || true
@@ -91,6 +91,13 @@ echo "==> live librime smoke (nihao / number / paging / Escape)"
 
 echo "==> in-process Fcitx5 testfrontend"
 "$BUILD_DIR/rimes-fcitx-e2e" "$BUILD_DIR" "." "test-data"
+
+if [[ ! -x "$BUILD_DIR/rimes-buffer-fcitx-e2e" ]]; then
+    echo "error: missing $BUILD_DIR/rimes-buffer-fcitx-e2e" >&2
+    exit 1
+fi
+echo "==> in-process Fcitx5 Buffer (stage / send / Return / pause)"
+"$BUILD_DIR/rimes-buffer-fcitx-e2e" "$BUILD_DIR" "." "test-data"
 
 if (( SKIP_DISPLAY == 1 )); then
     echo "skip: display clients (--skip-display)"
@@ -149,6 +156,10 @@ export FCITX_ADDON_DIRS="$BUILD_DIR${SYSTEM_ADDON_DIR:+:$SYSTEM_ADDON_DIR}${FCIT
 export GTK_IM_MODULE=fcitx
 export QT_IM_MODULE=fcitx
 export XMODIFIERS=@im=fcitx
+export RIMES_BUFFER_SOCKET="$STAGE_DIR/rimes-buffer.sock"
+export RIMES_BUFFER_HEADLESS=1
+export RIMES_BUFFER_CLOSE_AFTER_LAST=0
+export PATH="$BUILD_DIR:$PATH"
 
 export DISPLAY=:93
 Xvfb "$DISPLAY" -screen 0 1280x720x24 -nolisten tcp >/dev/null 2>&1 &
@@ -185,11 +196,26 @@ raise SystemExit("fcitx5 DBus did not become ready")
 PY
 
 echo "==> DBus virtual input context"
-if ! python3 "$SCRIPT_DIR/dbus_client.py"; then
+DBUS_IME_OK=0
+if python3 "$SCRIPT_DIR/dbus_client.py"; then
+    DBUS_IME_OK=1
+else
     echo "---- fcitx5.log ----" >&2
     tail -n 80 "$STAGE_DIR/fcitx5.log" >&2 || true
     echo "DBus virtual IC is best-effort on headless runners; testfrontend remains authoritative." >&2
     echo "warning: DBus virtual input context did not complete" >&2
+fi
+
+echo "==> DBus virtual input context + Buffer"
+if python3 "$SCRIPT_DIR/dbus_buffer_client.py"; then
+    echo "ok: DBus Buffer staged and sent 你好"
+elif (( DBUS_IME_OK == 1 )); then
+    echo "---- fcitx5.log ----" >&2
+    tail -n 80 "$STAGE_DIR/fcitx5.log" >&2 || true
+    echo "error: DBus IME worked but Buffer DBus E2E failed" >&2
+    exit 1
+else
+    echo "warning: DBus Buffer E2E skipped after DBus IME was unavailable" >&2
 fi
 
 if command -v xdotool >/dev/null && [[ -x "$BUILD_DIR/rimes-gtk-host" ]]; then
@@ -268,6 +294,36 @@ if (( SKIP_WAYLAND == 0 )) && command -v weston >/dev/null && command -v wtype >
     unset WESTON_PID
 else
     echo "skip: weston/wtype not available or --skip-wayland"
+fi
+
+if (( SKIP_WAYLAND == 0 )) && command -v sway >/dev/null && [[ -x "$BUILD_DIR/rimes-buffer" ]]; then
+    echo "==> sway headless + Buffer UI preview"
+    export WLR_BACKENDS=headless
+    export WLR_LIBINPUT_NO_DEVICES=1
+    export XDG_CURRENT_DESKTOP=sway
+    sway --unsupported-gpu -c /dev/null >"$STAGE_DIR/sway.log" 2>&1 &
+    SWAY_PID=$!
+    sleep 1
+    if [[ -S "$XDG_RUNTIME_DIR/wayland-1" || -n "${WAYLAND_DISPLAY:-}" ]]; then
+        export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
+        "$BUILD_DIR/rimes-buffer" --preview >"$STAGE_DIR/buffer-ui.log" 2>&1 &
+        BUFFER_UI_PID=$!
+        sleep 1
+        if kill -0 "$BUFFER_UI_PID" >/dev/null 2>&1; then
+            echo "ok: rimes-buffer started under sway headless"
+        else
+            echo "warning: rimes-buffer preview exited (see $STAGE_DIR/buffer-ui.log)" >&2
+        fi
+        kill "$BUFFER_UI_PID" >/dev/null 2>&1 || true
+        unset BUFFER_UI_PID
+    else
+        echo "warning: sway headless did not expose a wayland socket" >&2
+    fi
+    kill "$SWAY_PID" >/dev/null 2>&1 || true
+    unset SWAY_PID
+    unset WLR_BACKENDS WLR_LIBINPUT_NO_DEVICES
+else
+    echo "skip: sway or rimes-buffer UI not available"
 fi
 
 echo "RIMES Linux IME E2E finished"
