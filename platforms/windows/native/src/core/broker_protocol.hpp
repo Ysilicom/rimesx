@@ -105,6 +105,7 @@ inline constexpr std::size_t kMaxCandidateCount = 64;
 
 struct ClientHello {
   std::uint32_t process_id = 0;
+  // Windows logon session, including 0 for explicitly permitted automation.
   std::uint32_t session_id = 0;
   std::uint64_t capabilities = 0;
   std::string client_name;
@@ -112,6 +113,7 @@ struct ClientHello {
 
 struct BrokerHello {
   std::uint32_t process_id = 0;
+  // Windows logon session; not a Rime input-session handle.
   std::uint32_t session_id = 0;
   std::uint64_t capabilities = 0;
   std::string broker_version;

@@ -181,6 +181,43 @@ void TestBrokerHelloRoundTrip() {
   EXPECT(decoded.broker_version == input.broker_version);
 }
 
+void TestWindowsSessionZeroHello() {
+  // SSH/automation can run in Windows Session 0. This is an OS session ID,
+  // not the non-zero Rime input-session handle used by the other DTOs.
+  ClientHello client;
+  client.process_id = 1234;
+  client.session_id = 0;
+  client.client_name = "RIMES TSF";
+  std::vector<std::byte> encoded;
+  EXPECT(EncodeClientHello(client, &encoded));
+  ClientHello decoded_client;
+  EXPECT(DecodeClientHello(encoded, &decoded_client));
+  EXPECT(decoded_client.process_id == client.process_id);
+  EXPECT(decoded_client.session_id == 0);
+  client.process_id = 0;
+  EXPECT(!EncodeClientHello(client, &encoded));
+  if (encoded.size() >= 8) {
+    WriteU32(&encoded, 4, 0);
+    EXPECT(!DecodeClientHello(encoded, &decoded_client));
+  }
+
+  BrokerHello broker;
+  broker.process_id = 4567;
+  broker.session_id = 0;
+  broker.broker_version = "0.1.0-dev";
+  EXPECT(EncodeBrokerHello(broker, &encoded));
+  BrokerHello decoded_broker;
+  EXPECT(DecodeBrokerHello(encoded, &decoded_broker));
+  EXPECT(decoded_broker.process_id == broker.process_id);
+  EXPECT(decoded_broker.session_id == 0);
+  broker.process_id = 0;
+  EXPECT(!EncodeBrokerHello(broker, &encoded));
+  if (encoded.size() >= 8) {
+    WriteU32(&encoded, 4, 0);
+    EXPECT(!DecodeBrokerHello(encoded, &decoded_broker));
+  }
+}
+
 void TestErrorRoundTripAndLimits() {
   ErrorResponse input;
   input.code = BrokerErrorCode::kUnsupportedMessage;
@@ -359,6 +396,7 @@ int RunBrokerProtocolTests() {
   TestEncoderLimits();
   TestClientHelloRoundTrip();
   TestBrokerHelloRoundTrip();
+  TestWindowsSessionZeroHello();
   TestErrorRoundTripAndLimits();
   TestInputSessionDtos();
   TestKeyEventRoundTripAndValidation();
