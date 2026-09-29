@@ -28,7 +28,9 @@ from `~/.local/share/fcitx5/rime`.
 
 ## Per-host cases
 
-For each host above, switch to **RIMES** (雾凇全拼) first.
+For each host above, switch to **RIMES** (雾凇全拼) first. The hotkey
+does nothing under another IM (including stock `fcitx5-rime`). The
+**临时** tab is empty — it is not ported.
 
 1. **Direct still works.** With Capsule hidden, type `nihao` + Space. The
    field contains `你好` and no leftover `nihao`.
@@ -37,8 +39,11 @@ For each host above, switch to **RIMES** (雾凇全拼) first.
    must not type into the Capsule window itself.
 3. **Seed card.** The 笔记 tab shows `RIMES 默认词条` (or your own notes).
    Count is `1 ITEM` on a fresh profile.
-4. **Insert, do not leak.** Press Return (or `Ctrl+1`, or double-click
-   the card). The field gains `RIMES` and no extra newline. A terminal
+4. **Insert, do not leak.** Press Return, `Ctrl+1`, or **double-click**
+   the card (two clicks on the same card within ~400 ms, including
+   `xdotool click --repeat 2` and QMP 20–300 ms gaps). A single click
+   only moves the highlight. The field gains `RIMES` and no extra
+   newline. The rail **closes** after a successful insert. A terminal
    must not execute the line.
 5. **Search.** Open Capsule, type `zzzz`. The rail goes empty. Backspace
    back to a matching query; the seed card returns. Those letters must
@@ -51,7 +56,8 @@ For each host above, switch to **RIMES** (雾凇全拼) first.
    Status must leave armed even if you wait a few seconds. Press Return
    in the new field: Capsule must **not** insert `RIMES` there. In the
    new field press Escape: that app must receive Escape; Capsule may stay
-   visible. Re-toggle on the new field before inserting.
+   visible. One `Ctrl+Shift+V` on the new field **re-arms**; a second
+   press closes. Do not insert until it is re-armed.
 8. **Password.** Click a password field in a GTK host that keeps the IM
    enabled. Capsule must refuse to arm / hide. Typed secrets must not
    appear in the rail. **Firefox-esr disables the IM on

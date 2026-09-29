@@ -56,6 +56,7 @@ int main() {
     Expect(!model.armed(), "disarmed");
     Expect(!model.arms("1"), "old token dead");
     Expect(model.visible(), "disarm keeps visible");
+    Expect(model.hint().find("re-arm") != std::string::npos, "disarm hint names re-arm");
 
     model.append_query('z');
     model.set_visible(true);

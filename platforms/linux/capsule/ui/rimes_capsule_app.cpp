@@ -1,4 +1,5 @@
 #include "buffer_protocol.hpp"
+#include "capsule_click.hpp"
 #include "capsule_kinds.hpp"
 #include "capsule_protocol.hpp"
 
@@ -48,6 +49,15 @@ struct App {
     bool dumped_geometry = false;
     rimes::capsule::Snapshot snapshot;
     bool wayland_layer = false;
+    struct CardRow {
+        std::string id;
+        GtkWidget* event = nullptr;
+        GtkWidget* title = nullptr;
+        GtkWidget* preview = nullptr;
+    };
+    std::vector<CardRow> card_rows;
+    int last_press_index = -1;
+    std::int64_t last_press_ms = -1;
 };
 
 App* g_app = nullptr;
@@ -198,55 +208,107 @@ void RebuildTabs(App* app) {
     gtk_widget_show_all(app->tab_box);
 }
 
+gboolean OnCardButtonPress(GtkWidget* self, GdkEventButton* ev, gpointer data) {
+    auto* host = static_cast<App*>(data);
+    const int index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(self), "index"));
+    const std::int64_t now_ms = g_get_monotonic_time() / 1000;
+    const bool gdk_double = ev != nullptr && ev->type == GDK_2BUTTON_PRESS;
+    const bool activate = rimes::capsule::ShouldActivateOnPress(
+        index, host->last_press_index, now_ms, host->last_press_ms, gdk_double);
+    const std::string select =
+        std::string("{\"v\":1,\"op\":\"select\",\"index\":") + std::to_string(index) + '}';
+    SendCommand(host, select);
+    if (activate) {
+        SendCommand(host, R"({"v":1,"op":"activate"})");
+    }
+    host->last_press_index = index;
+    host->last_press_ms = now_ms;
+    return TRUE;
+}
+
+void SetCardSelectedStyle(GtkWidget* event, bool selected) {
+    GtkStyleContext* context = gtk_widget_get_style_context(event);
+    if (selected) {
+        gtk_style_context_add_class(context, "rimes-card-selected");
+    } else {
+        gtk_style_context_remove_class(context, "rimes-card-selected");
+    }
+}
+
+bool CardsMatchIds(const App* app) {
+    if (app->card_rows.size() != app->snapshot.cards.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < app->card_rows.size(); ++i) {
+        if (app->card_rows[i].id != app->snapshot.cards[i].id) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void UpdateCardsInPlace(App* app) {
+    for (int i = 0; i < static_cast<int>(app->card_rows.size()); ++i) {
+        auto& row = app->card_rows[static_cast<std::size_t>(i)];
+        const auto& card = app->snapshot.cards[static_cast<std::size_t>(i)];
+        gtk_label_set_text(GTK_LABEL(row.title), card.title.c_str());
+        gtk_label_set_text(GTK_LABEL(row.preview), card.preview.c_str());
+        SetCardSelectedStyle(row.event, i == app->snapshot.selected);
+        g_object_set_data(G_OBJECT(row.event), "index", GINT_TO_POINTER(i));
+    }
+}
+
+App::CardRow MakeCardRow(App* app, const rimes::capsule::Card& card, int index) {
+    App::CardRow row;
+    row.id = card.id;
+    row.event = gtk_event_box_new();
+    gtk_widget_set_name(row.event, "rimes-card");
+    SetCardSelectedStyle(row.event, index == app->snapshot.selected);
+    GtkWidget* column = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_container_set_border_width(GTK_CONTAINER(column), 8);
+    gtk_container_add(GTK_CONTAINER(row.event), column);
+    row.title = gtk_label_new(card.title.c_str());
+    gtk_widget_set_name(row.title, "rimes-card-title");
+    gtk_label_set_xalign(GTK_LABEL(row.title), 0);
+    gtk_label_set_ellipsize(GTK_LABEL(row.title), PANGO_ELLIPSIZE_END);
+    gtk_box_pack_start(GTK_BOX(column), row.title, FALSE, FALSE, 0);
+    row.preview = gtk_label_new(card.preview.c_str());
+    gtk_widget_set_name(row.preview, "rimes-card-preview");
+    gtk_label_set_xalign(GTK_LABEL(row.preview), 0);
+    gtk_label_set_line_wrap(GTK_LABEL(row.preview), TRUE);
+    gtk_label_set_max_width_chars(GTK_LABEL(row.preview), 28);
+    gtk_box_pack_start(GTK_BOX(column), row.preview, TRUE, TRUE, 0);
+    gtk_widget_set_size_request(row.event, 206, 126);
+    g_object_set_data(G_OBJECT(row.event), "index", GINT_TO_POINTER(index));
+    g_signal_connect(row.event, "button-press-event", G_CALLBACK(OnCardButtonPress), app);
+    gtk_box_pack_start(GTK_BOX(app->card_box), row.event, FALSE, FALSE, 0);
+    return row;
+}
+
 void RebuildCards(App* app) {
     ClearBox(app->card_box);
-    for (int i = 0; i < static_cast<int>(app->snapshot.cards.size()); ++i) {
-        const auto& card = app->snapshot.cards[static_cast<std::size_t>(i)];
-        GtkWidget* event = gtk_event_box_new();
-        gtk_widget_set_name(event, "rimes-card");
-        if (i == app->snapshot.selected) {
-            gtk_style_context_add_class(gtk_widget_get_style_context(event), "rimes-card-selected");
-        }
-        GtkWidget* column = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
-        gtk_container_set_border_width(GTK_CONTAINER(column), 8);
-        gtk_container_add(GTK_CONTAINER(event), column);
-        GtkWidget* title = gtk_label_new(card.title.c_str());
-        gtk_widget_set_name(title, "rimes-card-title");
-        gtk_label_set_xalign(GTK_LABEL(title), 0);
-        gtk_label_set_ellipsize(GTK_LABEL(title), PANGO_ELLIPSIZE_END);
-        gtk_box_pack_start(GTK_BOX(column), title, FALSE, FALSE, 0);
-        GtkWidget* preview = gtk_label_new(card.preview.c_str());
-        gtk_widget_set_name(preview, "rimes-card-preview");
-        gtk_label_set_xalign(GTK_LABEL(preview), 0);
-        gtk_label_set_line_wrap(GTK_LABEL(preview), TRUE);
-        gtk_label_set_max_width_chars(GTK_LABEL(preview), 28);
-        gtk_box_pack_start(GTK_BOX(column), preview, TRUE, TRUE, 0);
-        gtk_widget_set_size_request(event, 206, 126);
-        g_object_set_data(G_OBJECT(event), "index", GINT_TO_POINTER(i));
-        g_signal_connect(event, "button-press-event",
-                         G_CALLBACK(+[](GtkWidget* self, GdkEventButton* ev,
-                                        gpointer data) -> gboolean {
-                             auto* host = static_cast<App*>(data);
-                             const int index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(self),
-                                                                                 "index"));
-                             const std::string select =
-                                 std::string("{\"v\":1,\"op\":\"select\",\"index\":") +
-                                 std::to_string(index) + '}';
-                             SendCommand(host, select);
-                             if (ev != nullptr && ev->type == GDK_2BUTTON_PRESS) {
-                                 SendCommand(host, R"({"v":1,"op":"activate"})");
-                             }
-                             return TRUE;
-                         }),
-                         app);
-        gtk_box_pack_start(GTK_BOX(app->card_box), event, FALSE, FALSE, 0);
-    }
+    app->card_rows.clear();
     if (app->snapshot.cards.empty()) {
         GtkWidget* empty = gtk_label_new(app->snapshot.hint.c_str());
         gtk_widget_set_name(empty, "rimes-placeholder");
         gtk_box_pack_start(GTK_BOX(app->card_box), empty, FALSE, FALSE, 0);
+        gtk_widget_show_all(app->card_box);
+        return;
+    }
+    app->card_rows.reserve(app->snapshot.cards.size());
+    for (int i = 0; i < static_cast<int>(app->snapshot.cards.size()); ++i) {
+        app->card_rows.push_back(
+            MakeCardRow(app, app->snapshot.cards[static_cast<std::size_t>(i)], i));
     }
     gtk_widget_show_all(app->card_box);
+}
+
+void SyncCards(App* app) {
+    if (app->snapshot.cards.empty() || !CardsMatchIds(app)) {
+        RebuildCards(app);
+        return;
+    }
+    UpdateCardsInPlace(app);
 }
 
 void ApplySnapshot(App* app) {
@@ -257,7 +319,7 @@ void ApplySnapshot(App* app) {
                                                    : app->snapshot.query;
     gtk_label_set_text(GTK_LABEL(app->query), query.c_str());
     RebuildTabs(app);
-    RebuildCards(app);
+    SyncCards(app);
     if (!app->snapshot.last_copied.empty()) {
         GtkClipboard* board = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
         gtk_clipboard_set_text(board, app->snapshot.last_copied.c_str(), -1);
@@ -266,6 +328,8 @@ void ApplySnapshot(App* app) {
         gtk_widget_show_all(app->window);
         PlaceOnX11(app);
     } else {
+        app->last_press_index = -1;
+        app->last_press_ms = -1;
         gtk_widget_hide(app->window);
     }
 }

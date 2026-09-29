@@ -134,7 +134,7 @@ int main(int argc, char** argv) {
         close(fd);
         return 1;
     }
-    if (op == "hello" || op == "status") {
+    if (op == "hello") {
         std::cout << connect_snapshot << '\n';
         close(fd);
         return 0;

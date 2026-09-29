@@ -216,11 +216,17 @@ void CapsuleService::OnPasswordField(InputContext* ic, bool password) {
 }
 
 void CapsuleService::Toggle(InputContext* ic) {
-    if (model_.visible()) {
-        Close();
+    if (!model_.visible()) {
+        Show(ic);
         return;
     }
-    Show(ic);
+    // Visible but disarmed (field switch): one hotkey re-arms this IC.
+    // A second press, while armed here, closes.
+    if (ic != nullptr && !ArmedFor(ic)) {
+        Show(ic);
+        return;
+    }
+    Close();
 }
 
 void CapsuleService::Show(InputContext* ic) {
@@ -277,7 +283,11 @@ bool CapsuleService::Activate() {
     rimes::capsule::Card fresh = *card;
     fresh.payload = record.content;
     fresh.kind = record.kind;
-    return DeliverNote(fresh);
+    if (!DeliverNote(fresh)) {
+        return false;
+    }
+    Close();
+    return true;
 }
 
 bool CapsuleService::CopySelected() {
@@ -461,7 +471,9 @@ void CapsuleService::HandleCommand(const rimes::capsule::Command& command) {
     }
     switch (command.op) {
         case rimes::capsule::CommandOp::Hello:
+            break;
         case rimes::capsule::CommandOp::Status:
+            ReloadNotes();
             break;
         case rimes::capsule::CommandOp::Toggle:
             Toggle(ic);

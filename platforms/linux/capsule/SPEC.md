@@ -17,8 +17,8 @@ re-checking that it is still focused — the analogue of macOS
 ## What it is
 
 On macOS, Capsule is the local content library next to Buffer and Mailbox.
-The user-facing surface is a **208 pt bottom rail** (`⌘⇧V`) plus a manager
-window. Tabs:
+The user-facing surface is a **208 pt bottom rail** (`⌘⇧V`, Linux paints
+**940 × 213** on X11) plus a manager window. Tabs:
 
 | Tab (label) | Kind | Activate | Copy |
 |---|---|---|---|
@@ -33,7 +33,9 @@ window. Tabs:
 
 Linux v1 keeps that tab strip so the rail is recognizable, but only **笔记**
 has a working store and delivery path. The other tabs render empty with an
-explicit hint. See [Deliberate macOS mismatches](#deliberate-macos-mismatches).
+explicit hint. **临时 (clipboard history) is the tab macOS users reach for
+first and is not ported.** See
+[Deliberate macOS mismatches](#deliberate-macos-mismatches).
 
 Default seed (once per library, marker `content-seed-v1` survives deletion):
 
@@ -45,15 +47,20 @@ Default seed (once per library, marker `content-seed-v1` survives deletion):
 
 | Source | macOS | Linux |
 |---|---|---|
-| Global hotkey | `⌘⇧V` (Carbon exclusive; works under any IM after login bootstrap) | `Ctrl+Shift+V` or `Super+Shift+V` **while RIMES is current** |
+| Global hotkey | `⌘⇧V` (Carbon exclusive; works under any IM after login bootstrap) | `Ctrl+Shift+V` or `Super+Shift+V` **only while RIMES is the active IM**. Another IM (including stock `fcitx5-rime`) does not see the hotkey. |
 | Status menu | “Capsule…（⇧⌘V）” | not ported (no Linux status menu yet) |
 | Settings page | rebind, iCloud, passcode | not ported |
 | `rimes-capsule-ctl` | n/a | `show` / `close` / `toggle` / `activate` / `copy` |
 | Manager window | gear / `＋` / card 编辑 | not ported; CRUD is the store + ctl |
 
-Show is refused on a password / secure field. Hide uses the same hotkey,
-Escape **on the armed IC**, the rail close button, or an IM switch.
-Hide also clears the in-rail search query, matching macOS.
+Show is refused on a password / secure field. Hide uses the same hotkey
+**while this IC is armed**, Escape **on the armed IC**, the rail close
+button, a successful insert, or an IM switch. Hide also clears the
+in-rail search query, matching macOS.
+
+A field switch **disarms** and keeps the rail visible. The next
+`Ctrl+Shift+V` / `Super+Shift+V` on the new field **re-arms**; a second
+press closes. The hint says so.
 
 ## What the user sees
 
@@ -65,10 +72,16 @@ macOS rail (`ClipboardHistoryWindowMetrics`):
 
 Linux rail (GTK 3):
 
-- Size request **940 × 208**. Classic-like dark chrome, one hint line.
+- Size request **940 × 208**. X11 allocates about **940 × 213** (chrome).
+  labwc/sway stretch the overlay to the output minus 80 px side margins
+  (1120 px wide on a 1280-wide output). Classic-like dark chrome, one
+  hint line.
 - Header: “Capsule”, tab labels, item count, close.
 - Horizontal cards: title + 280-character preview. Selected card is
-  highlighted. Click selects; double-click activates a note.
+  highlighted. Click selects; double-click (or a second press on the
+  same card within 400 ms) activates a note and **closes the rail**.
+  Card widgets are reused by id so a select snapshot does not destroy
+  the widget under the second click.
 - The window **never takes keyboard focus** (`accept_focus=false`,
   Wayland `GTK_LAYER_SHELL_KEYBOARD_MODE_NONE`). Search, tab, arrows,
   Return and Escape are consumed by the IME while the rail is **armed**.
@@ -90,8 +103,9 @@ Showing the rail does not steal host focus. Closing drops the session and
 **preserves** the library (disk). Process restart reloads the store; the
 rail starts hidden. Switching to another field while the rail is visible
 **disarms** the session and keeps the rail up — later keys go to the new
-field, and Activate / Return must not write there until the user re-opens
-or re-arms on that field.
+field, and Activate / Return must not write there until the user
+re-arms on that field (one hotkey). A successful insert **closes** the
+rail.
 
 Buffer capturing wins the key route: Capsule toggle still works, but
 Return / Escape / typing stay with Buffer until capture pauses.
@@ -100,11 +114,11 @@ Return / Escape / typing stay with Buffer until capture pauses.
 
 | Input | Effect |
 |---|---|
-| `Ctrl+Shift+V` / `Super+Shift+V` | Toggle rail (also works while Buffer is capturing) |
+| `Ctrl+Shift+V` / `Super+Shift+V` | Show, or re-arm a visible disarmed rail, or close when armed on this field (also works while Buffer is capturing). **RIMES must be the active IM.** |
 | Escape | Close (this IC only) |
 | Tab / Shift+Tab | Next / previous tab |
 | Left / Right | Move selection |
-| Return | Activate the selected **note** (insert body) |
+| Return | Activate the selected **note** (insert body) and close |
 | `Ctrl+1`–`Ctrl+9` | Activate visible card 0–8 |
 | `Ctrl+C` | Copy the selected note body (clipboard only; no paste) |
 | Printable ASCII / Backspace | Edit the in-rail search query |
@@ -171,7 +185,8 @@ RIMES
 ### wlroots Wayland (labwc / sway)
 
 - `gtk-layer-shell` overlay, bottom + left/right anchors, 48 px bottom
-  and 80 px side margins, **940 × 208** minimum size request. Keyboard
+  and 80 px side margins, **940 × 208** minimum size request (allocated
+  width follows the output; height is about 213). Keyboard
   interactivity none.
 - The compositor owns the exact y. That is expected.
 
@@ -212,7 +227,9 @@ are clients.
 Commands: `hello`, `status`, `toggle`, `show`, `close`, `next`, `prev`,
 `select`, `tab`, `activate`, `copy`, `search`.
 
-Connecting publishes the current snapshot immediately.
+`status` reloads the note store before publishing, so `rimes-capsule-ctl
+status` is not a stale closed-rail count. Connecting publishes the
+current snapshot immediately.
 
 Environment for tests: `RIMES_CAPSULE_HEADLESS=1`,
 `RIMES_CAPSULE_UI=/path`, `RIMES_CAPSULE_CONNECT_DELAY_MS`,
@@ -238,10 +255,10 @@ respawn helpers, and `rimes-buffer-ctl` pattern are reused. Capsule does
 | macOS behavior | Linux | Reason |
 |---|---|---|
 | Single IMK process owns UI | Companion `rimes-capsule` + Unix socket | Same Fcitx5 constraint as Buffer |
-| `⌘⇧V` under any IM (LaunchAgent) | Only while RIMES is current | No login bootstrap in this step |
+| `⌘⇧V` under any IM (LaunchAgent) | **Only while RIMES is the active IM** | No login bootstrap in this step. This is the first thing a macOS user will miss. |
 | Rail can become a key window | Never takes focus; IME routes keys | Buffer safety invariant |
-| `Delivery.insert` + auto-paste | `commitString` for notes only | No Accessibility / synthetic Ctrl+V |
-| 临时 clipboard history | Empty tab | No NSPasteboard watcher; Wayland clipboard is compositor-owned |
+| `Delivery.insert` + auto-paste | `commitString` for notes only; rail closes after insert | No Accessibility / synthetic Ctrl+V |
+| 临时 clipboard history | **Empty tab — not ported** | No NSPasteboard watcher; Wayland clipboard is compositor-owned. This is the first tab macOS users expect. |
 | 捕获 / Image / PDF / Video / Skill | Empty tabs | No ImageIO, PDFKit, Capture, file-URL paste |
 | Password vault + physical chords | Empty tab | CryptoKit / Carbon keycodes / 15 s canvas; later port |
 | iCloud Drive mirror | Not ported | No ubiquitous folder / security-scoped bookmarks |

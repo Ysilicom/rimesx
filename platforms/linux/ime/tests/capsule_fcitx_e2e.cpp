@@ -149,9 +149,10 @@ void RunCapsuleSuite(fcitx::Instance& instance, fcitx::AddonInstance* frontend,
     frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("RIMES");
     SendKey(frontend, uuid, "Return");
     snapshot = ReadDump(dump_path);
-    ExpectContains(snapshot, "\"visible\":true", "activate must keep the rail up");
-    std::cout << "ok: Return inserted the seed note\n";
+    ExpectContains(snapshot, "\"visible\":false", "activate must close the rail");
+    std::cout << "ok: Return inserted the seed note and closed the rail\n";
 
+    SendKey(frontend, uuid, "Control+Shift+V");
     Type(frontend, uuid, "nihao");
     ExpectNoZwsp(ic, "search while armed");
     SendKey(frontend, uuid, "space");
@@ -178,11 +179,15 @@ void RunCapsuleSuite(fcitx::Instance& instance, fcitx::AddonInstance* frontend,
 
     SendKey(frontend, uuid, "Control+Shift+V");
     snapshot = ReadDump(dump_path);
-    ExpectContains(snapshot, "\"visible\":false", "toggle after a field switch hides");
+    ExpectContains(snapshot, "\"armed\":true", "hotkey on a visible disarmed rail re-arms");
+    ExpectContains(snapshot, "\"visible\":true", "re-arm keeps the rail up");
+    ExpectContains(snapshot, "RIMES 默认词条", "re-arm shows the seed after hide cleared search");
     SendKey(frontend, uuid, "Control+Shift+V");
     snapshot = ReadDump(dump_path);
-    ExpectContains(snapshot, "\"armed\":true", "re-toggle re-arms");
-    ExpectContains(snapshot, "RIMES 默认词条", "hide must clear the leftover search query");
+    ExpectContains(snapshot, "\"visible\":false", "second hotkey while armed closes");
+    SendKey(frontend, uuid, "Control+Shift+V");
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "\"armed\":true", "open again after the close");
     const auto uuid2 =
         frontend->call<fcitx::ITestFrontend::createInputContext>("rimes-capsule-other");
     auto* ic2 = instance.inputContextManager().findByUUID(uuid2);

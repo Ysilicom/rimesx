@@ -221,7 +221,7 @@ void CapsuleModel::RefreshHint() {
         return;
     }
     if (!armed_) {
-        hint_ = "Disarmed — reopen Capsule on this field to insert";
+        hint_ = "Disarmed — Ctrl+Shift+V on this field re-arms; press again to close";
         return;
     }
     if (cards_.empty()) {

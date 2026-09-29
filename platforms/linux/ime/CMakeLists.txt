@@ -259,9 +259,16 @@ if(RIMES_BUILD_TESTS)
     target_link_libraries(rimes-capsule-protocol-tests PRIVATE RimesCapsuleCore)
     rimes_harden(rimes-capsule-protocol-tests)
 
+    add_executable(rimes-capsule-click-tests
+        "${RIMES_CAPSULE_ROOT}/tests/capsule_click_tests.cpp"
+    )
+    target_link_libraries(rimes-capsule-click-tests PRIVATE RimesCapsuleCore)
+    rimes_harden(rimes-capsule-click-tests)
+
     add_test(NAME RimesCapsuleStore COMMAND rimes-capsule-store-tests)
     add_test(NAME RimesCapsuleModel COMMAND rimes-capsule-model-tests)
     add_test(NAME RimesCapsuleProtocol COMMAND rimes-capsule-protocol-tests)
+    add_test(NAME RimesCapsuleClick COMMAND rimes-capsule-click-tests)
 
     pkg_check_modules(GTK3 gtk+-3.0)
     if(GTK3_FOUND)
