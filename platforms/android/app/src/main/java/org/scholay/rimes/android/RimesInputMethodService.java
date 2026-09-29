@@ -61,6 +61,11 @@ public final class RimesInputMethodService extends InputMethodService {
         super.onFinishInput();
     }
 
+    @Override public void onUnbindInput() {
+        endTarget();
+        super.onUnbindInput();
+    }
+
     @Override public void onDestroy() {
         endTarget();
         super.onDestroy();
@@ -117,7 +122,7 @@ public final class RimesInputMethodService extends InputMethodService {
     private void enter() {
         if (!ownsTarget()) { endTarget(); return; }
         if (buffer.isEnabled()) insert(false);
-        else if (!sendDefaultEditorAction(false)) target.commitText("\n", 1);
+        else if (!sendDefaultEditorAction(true)) target.commitText("\n", 1);
     }
 
     private void render() {

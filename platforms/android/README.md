@@ -61,7 +61,8 @@ clear another app to get past them. Keep the existing keyboard available.
 
 In the setup playground, then in a separate host app:
 
-1. Type and delete English, selected text, numbers and symbols.
+1. Type and delete English, selected text, numbers and symbols. Enter must add a
+   newline in a multiline field and respect a host's explicit editor action.
 2. Enable Buffer; type `hello world`. Host text must remain unchanged. Insert one
    block, then all; each block must appear once and the queue must consume exactly
    the accepted text. A failed connection must not consume it.
