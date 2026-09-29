@@ -5,14 +5,18 @@ on:
   # (see PR #31 / RELEASE-REFERENCE.md). Do not add these jobs to the
   # branch-protection required checks.
   pull_request:
-    branches: [main]
+    branches:
+      - main
+      - cursor/linux-fcitx5-ime-ba51
     paths:
       - "platforms/linux/**"
       - "rime-data/**"
       - "scripts/platform-preview/**"
       - ".github/workflows/linux-ime.yml"
   push:
-    branches: [main]
+    branches:
+      - main
+      - cursor/linux-fcitx5-ime-ba51
     paths:
       - "platforms/linux/**"
       - "rime-data/**"
@@ -51,7 +55,8 @@ jobs:
             libopencc-dev libopencc-data \
             xvfb xdotool dbus-x11 \
             python3-gi gir1.2-gtk-3.0 libgtk-3-dev \
-            qtbase5-dev fonts-noto-cjk weston wtype
+            libgtk-layer-shell-dev \
+            qtbase5-dev fonts-noto-cjk weston wtype sway
 
       - name: Build
         run: platforms/linux/ime/scripts/build.sh
@@ -73,6 +78,8 @@ jobs:
             platforms/linux/ime/build/rimes.so
             platforms/linux/ime/build/rimes.conf
             platforms/linux/ime/build/rimes-addon.conf
+            platforms/linux/ime/build/rimes-buffer
+            platforms/linux/ime/build/rimes-buffer-ctl
           if-no-files-found: error
           retention-days: 14
           compression-level: 6

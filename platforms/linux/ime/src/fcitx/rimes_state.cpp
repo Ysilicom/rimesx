@@ -1,5 +1,8 @@
 #include "rimes_state.hpp"
 
+#include <cstdint>
+#include <string>
+
 #include <fcitx-utils/capabilityflags.h>
 #include <fcitx-utils/key.h>
 #include <fcitx-utils/log.h>
@@ -111,6 +114,8 @@ void RimesState::keyEvent(KeyEvent& event) {
         return;
     }
     applySnapshot(snapshot);
+    ime_->buffer().AfterRime(ic_, event, snapshot.handled, composing_, snapshot.preedit,
+                             snapshot.raw_input);
     if (snapshot.handled) {
         event.filterAndAccept();
     }
@@ -190,8 +195,14 @@ void RimesState::UpdateUI(const rimes::linuxime::EngineSnapshot& snapshot) {
         preedit.append(snapshot.preedit, TextFormatFlag::Underline);
         preedit.setCursor(static_cast<int>(snapshot.caret_utf8));
     }
-    // Stock fcitx5-rime: inline preedit XOR popup preedit row.
-    if (ic_->capabilityFlags().test(CapabilityFlag::Preedit)) {
+    const bool capturing = ime_->buffer().model().captures(
+        std::to_string(reinterpret_cast<std::uintptr_t>(ic_)));
+    // Project real preedit into the workbench. Do not put U+200B in the host
+    // client preedit — GTK, VTE and Gecko commit that guard on focus-out.
+    if (capturing) {
+        panel.setClientPreedit(Text());
+        panel.setPreedit(Text());
+    } else if (ic_->capabilityFlags().test(CapabilityFlag::Preedit)) {
         panel.setClientPreedit(preedit);
         panel.setPreedit(Text());
     } else {

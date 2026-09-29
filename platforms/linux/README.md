@@ -3,9 +3,10 @@
 Linux 现在有两层，互相独立：
 
 1. **[Fcitx5 RIMES 输入法](ime/README.md)** — C++ addon，链接 librime，部署审核后的
-   RIMES `rime-data`，用 Fcitx5 的 preedit/候选 UI 上屏。这是 Linux 端口的第一步
-   （只有 IME）。Buffer / Capsule / Mailbox 尚未移植。真机清单见
-   [ime/MANUAL-TEST.md](ime/MANUAL-TEST.md)。
+   RIMES `rime-data`，用 Fcitx5 的 preedit/候选 UI 上屏。**[Buffer 工作台](buffer/README.md)**
+   已接到同一 addon：Rime 提交可先分块暂存，再经 `commitString` 上屏。行为规格见
+   [buffer/SPEC.md](buffer/SPEC.md)，真机清单见 [buffer/MANUAL-TEST.md](buffer/MANUAL-TEST.md)
+   与 [ime/MANUAL-TEST.md](ime/MANUAL-TEST.md)。Capsule / Mailbox 尚未移植。
 2. **下面的 Data / Input-Schemes Preview** — 仍把同一批 55 个审核文件装进用户已有的
    Fcitx5 Rime 或 IBus Rime。数据包保持原样，不依赖上面的 addon。
 
@@ -21,7 +22,8 @@ IBus 自己的 RIMES 引擎尚未开始；需要什么见 IME README。
 安装到所选前端的用户数据目录，默认提供雾凇全拼、自然码双拼、小鹤双拼、五笔 86
 和英文五个核心方案；`my_combo` 飞耀方案随包提供，但作为默认关闭的可选并击方案。
 
-这不是完整的 Linux 版 RIMES 应用。独立的 Fcitx5 addon 在 [ime/](ime/README.md)。
+这不是完整的 Linux 版 RIMES 应用。独立的 Fcitx5 addon 与 Buffer 在 [ime/](ime/README.md)
+和 [buffer/](buffer/README.md)。
 数据包本身不包含 Buffer 工作台、AI/翻译、OCR、插件 UI、自绘候选窗、焦点租约或设置窗口；
 走数据包路径时，候选显示、上屏和部署仍由用户已经安装的 Fcitx5 Rime 或 IBus Rime 负责。
 数据包中的 `my_combo` 可把同一批次按键交给 Rime chord composer，并包含单键 `v`

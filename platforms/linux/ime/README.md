@@ -6,9 +6,9 @@ RIMES `rime-data` set. It lives next to the existing
 [Linux data preview](../README.md), which still installs into stock
 `fcitx5-rime` / `ibus-rime` and is unchanged.
 
-This is step 1 of the Linux port (IME only). Buffer, Capsule, and Mailbox are
-out of scope. See `src/engine/rime_hooks.hpp` for how those layers should hook
-in later.
+This is step 2 of the Linux port (IME + Default Buffer). Capsule and Mailbox
+are still later. Buffer behavior is specified in
+[`../buffer/SPEC.md`](../buffer/SPEC.md). Hooks live in `src/engine/rime_hooks.hpp`.
 
 ## What works
 
@@ -23,9 +23,14 @@ in later.
   event loop when deploy finishes — status leaves `Deploying` without a restart.
 - Isolated user directory: `$XDG_DATA_HOME/rimes` (not `…/fcitx5/rime`)
 - Shared data: `$prefix/share/rimes/data` (policy-staged 55-file closure)
+- Default Buffer workbench (`Ctrl+Shift+B` / `Super+Shift+B`): Rime commits
+  stage as blocks, Return tap/hold and the paper plane send through the same
+  `commitText` → `commitString` path
 
 macOS-only behaviour that is **not** reproduced here: custom candidate chrome,
-Buffer / Capsule / Mailbox, cross-batch chord pairing, `Delivery.insert`.
+Capsule / Mailbox, Buffer plugins (AI / translation / stream / music),
+cross-batch chord pairing, IMK `Delivery.insert`. See
+[`../buffer/SPEC.md`](../buffer/SPEC.md) for the explicit gap list.
 
 ## Dependencies
 
@@ -66,7 +71,8 @@ Environment overrides used by tests and unusual layouts:
 platforms/linux/ime/scripts/package-deb.sh /tmp/rimes-deb
 ```
 
-writes `fcitx5-rimes_<version>_<arch>.deb`. Flatpak notes are in
+writes `fcitx5-rimes_<version>_<arch>.deb` (addon + `rimes-buffer` +
+`rimes-buffer-ctl` + reviewed data). Flatpak notes are in
 `packaging/flatpak/README.md`. The data preview tarball is a separate artifact
 and stays data-only.
 
@@ -96,10 +102,13 @@ IBus keysyms (already X11) into `ProcessKey` and commits with
 `ibus_engine_commit_text`. Estimate: similar size to this addon, no Fcitx5 UI.
 Not started in this tree.
 
-## Later Buffer / Capsule / Mailbox
+## Buffer / Capsule / Mailbox
 
-See `src/engine/rime_hooks.hpp`. The single commit path is
-`RimesIme::commitText` → `InputContext::commitString`. One Rime session per
-Fcitx5 input context. A Linux Buffer should attach as another
-`InputContextProperty` or a process-local panel; it must not start a second
-librime runtime.
+Buffer is implemented: `BufferService` lives in the addon, the GTK panel is
+`rimes-buffer`, and they speak length-prefixed JSON on
+`$XDG_RUNTIME_DIR/rimes-buffer.sock`. Capsule and Mailbox are not started.
+
+See `src/engine/rime_hooks.hpp`. The single commit path remains
+`RimesIme::commitText` → `InputContext::commitString` (or into Buffer when
+capture owns that IC). One Rime session per Fcitx5 input context. Do not
+start a second librime runtime.

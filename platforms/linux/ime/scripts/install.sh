@@ -73,10 +73,13 @@ mkdir -p "$DATA_DEST"
 cp -a "$STAGE_DIR"/. "$DATA_DEST/"
 
 cat <<EOF
-Installed the RIMES Fcitx5 addon.
+Installed the RIMES Fcitx5 addon and Buffer workbench.
   prefix: $PREFIX
   addon:  $PREFIX/lib/*/fcitx5/rimes.so (or lib64)
+  buffer: $PREFIX/libexec/rimes/rimes-buffer and $PREFIX/bin/rimes-buffer
+  ctl:    $PREFIX/bin/rimes-buffer-ctl
   data:   $PREFIX/share/rimes/data
 Restart Fcitx5 (fcitx5 -r) and add "RIMES" in the input method list.
+Toggle Buffer with Ctrl+Shift+B (or Super+Shift+B) while RIMES is current.
 User schema/state lives in \$XDG_DATA_HOME/rimes, isolated from fcitx5-rime.
 EOF
