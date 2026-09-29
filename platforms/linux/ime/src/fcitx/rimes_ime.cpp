@@ -4,6 +4,7 @@
 #include <functional>
 
 #include <fcitx-utils/log.h>
+#include <fcitx/event.h>
 #include <fcitx/inputcontextmanager.h>
 #include <fcitx/userinterface.h>
 
@@ -63,6 +64,16 @@ RimesIme::RimesIme(Instance* instance)
                     work();
                 }
             });
+        });
+
+    destroy_watch_ = instance_->watchEvent(
+        EventType::InputContextDestroyed, EventWatcherPhase::Default,
+        [this](Event& event) {
+            if (!buffer_) {
+                return;
+            }
+            auto& ic_event = static_cast<InputContextEvent&>(event);
+            buffer_->OnInputContextDestroyed(ic_event.inputContext());
         });
 }
 

@@ -21,6 +21,8 @@ enum class CommandOp {
     SelectAll,
     Paste,
     SetInsertion,
+    DragBegin,
+    DragEnd,
     Unknown,
 };
 

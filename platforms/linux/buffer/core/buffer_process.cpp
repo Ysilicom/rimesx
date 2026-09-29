@@ -24,4 +24,11 @@ bool UiProcessGone(pid_t pid) {
     return false;
 }
 
+bool ShouldForceUiRespawn(bool process_gone, int retry_attempt) {
+    if (process_gone) {
+        return false;
+    }
+    return retry_attempt >= 1;
+}
+
 }  // namespace rimes::buffer

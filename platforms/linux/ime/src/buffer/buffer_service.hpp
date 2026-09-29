@@ -41,6 +41,7 @@ public:
                    bool composing, std::string_view preedit);
     void OnActivate(InputContext* ic);
     void OnDeactivate(InputContext* ic, bool switching_im);
+    void OnInputContextDestroyed(InputContext* ic);
     void OnPasswordField(InputContext* ic, bool password);
 
     void Toggle(InputContext* ic);
@@ -80,8 +81,15 @@ private:
     void ReadClient(Client* client);
     void CloseClient(int fd);
     void WriteAll(const std::string& payload);
+    void StageOpenPreedit();
+    void DropCaptureForSwitch(std::string_view reason);
+    void ArmFocusGraceTimer();
+    void CancelFocusGraceTimer();
+    void ScheduleUiRespawn();
+    void ArmUiRespawnTimer(int delay_us);
     void ArmHoldTimer();
     void CancelHoldTimer();
+    bool HasUiClients();
 
     Instance* instance_;
     PostFn post_;
@@ -95,7 +103,14 @@ private:
     std::thread socket_thread_;
     std::atomic<bool> running_{false};
     std::unique_ptr<EventSourceTime> hold_timer_;
+    std::unique_ptr<EventSourceTime> focus_grace_timer_;
+    std::unique_ptr<EventSourceTime> ui_respawn_timer_;
     pid_t ui_pid_ = 0;
+    int ui_respawn_attempt_ = 0;
+    int focus_grace_ms_ = 5000;
+    std::string pending_unfocus_token_;
+    std::string target_token_;
+    bool dragging_ = false;
     bool auto_capture_ = false;
     bool headless_ = false;
     bool eat_return_until_release_ = false;

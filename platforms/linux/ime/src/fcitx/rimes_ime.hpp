@@ -4,7 +4,9 @@
 #include <memory>
 
 #include <fcitx-utils/eventdispatcher.h>
+#include <fcitx-utils/handlertable.h>
 #include <fcitx/addonfactory.h>
+#include <fcitx/event.h>
 #include <fcitx/addoninstance.h>
 #include <fcitx/addonmanager.h>
 #include <fcitx/inputcontextproperty.h>
@@ -50,6 +52,7 @@ private:
     EventDispatcher dispatcher_;
     std::shared_ptr<std::atomic<bool>> alive_;
     std::unique_ptr<BufferService> buffer_;
+    std::unique_ptr<HandlerTableEntry<EventHandler>> destroy_watch_;
     bool deploy_announced_ = false;
 };
 

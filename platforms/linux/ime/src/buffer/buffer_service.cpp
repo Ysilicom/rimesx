@@ -1,5 +1,6 @@
 #include "buffer_service.hpp"
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
@@ -31,6 +32,20 @@ namespace {
 FCITX_DEFINE_LOG_CATEGORY(rimes_buffer_log, "rimes.buffer");
 
 constexpr int kHoldTickUs = 50000;
+constexpr int kDefaultFocusGraceMs = 5000;
+
+int FocusGraceMsFromEnv() {
+    const char* value = std::getenv("RIMES_BUFFER_FOCUS_GRACE_MS");
+    if (value == nullptr || value[0] == '\0') {
+        return kDefaultFocusGraceMs;
+    }
+    char* end = nullptr;
+    const auto parsed = std::strtol(value, &end, 10);
+    if (end == value || parsed < 50 || parsed > 30000) {
+        return kDefaultFocusGraceMs;
+    }
+    return static_cast<int>(parsed);
+}
 
 std::string DefaultSocketPath() {
     if (const char* override_path = std::getenv("RIMES_BUFFER_SOCKET")) {
@@ -104,6 +119,7 @@ BufferService::BufferService(Instance* instance, PostFn post)
       post_(std::move(post)),
       socket_path_(DefaultSocketPath()),
       dump_path_(std::getenv("RIMES_BUFFER_DUMP") ? std::getenv("RIMES_BUFFER_DUMP") : ""),
+      focus_grace_ms_(FocusGraceMsFromEnv()),
       auto_capture_(EnvFlag("RIMES_BUFFER_AUTO_CAPTURE")),
       headless_(EnvFlag("RIMES_BUFFER_HEADLESS")) {
     if (const char* close_after = std::getenv("RIMES_BUFFER_CLOSE_AFTER_LAST")) {
@@ -115,6 +131,8 @@ BufferService::BufferService(Instance* instance, PostFn post)
 
 BufferService::~BufferService() {
     CancelHoldTimer();
+    CancelFocusGraceTimer();
+    ui_respawn_timer_.reset();
     StopSocket();
     ReapUi();
 }
@@ -191,6 +209,7 @@ void BufferService::RefreshCaret(InputContext* ic) {
     model_.set_caret(caret);
     if (!ic->program().empty()) {
         model_.set_target_name(ic->program());
+        target_token_ = TokenFor(ic);
     }
 }
 
@@ -363,11 +382,23 @@ void BufferService::OnActivate(InputContext* ic) {
     const auto token = TokenFor(ic);
     FCITX_LOGC(rimes_buffer_log, Info)
         << "activate token=" << token << " capturing=" << model_.capture_enabled()
-        << " auto=" << auto_capture_ << " headless=" << headless_;
+        << " auto=" << auto_capture_ << " drag=" << dragging_
+        << " pending=" << pending_unfocus_token_;
+    const bool same_field = (!pending_unfocus_token_.empty() && pending_unfocus_token_ == token) ||
+                            model_.captures(token);
+    if (same_field) {
+        // xfwm move-grab and other WM focus blips deactivate then
+        // reactivate the same IC. Keep the capture route.
+        dragging_ = false;
+        pending_unfocus_token_.clear();
+        CancelFocusGraceTimer();
+        RefreshCaret(ic);
+        OnPasswordField(ic, ic->capabilityFlags().test(CapabilityFlag::Password));
+        Publish();
+        return;
+    }
     if (model_.capture_enabled() && !model_.captures(token)) {
-        model_.route_direct_preserving_content("focus-changed");
-        gesture_.cancel();
-        CancelHoldTimer();
+        DropCaptureForSwitch("focus-changed");
     }
     OnPasswordField(ic, ic->capabilityFlags().test(CapabilityFlag::Password));
     if (auto_capture_ && !ic->capabilityFlags().test(CapabilityFlag::Password)) {
@@ -378,25 +409,45 @@ void BufferService::OnActivate(InputContext* ic) {
 
 void BufferService::OnDeactivate(InputContext* ic, bool switching_im) {
     FCITX_LOGC(rimes_buffer_log, Info)
-        << "deactivate switch_im=" << switching_im << " headless=" << headless_
-        << " capturing=" << model_.capture_enabled();
+        << "deactivate switch_im=" << switching_im << " capturing=" << model_.capture_enabled()
+        << " drag=" << dragging_;
     if (switching_im && model_.captures(TokenFor(ic))) {
         CloseAndPause();
         return;
     }
-    if (headless_) {
-        // testfrontend / DBus virtual ICs lose and regain focus around deploy
-        // and between synthetic keys. That is not a user field change.
+    ClearClientPreedit(ic);
+    if (!model_.captures(TokenFor(ic))) {
         return;
     }
-    ClearClientPreedit(ic);
-    if (model_.captures(TokenFor(ic))) {
-        model_.route_direct_preserving_content("focus-out");
-        gesture_.cancel();
-        CancelHoldTimer();
-        model_.set_preedit({});
-        Publish();
+    if (dragging_) {
+        return;
     }
+    // Do not drop capture yet. A toolbar drag or a brief WM grab will
+    // activate this same IC again; a real field switch activates another.
+    pending_unfocus_token_ = TokenFor(ic);
+    ArmFocusGraceTimer();
+    Publish();
+}
+
+void BufferService::OnInputContextDestroyed(InputContext* ic) {
+    if (ic == nullptr) {
+        return;
+    }
+    const auto token = TokenFor(ic);
+    FCITX_LOGC(rimes_buffer_log, Info) << "ic destroyed token=" << token;
+    const bool ours = model_.captures(token) || pending_unfocus_token_ == token ||
+                      target_token_ == token;
+    if (!ours) {
+        return;
+    }
+    if (model_.captures(token) || pending_unfocus_token_ == token) {
+        DropCaptureForSwitch("ic-destroyed");
+    }
+    if (target_token_ == token) {
+        model_.set_target_name({});
+        target_token_.clear();
+    }
+    Publish();
 }
 
 void BufferService::OnPasswordField(InputContext* ic, bool password) {
@@ -459,9 +510,51 @@ void BufferService::ShowAndCapture(InputContext* ic) {
 void BufferService::CloseAndPause() {
     gesture_.cancel();
     CancelHoldTimer();
+    CancelFocusGraceTimer();
+    dragging_ = false;
+    pending_unfocus_token_.clear();
     ClearClientPreedit(LiveTarget());
     model_.pause_capture_preserving_content();
     Publish();
+}
+
+void BufferService::StageOpenPreedit() {
+    const auto text = model_.preedit();
+    if (text.empty()) {
+        return;
+    }
+    model_.append(text, rimes::buffer::Origin::Local);
+    model_.set_preedit({});
+}
+
+void BufferService::DropCaptureForSwitch(std::string_view reason) {
+    StageOpenPreedit();
+    gesture_.cancel();
+    CancelHoldTimer();
+    CancelFocusGraceTimer();
+    dragging_ = false;
+    pending_unfocus_token_.clear();
+    model_.route_direct_preserving_content(reason);
+}
+
+void BufferService::ArmFocusGraceTimer() {
+    if (instance_ == nullptr) {
+        return;
+    }
+    const uint64_t delay_us = static_cast<uint64_t>(focus_grace_ms_) * 1000;
+    focus_grace_timer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC, now(CLOCK_MONOTONIC) + delay_us, 0,
+        [this](EventSourceTime*, uint64_t) {
+            if (!pending_unfocus_token_.empty()) {
+                DropCaptureForSwitch("focus-out");
+                Publish();
+            }
+            return true;
+        });
+}
+
+void BufferService::CancelFocusGraceTimer() {
+    focus_grace_timer_.reset();
 }
 
 bool BufferService::SendNext() { return Deliver(false); }
@@ -582,6 +675,14 @@ void BufferService::HandleCommand(const rimes::buffer::Command& command) {
         case rimes::buffer::CommandOp::SetInsertion:
             model_.set_insertion_point(command.insertion_index);
             break;
+        case rimes::buffer::CommandOp::DragBegin:
+            dragging_ = true;
+            pending_unfocus_token_.clear();
+            CancelFocusGraceTimer();
+            return;
+        case rimes::buffer::CommandOp::DragEnd:
+            dragging_ = false;
+            return;
         case rimes::buffer::CommandOp::Unknown:
             break;
     }
@@ -790,13 +891,46 @@ void BufferService::CloseClient(int fd) {
         }
     }
     if (clients_empty && !headless_) {
-        post_([this] {
+        post_([this] { ScheduleUiRespawn(); });
+    }
+}
+
+bool BufferService::HasUiClients() {
+    std::lock_guard<std::recursive_mutex> lock(clients_mu_);
+    return !clients_.empty();
+}
+
+void BufferService::ScheduleUiRespawn() {
+    if (headless_ || !model_.visible()) {
+        return;
+    }
+    ui_respawn_attempt_ = 0;
+    ArmUiRespawnTimer(50000);
+}
+
+void BufferService::ArmUiRespawnTimer(int delay_us) {
+    if (instance_ == nullptr) {
+        return;
+    }
+    ui_respawn_timer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC, now(CLOCK_MONOTONIC) + delay_us, 0,
+        [this](EventSourceTime*, uint64_t) {
             ReapUi();
+            if (ui_pid_ > 0 &&
+                rimes::buffer::ShouldForceUiRespawn(false, ui_respawn_attempt_)) {
+                ui_pid_ = 0;
+            }
+            ++ui_respawn_attempt_;
             if (model_.visible()) {
                 EnsureUi();
             }
+            if (model_.visible() && !HasUiClients() && ui_respawn_attempt_ < 5) {
+                const int delays[] = {150000, 400000, 1000000, 2000000};
+                const int index = std::min(ui_respawn_attempt_ - 1, 3);
+                ArmUiRespawnTimer(delays[index]);
+            }
+            return true;
         });
-    }
 }
 
 void BufferService::WriteAll(const std::string& payload) {

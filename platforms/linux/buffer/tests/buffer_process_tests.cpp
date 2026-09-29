@@ -55,6 +55,13 @@ int main() {
     }
     Expect(gone, "waitpid reaps a killed UI pid");
 
+    Expect(!rimes::buffer::ShouldForceUiRespawn(false, 0),
+           "first retry still trusts waitpid");
+    Expect(rimes::buffer::ShouldForceUiRespawn(false, 1),
+           "second retry forces a respawn after a dropped socket");
+    Expect(!rimes::buffer::ShouldForceUiRespawn(true, 1),
+           "already-gone pid does not need a force");
+
     if (failures != 0) {
         std::cerr << failures << " process-gone checks failed\n";
         return EXIT_FAILURE;

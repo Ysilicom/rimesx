@@ -66,17 +66,26 @@ For each host above, switch to **RIMES** (雾凇全拼) first.
     do not inject ZWSP or swallow Escape in that field.
 12. **Close after last.** With the default on, sending the last chip hides
     Buffer.
-13. **X11 placement.** On Xfce, the first open sits below the caret with
-    room for the stock candidate popup (not overlapping the typed-text
-    rail). Drag the toolbar; the body rail does not drag. If drag fails,
-    record the WM — `UTILITY` + `begin_move_drag` is the intended path.
+13. **X11 placement.** On Xfce, the first open sits **above** the caret
+    when there is room (type `shi` — the 9-row candidate list under the
+    caret must not cover chips or the typed text). If the caret is at the
+    very top, the panel docks to the bottom of the monitor instead. Drag
+    the toolbar: the body rail does not drag, **capture stays on**, and
+    the next key still stages. The dragged position is forgotten on the
+    next open (expected).
 14. **Wayland placement.** On labwc/sway the panel is overlay / always
-    visible, roughly 760px wide (not a ~184×75 sliver), chips are readable,
-    and it does not steal focus. It may sit at the bottom instead of under
-    the caret — that is expected.
+    visible, at least 760 px wide (stretched with side margins; ~1118×77
+    on a 1280-wide output is fine), chips are readable, and it does not
+    steal focus. It sits at the bottom, not under the caret — expected.
 15. **UI respawn.** While capturing, `kill -9` the `rimes-buffer` process.
-    Stage or toggle again: the panel must reappear without restarting
-    fcitx5. Staging/send must keep working.
+    The panel should come back within about a second **without** needing
+    another key. Staging/send must keep working; do not restart fcitx5.
+16. **Stale target.** Quit the captured app (e.g. Firefox) while the
+    panel is open. Capture pauses, the target must not stay `firefox-esr`,
+    chips remain.
+17. **Composition on switch.** Start a composition (`shi`, do not Space),
+    click another field. The spelling is staged as a chip (not inserted
+    into the old field). Switching away no longer silently drops it.
 
 ## Session notes
 

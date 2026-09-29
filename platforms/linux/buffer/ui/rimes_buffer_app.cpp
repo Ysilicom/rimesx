@@ -1,3 +1,4 @@
+#include "buffer_placement.hpp"
 #include "buffer_protocol.hpp"
 
 #include <gdk/gdk.h>
@@ -31,8 +32,7 @@ namespace {
 constexpr int kWindowWidth = 760;
 constexpr int kWindowHeight = 78;
 constexpr int kToolbarHeight = 33;
-constexpr int kGapBelowCaret = 10;
-constexpr int kCandidateReserve = 120;
+constexpr int kGapAroundCaret = 10;
 
 struct App {
     GtkWidget* window = nullptr;
@@ -114,25 +114,24 @@ void PlaceOnX11(App* app) {
     if (app->wayland_layer || !app->snapshot.caret.valid) {
         return;
     }
-    gint x = app->snapshot.caret.x + (app->snapshot.caret.width / 2) - (kWindowWidth / 2);
-    // Always leave room for the stock Fcitx5 candidate popup under the caret.
-    // First show happens before composition, so a 10px-only gap overlaps it.
-    const gint below_gap = kGapBelowCaret + kCandidateReserve;
-    gint y = app->snapshot.caret.y + app->snapshot.caret.height + below_gap;
+    rimes::buffer::Workarea work;
     GdkDisplay* display = gtk_widget_get_display(app->window);
     GdkMonitor* monitor = gdk_display_get_monitor_at_point(display, app->snapshot.caret.x,
                                                            app->snapshot.caret.y);
     if (monitor != nullptr) {
-        GdkRectangle work{};
-        gdk_monitor_get_workarea(monitor, &work);
-        const gint above_y = app->snapshot.caret.y - kGapBelowCaret - kWindowHeight;
-        if (y + kWindowHeight > work.y + work.height && above_y >= work.y + 8) {
-            y = above_y;
-        }
-        x = MAX(work.x + 8, MIN(x, work.x + work.width - kWindowWidth - 8));
-        y = MAX(work.y + 8, MIN(y, work.y + work.height - kWindowHeight - 8));
+        GdkRectangle area{};
+        gdk_monitor_get_workarea(monitor, &area);
+        work.x = area.x;
+        work.y = area.y;
+        work.width = area.width;
+        work.height = area.height;
+    } else {
+        work.width = 1280;
+        work.height = 800;
     }
-    gtk_window_move(GTK_WINDOW(app->window), x, y);
+    const auto placed = rimes::buffer::PlaceX11Panel(app->snapshot.caret, work, kWindowWidth,
+                                                     kWindowHeight, kGapAroundCaret);
+    gtk_window_move(GTK_WINDOW(app->window), placed.x, placed.y);
     app->placed = true;
 }
 
@@ -392,6 +391,7 @@ void OnSizeAllocate(GtkWidget* /*widget*/, GdkRectangle* allocation, gpointer da
 gboolean OnToolbarDrag(GtkWidget* /*widget*/, GdkEventButton* event, gpointer data) {
     auto* app = static_cast<App*>(data);
     if (event->type == GDK_BUTTON_PRESS && event->button == 1 && !app->wayland_layer) {
+        SendCommand(app, R"({"v":1,"op":"drag_begin"})");
         gtk_window_begin_move_drag(GTK_WINDOW(app->window), static_cast<gint>(event->button),
                                    static_cast<gint>(event->x_root),
                                    static_cast<gint>(event->y_root), event->time);

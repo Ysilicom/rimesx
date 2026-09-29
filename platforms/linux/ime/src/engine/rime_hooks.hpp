@@ -17,7 +17,9 @@
 //    Backspace, Escape (this IC only), Ctrl+A and Ctrl+V are consumed here.
 //    After send-all closes the panel, Return auto-repeats are eaten until
 //    key-up so they cannot leak Enter into the host. A composing Return is
-//    passed through to Rime so it can settle, then must not send.
+//    passed through to Rime so it can settle, then must not send. Same-IC
+//    focus blips (toolbar drag) keep capture; a real field switch stages
+//    any open preedit and returns the route to the host.
 //
 // 3. Session / field isolation
 //    One Rime session per Fcitx5 InputContext (RimesState). Buffer is

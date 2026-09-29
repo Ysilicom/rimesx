@@ -96,7 +96,7 @@ if [[ ! -x "$BUILD_DIR/rimes-buffer-fcitx-e2e" ]]; then
     echo "error: missing $BUILD_DIR/rimes-buffer-fcitx-e2e" >&2
     exit 1
 fi
-echo "==> in-process Fcitx5 Buffer (stage / send / Return / hold-repeats / ZWSP / Escape-scope)"
+echo "==> in-process Fcitx5 Buffer (stage / send / Return / hold / focus / destroy)"
 "$BUILD_DIR/rimes-buffer-fcitx-e2e" "$BUILD_DIR" "." "test-data"
 
 if (( SKIP_DISPLAY == 1 )); then

@@ -78,6 +78,7 @@ std::string IsolateDirs() {
     // activates the IC would Toggle the workbench closed in the same event.
     setenv("RIMES_BUFFER_AUTO_CAPTURE", "0", 1);
     setenv("RIMES_BUFFER_CLOSE_AFTER_LAST", "1", 1);
+    setenv("RIMES_BUFFER_FOCUS_GRACE_MS", "200", 1);
     return dump_env;
 }
 
@@ -136,6 +137,7 @@ void RunBufferSuite(fcitx::Instance& instance,
                     const fcitx::ICUUID& uuid,
                     fcitx::InputContext* ic,
                     const std::string& dump_path,
+                    std::unique_ptr<fcitx::EventSourceTime>* grace_timer,
                     std::unique_ptr<fcitx::EventSourceTime>* hold_timer) {
     ic->setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit} |
                            fcitx::CapabilityFlag::ClientUnfocusCommit);
@@ -215,7 +217,11 @@ void RunBufferSuite(fcitx::Instance& instance,
     ExpectNoZwsp(ic, "focus-out while capturing");
     ic->focusIn();
     ExpectNoZwsp(ic, "focus-in after capturing focus-out");
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "\"capturing\":true",
+                   "same-IC focus flicker must not drop capture");
     std::cout << "ok: capturing never installs a client-preedit ZWSP\n";
+    std::cout << "ok: same-IC focus-out/in keeps capture\n";
 
     SendKey(frontend, uuid, "Escape");
     snapshot = ReadDump(dump_path);
@@ -253,18 +259,54 @@ void RunBufferSuite(fcitx::Instance& instance,
     frontend->call<fcitx::ITestFrontend::destroyInputContext>(uuid2);
     ic->focusIn();
     EnsureCapturing(frontend, uuid, dump_path);
-    Type(frontend, uuid, "nihao");
-    SendKey(frontend, uuid, "space");
-    Type(frontend, uuid, "shijie");
-    SendKey(frontend, uuid, "space");
-    snapshot = ReadDump(dump_path);
-    ExpectContains(snapshot, "你好", "hold-Return fixture missing first chip");
-    ExpectContains(snapshot, "世界", "hold-Return fixture missing second chip");
-    frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("你好");
-    frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("世界");
-    frontend->call<fcitx::ITestFrontend::keyEvent>(uuid, fcitx::Key("Return"), false);
 
-    *hold_timer = instance.eventLoop().addTimeEvent(
+    const auto uuid_dying =
+        frontend->call<fcitx::ITestFrontend::createInputContext>("rimes-buffer-dying");
+    auto* ic_dying = instance.inputContextManager().findByUUID(uuid_dying);
+    if (ic_dying == nullptr) {
+        Die("dying test input context was not created");
+    }
+    instance.setCurrentInputMethod(ic_dying, "rimes", true);
+    ic_dying->focusIn();
+    SendKey(frontend, uuid_dying, "Control+Shift+B");
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "\"capturing\":true", "dying IC did not capture");
+    frontend->call<fcitx::ITestFrontend::destroyInputContext>(uuid_dying);
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "\"capturing\":false", "destroyed IC must drop capture");
+    std::cout << "ok: destroying the captured IC pauses capture and clears the route\n";
+
+    ic->focusIn();
+    EnsureCapturing(frontend, uuid, dump_path);
+    Type(frontend, uuid, "shi");
+    ic->focusOut();
+    *grace_timer = instance.eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 400000, 0,
+        [&instance, frontend, uuid, ic, dump_path, hold_timer](fcitx::EventSourceTime*,
+                                                              uint64_t) {
+            try {
+                auto snapshot = ReadDump(dump_path);
+                ExpectContains(snapshot, "\"capturing\":false",
+                               "focus-out grace must drop capture");
+                ExpectContains(snapshot, "shi", "open composition must stage into Buffer");
+                std::cout << "ok: leaving a field stages the open preedit and drops capture\n";
+
+                ic->focusIn();
+                EnsureCapturing(frontend, uuid, dump_path);
+                SendKey(frontend, uuid, "BackSpace");
+                Type(frontend, uuid, "nihao");
+                SendKey(frontend, uuid, "space");
+                Type(frontend, uuid, "shijie");
+                SendKey(frontend, uuid, "space");
+                snapshot = ReadDump(dump_path);
+                ExpectContains(snapshot, "你好", "hold-Return fixture missing first chip");
+                ExpectContains(snapshot, "世界", "hold-Return fixture missing second chip");
+                frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("你好");
+                frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("世界");
+                frontend->call<fcitx::ITestFrontend::keyEvent>(uuid, fcitx::Key("Return"),
+                                                               false);
+
+                *hold_timer = instance.eventLoop().addTimeEvent(
         CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 1400000, 0,
         [frontend, uuid, ic, &instance, dump_path](fcitx::EventSourceTime*, uint64_t) {
             try {
@@ -283,6 +325,11 @@ void RunBufferSuite(fcitx::Instance& instance,
                 std::cout << "ok: held-Return send-all ate leftover repeats\n";
                 frontend->call<fcitx::ITestFrontend::destroyInputContext>(uuid);
                 instance.exit();
+            } catch (const TestFailed&) {
+                instance.exit();
+            }
+            return true;
+        });
             } catch (const TestFailed&) {
                 instance.exit();
             }
@@ -316,6 +363,7 @@ int main(int argc, char** argv) {
         fcitx::ICUUID uuid{};
         fcitx::InputContext* ic = nullptr;
         std::unique_ptr<fcitx::EventSourceTime> wait_timer;
+        std::unique_ptr<fcitx::EventSourceTime> grace_timer;
         std::unique_ptr<fcitx::EventSourceTime> hold_timer;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(180);
         bool suite_started = false;
@@ -370,7 +418,8 @@ int main(int argc, char** argv) {
                     suite_started = true;
                     std::cout << "ok: buffer testfrontend left Deploying\n";
                     try {
-                        RunBufferSuite(instance, frontend, uuid, ic, dump_path, &hold_timer);
+                        RunBufferSuite(instance, frontend, uuid, ic, dump_path, &grace_timer,
+                                       &hold_timer);
                     } catch (const TestFailed&) {
                         instance.exit();
                     }

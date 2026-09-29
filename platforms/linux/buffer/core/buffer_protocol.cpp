@@ -251,6 +251,10 @@ bool ParseCommand(std::string_view json, Command* command, std::string* error) {
             }
             return false;
         }
+    } else if (op == "drag_begin") {
+        command->op = CommandOp::DragBegin;
+    } else if (op == "drag_end") {
+        command->op = CommandOp::DragEnd;
     } else {
         command->op = CommandOp::Unknown;
         if (error != nullptr) {

@@ -65,8 +65,23 @@ content; blocks are not persisted.
    last pending block close-and-pauses.
 10. The companion `rimes-buffer` process is a renderer. If it dies (including
     `kill -9`) or its socket drops, the addon treats `waitpid` `ECHILD` /
-    `ESRCH` as dead and respawns on the next publish while the workbench is
-    visible. Fcitx5's SIGCHLD handler may already have reaped the pid.
+    `ESRCH` as dead. A dropped socket also starts a short retry/backoff
+    (50 ms, then 150/400/1000 ms) and **forces** a respawn on the second
+    attempt even if the pid is not yet a zombie, so the panel comes back
+    without waiting for the next key. Fcitx5's SIGCHLD handler may already
+    have reaped the pid.
+11. Destroying the captured input context (app exit) pauses capture, clears
+    the toolbar target, and keeps any staged chips. The workbench stays
+    visible as Paused with target `·` until the user closes it.
+12. A WM focus blip on the **same** IC (xfwm move-grab while dragging the
+    toolbar, brief unfocus/refocus) does **not** change the input route.
+    The UI sends `drag_begin` before `begin_move_drag`. A real field switch
+    (another IC activates) or a focus-out grace (`RIMES_BUFFER_FOCUS_GRACE_MS`,
+    default 5000) without the same IC returning drops capture.
+13. An unresolved composition at a real field switch is staged as a `local`
+    block using the current preedit spelling (same idea as composing Return /
+    `commit_raw_input`), then the Rime session is reset. It is not committed
+    to the host and is not the highlighted candidate.
 
 ## Workbench chrome
 
@@ -89,16 +104,23 @@ content; blocks are not persisted.
   `gtk_window_begin_move_drag` on the toolbar. DOCK windows on Xfce are not
   user-movable.
 - On first show, if Fcitx5 reports a caret rect, center horizontally on it
-  and sit ~130px below (10px gap plus ~120px reserved for the stock Fcitx5
-  candidate popup). Flip above the caret if that does not fit the monitor.
+  and **prefer above the caret** (stock Fcitx5 candidates grow downward).
+  If that does not fit the workarea, dock to the **bottom** of the monitor.
+  Never sit a small gap immediately below the caret — a 9-row popup is
+  ~250 px tall and would cover the chips.
+- A user drag moves the window for this showing only. The next open uses
+  the caret rule again; the dragged position is **not** remembered (no
+  layout file, and Wayland compositors own placement).
 - The window does not follow later caret motion on the same display.
+  Dragging the toolbar must not pause capture.
 
 ### wlroots Wayland (labwc / sway)
 
 - `gtk-layer-shell` overlay layer, bottom-anchored **and** left/right
   stretched with ~80px side margins and a 48px bottom margin, plus a
-  760×78 size request. Keyboard interactivity none. A bottom-only anchor
-  without a size request collapses to ~184×75 and ellipsizes chips.
+  760×78 **minimum** size request. On a typical 1280-wide output the
+  allocated size is about 1118×77 — that is expected, not a shrink to
+  ~184×75. Keyboard interactivity none.
 - The compositor owns vertical position. There is no reliable “10px under
   the caret” API on stock layer-shell.
 
@@ -132,14 +154,15 @@ Length-prefixed JSON (4-byte big-endian + UTF-8) on
 The IME owns the model. The UI and `rimes-buffer-ctl` are clients.
 
 Commands: `hello`, `status`, `toggle`, `show`, `close`, `send_next`,
-`send_all`, `remove_last`, `select_all`, `paste`, `set_insertion`.
+`send_all`, `remove_last`, `select_all`, `paste`, `set_insertion`,
+`drag_begin`, `drag_end`.
 Connecting publishes the current snapshot immediately; mutating commands
 are applied on the Fcitx thread and publish again. `rimes-buffer-ctl`
 and the DBus e2e client drain the connect snapshot before treating a
 mutating op as done.
 
-Environment for tests: `RIMES_BUFFER_HEADLESS=1` (no GTK spawn; ignore
-focus-out so testfrontend/DBus virtual ICs keep capture),
+Environment for tests: `RIMES_BUFFER_HEADLESS=1` (no GTK spawn),
 `RIMES_BUFFER_AUTO_CAPTURE=1` (capture on activate),
 `RIMES_BUFFER_CLOSE_AFTER_LAST=0`,
+`RIMES_BUFFER_FOCUS_GRACE_MS` (same-IC unfocus grace; default 5000),
 `RIMES_BUFFER_DUMP=/path.json` (atomic snapshot file for in-process e2e).

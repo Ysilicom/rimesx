@@ -55,6 +55,9 @@ int main() {
     Expect(rimes::buffer::ParseCommand(R"({"op":"paste","text":"hello \"x\""})", &command, &error),
            "parse paste");
     Expect(command.op == CommandOp::Paste && command.text == "hello \"x\"", "paste text");
+    Expect(rimes::buffer::ParseCommand(R"({"op":"drag_begin"})", &command, &error),
+           "parse drag_begin");
+    Expect(command.op == CommandOp::DragBegin, "drag_begin op");
     Expect(!rimes::buffer::ParseCommand(R"({"op":"nope"})", &command, &error), "unknown op fails");
 
     const auto escaped = rimes::buffer::JsonEscape("a\"b\\c");
