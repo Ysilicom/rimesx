@@ -120,7 +120,7 @@ Return / Escape / typing stay with Buffer until capture pauses.
 | Left / Right | Move selection |
 | Return | Activate the selected **note** (insert body) and close |
 | `Ctrl+1`–`Ctrl+9` | Activate visible card 0–8 |
-| `Ctrl+C` | Copy the selected note body (clipboard only; no paste) |
+| `Ctrl+C` | Copy the selected note body once (clipboard only; no paste). Writes are edge-triggered on `copy_seq`; later snapshots, search, close/reopen, and a respawned UI must not rewrite the clipboard. |
 | Printable ASCII / Backspace | Edit the in-rail search query |
 | Host typing while disarmed | Reaches the host / Rime; not search |
 
@@ -229,7 +229,11 @@ Commands: `hello`, `status`, `toggle`, `show`, `close`, `next`, `prev`,
 
 `status` reloads the note store before publishing, so `rimes-capsule-ctl
 status` is not a stale closed-rail count. Connecting publishes the
-current snapshot immediately.
+current snapshot immediately. `copy_seq` increments on each
+`CopySelected`. The UI copies `last_copied` only when `copy_seq`
+increases after the first snapshot it has already handled. `Hide` /
+`Close` clear `last_copied` and leave `copy_seq` unchanged. Buffer only
+*reads* the clipboard on demand; it does not write on every snapshot.
 
 Environment for tests: `RIMES_CAPSULE_HEADLESS=1`,
 `RIMES_CAPSULE_UI=/path`, `RIMES_CAPSULE_CONNECT_DELAY_MS`,

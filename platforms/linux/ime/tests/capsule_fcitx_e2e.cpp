@@ -234,7 +234,25 @@ void RunCapsuleSuite(fcitx::Instance& instance, fcitx::AddonInstance* frontend,
     SendKey(frontend, uuid, "Control+c");
     snapshot = ReadDump(dump_path);
     ExpectContains(snapshot, "\"last_copied\":\"RIMES\"", "Ctrl+C did not copy the seed body");
-    std::cout << "ok: Ctrl+C copies the selected note\n";
+    ExpectContains(snapshot, "\"copy_seq\":1", "first Ctrl+C must bump copy_seq");
+    Type(frontend, uuid, "z");
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "\"copy_seq\":1", "search must not bump copy_seq");
+    ExpectContains(snapshot, "\"last_copied\":\"RIMES\"", "search must not clear last_copied");
+    SendKey(frontend, uuid, "Control+Shift+V");
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "\"visible\":false", "armed hotkey closes");
+    ExpectContains(snapshot, "\"last_copied\":\"\"", "Hide must clear last_copied");
+    ExpectContains(snapshot, "\"copy_seq\":1", "Hide must not bump copy_seq");
+    SendKey(frontend, uuid, "Control+Shift+V");
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "\"copy_seq\":1", "reopen must not look like a new copy");
+    ExpectContains(snapshot, "\"last_copied\":\"\"", "reopen must not restore last_copied");
+    SendKey(frontend, uuid, "Control+c");
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "\"copy_seq\":2", "second Ctrl+C on the same card must bump copy_seq");
+    ExpectContains(snapshot, "\"last_copied\":\"RIMES\"", "second Ctrl+C must copy again");
+    std::cout << "ok: Ctrl+C is edge-triggered and can copy the same card twice\n";
 
     SendKey(frontend, uuid, "Control+Shift+B");
     SendKey(frontend, uuid, "Return");

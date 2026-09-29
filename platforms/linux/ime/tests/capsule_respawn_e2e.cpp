@@ -58,10 +58,12 @@ std::string IsolateDirs(const std::string& stub_path) {
     static std::string socket_env;
     static std::string dump_env;
     static std::string ui_env;
+    static std::string clipboard_log;
     user_env = (root / "user").string();
     log_env = (root / "user" / "log").string();
     socket_env = (root / "rimes-capsule.sock").string();
     dump_env = (root / "capsule-snapshot.json").string();
+    clipboard_log = (root / "clipboard-writes.log").string();
     ui_env = stub_path;
     setenv("RIMES_USER_DIR", user_env.c_str(), 1);
     setenv("RIMES_LOG_DIR", log_env.c_str(), 1);
@@ -69,10 +71,30 @@ std::string IsolateDirs(const std::string& stub_path) {
     setenv("RIMES_CAPSULE_SOCKET", socket_env.c_str(), 1);
     setenv("RIMES_CAPSULE_DUMP", dump_env.c_str(), 1);
     setenv("RIMES_CAPSULE_UI", ui_env.c_str(), 1);
+    setenv("RIMES_CAPSULE_CLIPBOARD_LOG", clipboard_log.c_str(), 1);
     setenv("RIMES_CAPSULE_CONNECT_DELAY_MS", "1500", 1);
     unsetenv("RIMES_CAPSULE_HEADLESS");
     setenv("RIMES_CAPSULE_FOCUS_GRACE_MS", "200", 1);
     return dump_env;
+}
+
+int ClipboardWriteCount() {
+    const char* path = std::getenv("RIMES_CAPSULE_CLIPBOARD_LOG");
+    if (path == nullptr || path[0] == '\0') {
+        return -1;
+    }
+    std::ifstream in(path);
+    if (!in) {
+        return 0;
+    }
+    int lines = 0;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty()) {
+            ++lines;
+        }
+    }
+    return lines;
 }
 
 std::string ReadDump(const std::string& path) {
@@ -177,6 +199,7 @@ int main(int argc, char** argv) {
         fcitx::InputContext* ic = nullptr;
         std::unique_ptr<fcitx::EventSourceTime> wait_timer;
         std::unique_ptr<fcitx::EventSourceTime> connected_timer;
+        std::unique_ptr<fcitx::EventSourceTime> copy_timer;
         std::unique_ptr<fcitx::EventSourceTime> after_kill_timer;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(180);
         bool suite_started = false;
@@ -251,8 +274,26 @@ int main(int argc, char** argv) {
                                 Die("expected exactly one UI process before kill");
                             }
                             std::cout << "ok: first Capsule UI connected\n";
-                            KillUiProcesses(stub_path);
-                            after_kill_timer = instance.eventLoop().addTimeEvent(
+                            SendKey(frontend, uuid, "Control+c");
+                            if (ReadDump(dump_path).find("\"copy_seq\":1") == std::string::npos) {
+                                Die("Ctrl+C did not increment copy_seq");
+                            }
+                            copy_timer = instance.eventLoop().addTimeEvent(
+                                CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 50000, 50000,
+                                [&, stub_path](fcitx::EventSourceTime* copy_poll, uint64_t) {
+                                    if (std::chrono::steady_clock::now() > deadline) {
+                                        Die("stub never logged the first Ctrl+C clipboard write");
+                                    }
+                                    if (ClipboardWriteCount() < 1) {
+                                        copy_poll->setTime(fcitx::now(CLOCK_MONOTONIC) + 50000);
+                                        copy_poll->setOneShot();
+                                        return true;
+                                    }
+                                    if (ClipboardWriteCount() != 1) {
+                                        Die("stub must write the clipboard once for the first Ctrl+C");
+                                    }
+                                    KillUiProcesses(stub_path);
+                                    after_kill_timer = instance.eventLoop().addTimeEvent(
                                 CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 2000000, 0,
                                 [&, stub_path](fcitx::EventSourceTime*, uint64_t) {
                                     try {
@@ -266,13 +307,19 @@ int main(int argc, char** argv) {
                                             Die("after kill+2s expected 1 UI client, got " +
                                                 std::to_string(clients));
                                         }
+                                        if (ClipboardWriteCount() != 1) {
+                                            Die("respawned UI re-wrote the clipboard");
+                                        }
                                         std::cout << "ok: Capsule UI respawn kept a single delayed client\n";
+                                        std::cout << "ok: respawned UI did not replay Ctrl+C onto the clipboard\n";
                                         frontend->call<fcitx::ITestFrontend::destroyInputContext>(
                                             uuid);
                                         instance.exit();
                                     } catch (const TestFailed&) {
                                         instance.exit();
                                     }
+                                    return true;
+                                });
                                     return true;
                                 });
                             return true;

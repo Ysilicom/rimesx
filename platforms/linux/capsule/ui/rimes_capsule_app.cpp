@@ -1,5 +1,6 @@
 #include "buffer_protocol.hpp"
 #include "capsule_click.hpp"
+#include "capsule_clipboard.hpp"
 #include "capsule_kinds.hpp"
 #include "capsule_protocol.hpp"
 
@@ -58,6 +59,8 @@ struct App {
     std::vector<CardRow> card_rows;
     int last_press_index = -1;
     std::int64_t last_press_ms = -1;
+    bool seen_copy_seq = false;
+    std::uint64_t handled_copy_seq = 0;
 };
 
 App* g_app = nullptr;
@@ -320,10 +323,13 @@ void ApplySnapshot(App* app) {
     gtk_label_set_text(GTK_LABEL(app->query), query.c_str());
     RebuildTabs(app);
     SyncCards(app);
-    if (!app->snapshot.last_copied.empty()) {
+    if (rimes::capsule::ShouldWriteClipboard(app->seen_copy_seq, app->handled_copy_seq,
+                                             app->snapshot.copy_seq, app->snapshot.last_copied)) {
         GtkClipboard* board = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
         gtk_clipboard_set_text(board, app->snapshot.last_copied.c_str(), -1);
     }
+    app->seen_copy_seq = true;
+    app->handled_copy_seq = app->snapshot.copy_seq;
     if (app->snapshot.visible) {
         gtk_widget_show_all(app->window);
         PlaceOnX11(app);

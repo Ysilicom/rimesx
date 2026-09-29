@@ -164,6 +164,7 @@ void CapsuleModel::Move(int delta) {
 
 void CapsuleModel::set_last_copied(std::string text) {
     last_copied_ = std::move(text);
+    ++copy_seq_;
     Touch();
 }
 
@@ -191,6 +192,7 @@ void CapsuleModel::Hide() {
     armed_ = false;
     token_.clear();
     query_.clear();
+    last_copied_.clear();
     ApplyFilter();
     Touch();
 }

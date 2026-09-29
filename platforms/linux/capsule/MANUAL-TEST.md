@@ -88,6 +88,15 @@ does nothing under another IM (including stock `fcitx5-rime`). The
 15. **Empty tabs.** 临时 / 捕获 / 图库 / 影集 / PDF / 技能 / 密码 show
     the “not ported” hint. Switching tabs with Tab must not type a Tab
     into the host.
+16. **Clipboard is edge-triggered.** Open Capsule, `Ctrl+C` so the
+    clipboard is the selected note. In another app copy a sentinel
+    (`USERCLIP`). Type or backspace in the Capsule search box, then
+    close and reopen the rail. The clipboard must still be `USERCLIP`.
+    `kill -9` `rimes-capsule` and wait for the single respawn: clipboard
+    must still be `USERCLIP` (a replacement UI must not replay the last
+    copy). Focus a Firefox password field and paste: you get `USERCLIP`,
+    never the stale note. `Ctrl+C` again on the same card must copy the
+    note again.
 
 ## Session notes
 

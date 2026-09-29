@@ -1,4 +1,6 @@
 #include <arpa/inet.h>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
@@ -9,6 +11,8 @@
 #include <unistd.h>
 
 #include "buffer_protocol.hpp"
+#include "capsule_clipboard.hpp"
+#include "capsule_protocol.hpp"
 
 namespace {
 
@@ -69,8 +73,46 @@ int main(int argc, char** argv) {
         close(fd);
         return EXIT_FAILURE;
     }
-    char sink[256];
-    while (read(fd, sink, sizeof(sink)) > 0) {
+    const char* clipboard_log = std::getenv("RIMES_CAPSULE_CLIPBOARD_LOG");
+    bool seen_copy_seq = false;
+    std::uint64_t handled_copy_seq = 0;
+    std::string incoming;
+    char chunk[4096];
+    while (true) {
+        const auto got = read(fd, chunk, sizeof(chunk));
+        if (got <= 0) {
+            break;
+        }
+        incoming.append(chunk, static_cast<std::size_t>(got));
+        while (incoming.size() >= 4) {
+            std::uint32_t length = 0;
+            if (!rimes::buffer::DecodeFrameHeader(incoming.data(), &length)) {
+                close(fd);
+                return EXIT_FAILURE;
+            }
+            if (incoming.size() < 4 + length) {
+                break;
+            }
+            const std::string payload = incoming.substr(4, length);
+            incoming.erase(0, 4 + length);
+            rimes::capsule::Snapshot snapshot;
+            if (!rimes::capsule::DecodeSnapshot(payload, &snapshot)) {
+                continue;
+            }
+            if (rimes::capsule::ShouldWriteClipboard(seen_copy_seq, handled_copy_seq,
+                                                    snapshot.copy_seq, snapshot.last_copied) &&
+                clipboard_log != nullptr && clipboard_log[0] != '\0') {
+                FILE* log = std::fopen(clipboard_log, "a");
+                if (log != nullptr) {
+                    std::fwrite(snapshot.last_copied.data(), 1, snapshot.last_copied.size(),
+                                log);
+                    std::fputc('\n', log);
+                    std::fclose(log);
+                }
+            }
+            seen_copy_seq = true;
+            handled_copy_seq = snapshot.copy_seq;
+        }
     }
     close(fd);
     return EXIT_SUCCESS;
