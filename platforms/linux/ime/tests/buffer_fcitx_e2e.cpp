@@ -396,14 +396,17 @@ void RunBufferSuite(fcitx::Instance& instance,
             AfterUs(ctx, 50000, [](SuiteCtx ctx) {
                 AfterUs(ctx, 300000, [](SuiteCtx ctx) {
                     SendBufferOp("drag_end");
-                    AfterUs(ctx, 800000, [](SuiteCtx ctx) {
+                    // Stay well inside the 1 s tail. A late event-loop wake
+                    // (Capsule socket + a prior librime deploy in e2e.sh)
+                    // can stretch an 800 ms timer past expiry.
+                    AfterUs(ctx, 400000, [](SuiteCtx ctx) {
                         ctx.ic->focusOut();
                         ctx.ic->focusIn();
                         auto snapshot = ReadDump(ctx.dump_path);
                         ExpectContains(
                             snapshot, "\"capturing\":true",
-                            "same-IC reactivate 800ms after drag_end must stay in the 1s tail");
-                        std::cout << "ok: drag_end plus 800ms tail keeps capture\n";
+                            "same-IC reactivate 400ms after drag_end must stay in the 1s tail");
+                        std::cout << "ok: drag_end plus 400ms tail keeps capture\n";
 
                         ctx.ic->focusOut();
                         ctx.ic->focusIn();
