@@ -58,5 +58,7 @@ For each host above:
 
 ## What this checklist does not cover
 
-Capsule, Mailbox, custom candidate chrome, and IBus. Buffer has its own
-real-desktop list in [`../buffer/MANUAL-TEST.md`](../buffer/MANUAL-TEST.md).
+Mailbox, custom candidate chrome, and IBus. Buffer and Capsule have their
+own real-desktop lists in
+[`../buffer/MANUAL-TEST.md`](../buffer/MANUAL-TEST.md) and
+[`../capsule/MANUAL-TEST.md`](../capsule/MANUAL-TEST.md).

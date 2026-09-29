@@ -115,5 +115,6 @@ For each host above, switch to **RIMES** (雾凇全拼) first.
 
 ## What this checklist does not cover
 
-Capsule, Mailbox, AI / translation / stream / music plugins, IBus, and a
-custom candidate window that follows the Buffer caret.
+Mailbox, AI / translation / stream / music plugins, IBus, and a custom
+candidate window that follows the Buffer caret. Capsule has its own list in
+[`../capsule/MANUAL-TEST.md`](../capsule/MANUAL-TEST.md).

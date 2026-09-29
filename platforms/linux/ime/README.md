@@ -6,9 +6,11 @@ RIMES `rime-data` set. It lives next to the existing
 [Linux data preview](../README.md), which still installs into stock
 `fcitx5-rime` / `ibus-rime` and is unchanged.
 
-This is step 2 of the Linux port (IME + Default Buffer). Capsule and Mailbox
-are still later. Buffer behavior is specified in
-[`../buffer/SPEC.md`](../buffer/SPEC.md). Hooks live in `src/engine/rime_hooks.hpp`.
+This is step 3 of the Linux port (IME + Default Buffer + Capsule rail).
+Mailbox is still later. Buffer and Capsule behavior are specified in
+[`../buffer/SPEC.md`](../buffer/SPEC.md) and
+[`../capsule/SPEC.md`](../capsule/SPEC.md). Hooks live in
+`src/engine/rime_hooks.hpp`.
 
 ## What works
 
@@ -26,11 +28,15 @@ are still later. Buffer behavior is specified in
 - Default Buffer workbench (`Ctrl+Shift+B` / `Super+Shift+B`): Rime commits
   stage as blocks, Return tap/hold and the paper plane send through the same
   `commitText` → `commitString` path
+- Capsule rail (`Ctrl+Shift+V` / `Super+Shift+V`): local Markdown notes,
+  seed card `RIMES 默认词条`, Return inserts the selected note through
+  `commitString` after an armed-IC recheck
 
 macOS-only behaviour that is **not** reproduced here: custom candidate chrome,
-Capsule / Mailbox, Buffer plugins (AI / translation / stream / music),
-cross-batch chord pairing, IMK `Delivery.insert`. See
-[`../buffer/SPEC.md`](../buffer/SPEC.md) for the explicit gap list.
+Mailbox, Capsule clipboard history / iCloud / password vault / media kinds,
+Buffer plugins (AI / translation / stream / music), cross-batch chord pairing,
+IMK `Delivery.insert`. See [`../buffer/SPEC.md`](../buffer/SPEC.md) and
+[`../capsule/SPEC.md`](../capsule/SPEC.md) for the explicit gap lists.
 
 ## Dependencies
 
@@ -72,7 +78,10 @@ platforms/linux/ime/scripts/package-deb.sh /tmp/rimes-deb
 ```
 
 writes `fcitx5-rimes_<version>_<arch>.deb` (addon + `rimes-buffer` +
-`rimes-buffer-ctl` + reviewed data). Flatpak notes are in
+`rimes-buffer-ctl` + `rimes-capsule` + `rimes-capsule-ctl` + reviewed data).
+The package `Recommends: libgtk-layer-shell0, wl-clipboard` so a wlroots
+session can keep the rail overlay and copy notes without a GTK serial.
+Flatpak notes are in
 `packaging/flatpak/README.md`. The data preview tarball is a separate artifact
 and stays data-only.
 
@@ -104,11 +113,13 @@ Not started in this tree.
 
 ## Buffer / Capsule / Mailbox
 
-Buffer is implemented: `BufferService` lives in the addon, the GTK panel is
-`rimes-buffer`, and they speak length-prefixed JSON on
-`$XDG_RUNTIME_DIR/rimes-buffer.sock`. Capsule and Mailbox are not started.
+Buffer and Capsule are implemented: `BufferService` / `CapsuleService` live
+in the addon. GTK companions are `rimes-buffer` and `rimes-capsule`, on
+`$XDG_RUNTIME_DIR/rimes-buffer.sock` and
+`$XDG_RUNTIME_DIR/rimes-capsule.sock`. Mailbox is not started.
 
-See `src/engine/rime_hooks.hpp`. The single commit path remains
+See `src/engine/rime_hooks.hpp`. Ordinary Rime commits still go through
 `RimesIme::commitText` → `InputContext::commitString` (or into Buffer when
-capture owns that IC). One Rime session per Fcitx5 input context. Do not
-start a second librime runtime.
+capture owns that IC). Capsule insert calls `commitString` after the armed
+token recheck so it cannot become a Buffer chip. One Rime session per
+Fcitx5 input context. Do not start a second librime runtime.

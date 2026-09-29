@@ -15,6 +15,8 @@ Debian / Ubuntu (Noble and later):
     xvfb xdotool dbus-x11 python3-gi gir1.2-gtk-3.0 libgtk-3-dev \
     libgtk-layer-shell-dev \
     qtbase5-dev fonts-noto-cjk weston wtype sway
+    # Runtime recommend for Wayland Capsule Ctrl+C (also a .deb Recommends):
+    #   wl-clipboard
 
 Arch:
   sudo pacman -S --needed base-devel cmake extra-cmake-modules fcitx5 fcitx5-qt \

@@ -43,12 +43,13 @@ Priority: optional
 Architecture: $ARCH
 Installed-Size: $SIZE
 Depends: fcitx5, librime1t64 | librime1, librime-plugin-lua, libopencc1.1 | libopencc1, libgtk-3-0
-Recommends: libgtk-layer-shell0
+Recommends: libgtk-layer-shell0, wl-clipboard
 Maintainer: RIMES contributors <https://github.com/scholay/rimes>
 Description: RIMES input method frontend for Fcitx 5
  A librime frontend owned by RIMES. It deploys the reviewed RIMES rime-data
  set, keeps user state in ~/.local/share/rimes, and ships the Linux Buffer
- workbench (rimes-buffer) next to the Fcitx5 addon.
+ workbench (rimes-buffer) and Capsule rail (rimes-capsule) next to the
+ Fcitx5 addon.
 EOF
 
 mkdir -p "$OUT_DIR"
