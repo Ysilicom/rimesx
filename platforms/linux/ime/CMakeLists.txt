@@ -19,6 +19,7 @@ find_package(Threads REQUIRED)
 pkg_check_modules(Rime REQUIRED IMPORTED_TARGET rime>=1.7.0)
 
 set(RIMES_BUFFER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../buffer")
+set(RIMES_CAPSULE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../capsule")
 
 function(rimes_harden target)
     target_compile_options(${target} PRIVATE
@@ -44,6 +45,21 @@ target_include_directories(RimesBufferCore PUBLIC
 set_target_properties(RimesBufferCore PROPERTIES POSITION_INDEPENDENT_CODE ON)
 rimes_harden(RimesBufferCore)
 
+add_library(RimesCapsuleCore STATIC
+    "${RIMES_CAPSULE_ROOT}/core/capsule_hash.cpp"
+    "${RIMES_CAPSULE_ROOT}/core/capsule_kinds.cpp"
+    "${RIMES_CAPSULE_ROOT}/core/capsule_store.cpp"
+    "${RIMES_CAPSULE_ROOT}/core/capsule_model.cpp"
+    "${RIMES_CAPSULE_ROOT}/core/capsule_protocol.cpp"
+)
+target_include_directories(RimesCapsuleCore PUBLIC
+    "${RIMES_CAPSULE_ROOT}/core"
+    "${RIMES_BUFFER_ROOT}/core"
+)
+target_link_libraries(RimesCapsuleCore PUBLIC RimesBufferCore)
+set_target_properties(RimesCapsuleCore PROPERTIES POSITION_INDEPENDENT_CODE ON)
+rimes_harden(RimesCapsuleCore)
+
 add_library(RimesEngine STATIC
     src/engine/rime_engine.cpp
     src/engine/rime_key.cpp
@@ -68,8 +84,9 @@ if(RIMES_BUILD_FCITX5)
         src/fcitx/rimes_ime.cpp
         src/fcitx/rimes_state.cpp
         src/buffer/buffer_service.cpp
+        src/capsule/capsule_service.cpp
     )
-    target_link_libraries(rimes PRIVATE Fcitx5::Core RimesEngine RimesBufferCore)
+    target_link_libraries(rimes PRIVATE Fcitx5::Core RimesEngine RimesBufferCore RimesCapsuleCore)
     target_compile_definitions(rimes PRIVATE
         RIMES_INSTALL_SHARED_DIR="${CMAKE_INSTALL_FULL_DATADIR}/rimes/data"
     )
@@ -126,6 +143,25 @@ if(RIMES_BUILD_FCITX5)
         )
         install(TARGETS rimes-buffer DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/rimes")
         install(TARGETS rimes-buffer DESTINATION "${CMAKE_INSTALL_BINDIR}")
+
+        add_executable(rimes-capsule
+            "${RIMES_CAPSULE_ROOT}/ui/rimes_capsule_app.cpp"
+        )
+        target_include_directories(rimes-capsule PRIVATE ${GTK3_INCLUDE_DIRS})
+        target_link_libraries(rimes-capsule PRIVATE RimesCapsuleCore ${GTK3_LIBRARIES})
+        target_compile_options(rimes-capsule PRIVATE ${GTK3_CFLAGS_OTHER})
+        if(GTK_LAYER_SHELL_FOUND)
+            target_include_directories(rimes-capsule PRIVATE ${GTK_LAYER_SHELL_INCLUDE_DIRS})
+            target_link_libraries(rimes-capsule PRIVATE ${GTK_LAYER_SHELL_LIBRARIES})
+            target_compile_options(rimes-capsule PRIVATE ${GTK_LAYER_SHELL_CFLAGS_OTHER})
+            target_compile_definitions(rimes-capsule PRIVATE HAVE_GTK_LAYER_SHELL=1)
+        endif()
+        rimes_harden(rimes-capsule)
+        set_target_properties(rimes-capsule PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+        )
+        install(TARGETS rimes-capsule DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/rimes")
+        install(TARGETS rimes-capsule DESTINATION "${CMAKE_INSTALL_BINDIR}")
     endif()
 
     add_executable(rimes-buffer-ctl
@@ -137,6 +173,16 @@ if(RIMES_BUILD_FCITX5)
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
     )
     install(TARGETS rimes-buffer-ctl DESTINATION "${CMAKE_INSTALL_BINDIR}")
+
+    add_executable(rimes-capsule-ctl
+        "${RIMES_CAPSULE_ROOT}/ctl/rimes_capsule_ctl.cpp"
+    )
+    target_link_libraries(rimes-capsule-ctl PRIVATE RimesCapsuleCore)
+    rimes_harden(rimes-capsule-ctl)
+    set_target_properties(rimes-capsule-ctl PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+    )
+    install(TARGETS rimes-capsule-ctl DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
 
 if(RIMES_BUILD_TESTS)
@@ -195,6 +241,28 @@ if(RIMES_BUILD_TESTS)
     add_test(NAME RimesBufferProcess COMMAND rimes-buffer-process-tests)
     add_test(NAME RimesBufferPlacement COMMAND rimes-buffer-placement-tests)
 
+    add_executable(rimes-capsule-store-tests
+        "${RIMES_CAPSULE_ROOT}/tests/capsule_store_tests.cpp"
+    )
+    target_link_libraries(rimes-capsule-store-tests PRIVATE RimesCapsuleCore)
+    rimes_harden(rimes-capsule-store-tests)
+
+    add_executable(rimes-capsule-model-tests
+        "${RIMES_CAPSULE_ROOT}/tests/capsule_model_tests.cpp"
+    )
+    target_link_libraries(rimes-capsule-model-tests PRIVATE RimesCapsuleCore)
+    rimes_harden(rimes-capsule-model-tests)
+
+    add_executable(rimes-capsule-protocol-tests
+        "${RIMES_CAPSULE_ROOT}/tests/capsule_protocol_tests.cpp"
+    )
+    target_link_libraries(rimes-capsule-protocol-tests PRIVATE RimesCapsuleCore)
+    rimes_harden(rimes-capsule-protocol-tests)
+
+    add_test(NAME RimesCapsuleStore COMMAND rimes-capsule-store-tests)
+    add_test(NAME RimesCapsuleModel COMMAND rimes-capsule-model-tests)
+    add_test(NAME RimesCapsuleProtocol COMMAND rimes-capsule-protocol-tests)
+
     pkg_check_modules(GTK3 gtk+-3.0)
     if(GTK3_FOUND)
         add_executable(rimes-gtk-host tests/e2e/gtk_host.c)
@@ -247,6 +315,31 @@ if(RIMES_BUILD_TESTS)
             RimesBufferCore
         )
         rimes_harden(rimes-buffer-respawn-e2e)
+
+        add_executable(rimes-capsule-fcitx-e2e tests/capsule_fcitx_e2e.cpp)
+        target_link_libraries(rimes-capsule-fcitx-e2e PRIVATE
+            Fcitx5::Core
+            Fcitx5::Module::TestFrontend
+            RimesEngine
+            RimesCapsuleCore
+        )
+        rimes_harden(rimes-capsule-fcitx-e2e)
+
+        add_executable(rimes-capsule-ui-stub tests/capsule_ui_stub.cpp)
+        target_link_libraries(rimes-capsule-ui-stub PRIVATE RimesCapsuleCore)
+        rimes_harden(rimes-capsule-ui-stub)
+        set_target_properties(rimes-capsule-ui-stub PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+        )
+
+        add_executable(rimes-capsule-respawn-e2e tests/capsule_respawn_e2e.cpp)
+        target_link_libraries(rimes-capsule-respawn-e2e PRIVATE
+            Fcitx5::Core
+            Fcitx5::Module::TestFrontend
+            RimesEngine
+            RimesCapsuleCore
+        )
+        rimes_harden(rimes-capsule-respawn-e2e)
 
         # Layout expected by fcitx::setupTestingEnvironment.
         # setupTestingEnvironment treats each data dir as an fcitx5 data root,

@@ -57,23 +57,26 @@ RimesIme::RimesIme(Instance* instance)
             << "librime background deploy started; keys pass through until ready";
     }
 
-    buffer_ = std::make_unique<BufferService>(
-        instance_, [this, alive = alive_](std::function<void()> work) {
-            dispatcher_.schedule([this, alive, work = std::move(work)]() {
-                if (alive && alive->load()) {
-                    work();
-                }
-            });
+    auto post = [this, alive = alive_](std::function<void()> work) {
+        dispatcher_.schedule([this, alive, work = std::move(work)]() {
+            if (alive && alive->load()) {
+                work();
+            }
         });
+    };
+    buffer_ = std::make_unique<BufferService>(instance_, post);
+    capsule_ = std::make_unique<CapsuleService>(instance_, post);
 
     destroy_watch_ = instance_->watchEvent(
         EventType::InputContextDestroyed, EventWatcherPhase::Default,
         [this](Event& event) {
-            if (!buffer_) {
-                return;
-            }
             auto& ic_event = static_cast<InputContextEvent&>(event);
-            buffer_->OnInputContextDestroyed(ic_event.inputContext());
+            if (buffer_) {
+                buffer_->OnInputContextDestroyed(ic_event.inputContext());
+            }
+            if (capsule_) {
+                capsule_->OnInputContextDestroyed(ic_event.inputContext());
+            }
         });
 }
 
@@ -122,6 +125,9 @@ void RimesIme::keyEvent(const InputMethodEntry& entry, KeyEvent& keyEvent) {
     if (buffer_ && buffer_->HandleEarlyKey(keyEvent, state->composing())) {
         return;
     }
+    if (capsule_ && capsule_->HandleEarlyKey(keyEvent)) {
+        return;
+    }
     state->keyEvent(keyEvent);
 }
 
@@ -134,6 +140,9 @@ void RimesIme::activate(const InputMethodEntry& entry, InputContextEvent& event)
     if (buffer_) {
         buffer_->OnActivate(event.inputContext());
     }
+    if (capsule_) {
+        capsule_->OnActivate(event.inputContext());
+    }
 }
 
 void RimesIme::deactivate(const InputMethodEntry& entry, InputContextEvent& event) {
@@ -143,6 +152,10 @@ void RimesIme::deactivate(const InputMethodEntry& entry, InputContextEvent& even
     if (buffer_) {
         buffer_->OnDeactivate(event.inputContext(),
                               event.type() == EventType::InputContextSwitchInputMethod);
+    }
+    if (capsule_) {
+        capsule_->OnDeactivate(event.inputContext(),
+                               event.type() == EventType::InputContextSwitchInputMethod);
     }
     auto* state = event.inputContext()->propertyFor(&factory_);
     if (state != nullptr) {

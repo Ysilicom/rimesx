@@ -62,7 +62,7 @@ STAGE_DIR=$(mktemp -d /tmp/rimes-ime-e2e.XXXXXX)
 cleanup() {
     local status=$?
     local pid_var pid
-    for pid_var in FCITX_PID GTK_PID QT_PID WESTON_PID SWAY_PID BUFFER_UI_PID XVFB_PID DBUS_SESSION_BUS_PID; do
+    for pid_var in FCITX_PID GTK_PID QT_PID WESTON_PID SWAY_PID BUFFER_UI_PID CAPSULE_UI_PID XVFB_PID DBUS_SESSION_BUS_PID; do
         pid=${!pid_var-}
         if [[ -n "$pid" ]]; then
             kill "$pid" >/dev/null 2>&1 || true
@@ -105,6 +105,20 @@ if [[ ! -x "$BUILD_DIR/rimes-buffer-respawn-e2e" || ! -x "$BUILD_DIR/rimes-buffe
 fi
 echo "==> in-process Fcitx5 Buffer UI respawn (kill + delayed connect)"
 "$BUILD_DIR/rimes-buffer-respawn-e2e" "$BUILD_DIR" "." "test-data"
+
+if [[ ! -x "$BUILD_DIR/rimes-capsule-fcitx-e2e" ]]; then
+    echo "error: missing $BUILD_DIR/rimes-capsule-fcitx-e2e" >&2
+    exit 1
+fi
+echo "==> in-process Fcitx5 Capsule (show / insert / search / focus / password)"
+"$BUILD_DIR/rimes-capsule-fcitx-e2e" "$BUILD_DIR" "." "test-data"
+
+if [[ ! -x "$BUILD_DIR/rimes-capsule-respawn-e2e" || ! -x "$BUILD_DIR/rimes-capsule-ui-stub" ]]; then
+    echo "error: missing rimes-capsule-respawn-e2e or rimes-capsule-ui-stub" >&2
+    exit 1
+fi
+echo "==> in-process Fcitx5 Capsule UI respawn (kill + delayed connect)"
+"$BUILD_DIR/rimes-capsule-respawn-e2e" "$BUILD_DIR" "." "test-data"
 
 if (( SKIP_DISPLAY == 1 )); then
     echo "skip: display clients (--skip-display)"
@@ -166,6 +180,8 @@ export XMODIFIERS=@im=fcitx
 export RIMES_BUFFER_SOCKET="$STAGE_DIR/rimes-buffer.sock"
 export RIMES_BUFFER_HEADLESS=1
 export RIMES_BUFFER_CLOSE_AFTER_LAST=0
+export RIMES_CAPSULE_SOCKET="$STAGE_DIR/rimes-capsule.sock"
+export RIMES_CAPSULE_HEADLESS=1
 export PATH="$BUILD_DIR:$PATH"
 
 export DISPLAY=:93
@@ -173,20 +189,22 @@ Xvfb "$DISPLAY" -screen 0 1280x720x24 -nolisten tcp >/dev/null 2>&1 &
 XVFB_PID=$!
 sleep 0.3
 
-assert_buffer_geometry() {
+assert_geometry() {
     local geom=$1
     local label=$2
-    python3 - "$geom" "$label" <<'PY'
+    local expect_w=$3
+    local expect_h=$4
+    python3 - "$geom" "$label" "$expect_w" "$expect_h" <<'PY'
 import json, sys
-path, label = sys.argv[1], sys.argv[2]
+path, label, expect_w, expect_h = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
 with open(path, encoding="utf-8") as handle:
     data = json.load(handle)
-if data.get("size_request_w") != 760 or data.get("size_request_h") != 78:
-    raise SystemExit(f"{label}: size_request {data!r} is not 760x78")
+if data.get("size_request_w") != expect_w or data.get("size_request_h") != expect_h:
+    raise SystemExit(f"{label}: size_request {data!r} is not {expect_w}x{expect_h}")
 width = int(data.get("width") or 0)
-if width > 0 and width < 760:
-    raise SystemExit(f"{label}: allocated width {width} < 760 ({data!r})")
-print(f"ok: {label} size_request 760x78 allocated={data.get('width')}x{data.get('height')} layer={data.get('layer')}")
+if width > 0 and width < expect_w:
+    raise SystemExit(f"{label}: allocated width {width} < {expect_w} ({data!r})")
+print(f"ok: {label} size_request {expect_w}x{expect_h} allocated={data.get('width')}x{data.get('height')} layer={data.get('layer')}")
 PY
 }
 
@@ -195,10 +213,22 @@ if [[ -x "$BUILD_DIR/rimes-buffer" ]]; then
     GEOM_X11="$STAGE_DIR/buffer-geom-x11.json"
     if timeout 8 "$BUILD_DIR/rimes-buffer" --preview --dump-geometry "$GEOM_X11" --quit-after-dump \
         >"$STAGE_DIR/buffer-geom-x11.log" 2>&1; then
-        assert_buffer_geometry "$GEOM_X11" "X11 preview"
+        assert_geometry "$GEOM_X11" "X11 preview" 760 78
     else
         echo "warning: rimes-buffer --dump-geometry exited ($STAGE_DIR/buffer-geom-x11.log)" >&2
         tail -n 20 "$STAGE_DIR/buffer-geom-x11.log" >&2 || true
+    fi
+fi
+
+if [[ -x "$BUILD_DIR/rimes-capsule" ]]; then
+    echo "==> Capsule UI geometry (X11 / Xvfb)"
+    GEOM_CAP_X11="$STAGE_DIR/capsule-geom-x11.json"
+    if timeout 8 "$BUILD_DIR/rimes-capsule" --preview --dump-geometry "$GEOM_CAP_X11" --quit-after-dump \
+        >"$STAGE_DIR/capsule-geom-x11.log" 2>&1; then
+        assert_geometry "$GEOM_CAP_X11" "X11 Capsule preview" 940 208
+    else
+        echo "warning: rimes-capsule --dump-geometry exited ($STAGE_DIR/capsule-geom-x11.log)" >&2
+        tail -n 20 "$STAGE_DIR/capsule-geom-x11.log" >&2 || true
     fi
 fi
 
@@ -252,6 +282,18 @@ elif (( DBUS_IME_OK == 1 )); then
     exit 1
 else
     echo "warning: DBus Buffer E2E skipped after DBus IME was unavailable" >&2
+fi
+
+echo "==> DBus virtual input context + Capsule"
+if python3 "$SCRIPT_DIR/dbus_capsule_client.py"; then
+    echo "ok: DBus Capsule showed the seed note and inserted RIMES"
+elif (( DBUS_IME_OK == 1 )); then
+    echo "---- fcitx5.log ----" >&2
+    tail -n 80 "$STAGE_DIR/fcitx5.log" >&2 || true
+    echo "error: DBus IME worked but Capsule DBus E2E failed" >&2
+    exit 1
+else
+    echo "warning: DBus Capsule E2E skipped after DBus IME was unavailable" >&2
 fi
 
 if command -v xdotool >/dev/null && [[ -x "$BUILD_DIR/rimes-gtk-host" ]]; then
@@ -355,9 +397,29 @@ if (( SKIP_WAYLAND == 0 )) && command -v sway >/dev/null && [[ -x "$BUILD_DIR/ri
         wait "$BUFFER_UI_PID" >/dev/null 2>&1 || true
         unset BUFFER_UI_PID
         if [[ -s "$GEOM_WL" ]]; then
-            assert_buffer_geometry "$GEOM_WL" "sway layer-shell preview"
+            assert_geometry "$GEOM_WL" "sway layer-shell preview" 760 78
         else
             echo "warning: rimes-buffer preview did not dump geometry (see $STAGE_DIR/buffer-ui.log)" >&2
+        fi
+        if [[ -x "$BUILD_DIR/rimes-capsule" ]]; then
+            echo "==> sway headless + Capsule UI preview"
+            GEOM_CAP_WL="$STAGE_DIR/capsule-geom-wayland.json"
+            "$BUILD_DIR/rimes-capsule" --preview --dump-geometry "$GEOM_CAP_WL" --quit-after-dump \
+                >"$STAGE_DIR/capsule-ui.log" 2>&1 &
+            CAPSULE_UI_PID=$!
+            for _ in $(seq 1 30); do
+                if [[ -s "$GEOM_CAP_WL" ]] || ! kill -0 "$CAPSULE_UI_PID" >/dev/null 2>&1; then
+                    break
+                fi
+                sleep 0.1
+            done
+            wait "$CAPSULE_UI_PID" >/dev/null 2>&1 || true
+            unset CAPSULE_UI_PID
+            if [[ -s "$GEOM_CAP_WL" ]]; then
+                assert_geometry "$GEOM_CAP_WL" "sway Capsule layer-shell preview" 940 208
+            else
+                echo "warning: rimes-capsule preview did not dump geometry (see $STAGE_DIR/capsule-ui.log)" >&2
+            fi
         fi
     else
         echo "warning: sway headless did not expose a wayland socket" >&2

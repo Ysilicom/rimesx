@@ -80,6 +80,8 @@ jobs:
             platforms/linux/ime/build/rimes-addon.conf
             platforms/linux/ime/build/rimes-buffer
             platforms/linux/ime/build/rimes-buffer-ctl
+            platforms/linux/ime/build/rimes-capsule
+            platforms/linux/ime/build/rimes-capsule-ctl
           if-no-files-found: error
           retention-days: 14
           compression-level: 6
