@@ -54,12 +54,15 @@ For each host above, switch to **RIMES** (雾凇全拼) first.
    when you reopen. The host did not receive it.
 10. **Focus change.** Open Buffer, stage a chip, click another field or
     window — including **another text field on the same Firefox / Chromium
-    page** (one IC per window). Later typing goes to the new field (direct).
-    The old chip stays. Sending must not write into the new field until you
-    reopen Buffer on it. The field you leave must **not** gain U+200B /
-    ZWSP. In the new field (including a Firefox password box) press Escape:
-    that app must receive Escape; Buffer must stay visible. Dragging the
-    X11 toolbar must **not** count as a field switch.
+    page** (one IC per window). Status must leave capturing even if you
+    wait a few seconds before typing. Later typing goes to the new field
+    (direct) and must **not** become a chip. The old chip stays. Sending
+    must not write into the new field until you reopen Buffer on it. The
+    field you leave must **not** gain U+200B / ZWSP. In the new field
+    (including a Firefox password box) press Escape: that app must receive
+    Escape; Buffer must stay visible. Dragging the X11 toolbar must **not**
+    count as a field switch. Opening gedit's hamburger menu then Esc may
+    pause capture (acceptable).
 11. **Password.** Click a password field in a GTK host that keeps the IM
     enabled. Buffer must hide or scrub chips. Typed secrets must not appear
     in the workbench. **Firefox-esr disables the IM on

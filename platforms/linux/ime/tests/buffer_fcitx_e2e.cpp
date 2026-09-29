@@ -235,21 +235,37 @@ void RunBufferSuite(fcitx::Instance& instance,
     ic->focusIn();
     ExpectNoZwsp(ic, "focus-in after capturing focus-out");
     snapshot = ReadDump(dump_path);
-    ExpectContains(snapshot, "\"capturing\":true",
-                   "same-IC focus flicker must not drop capture");
+    ExpectContains(snapshot, "\"capturing\":false",
+                   "same-IC reactivation without a drag must pause capture");
+    ExpectContains(snapshot, "nihao", "open composition is staged on same-IC reactivate");
     std::cout << "ok: capturing never installs a client-preedit ZWSP\n";
-    std::cout << "ok: same-IC focus-out/in keeps capture\n";
+    std::cout << "ok: same-IC reactivate without a fresh caret pauses capture\n";
 
-    ic->setCursorRect(fcitx::Rect(80, 200, 88, 220));
-    ic->focusOut();
-    ic->focusIn();
+    frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("你好");
+    Type(frontend, uuid, "nihao");
+    SendKey(frontend, uuid, "space");
     snapshot = ReadDump(dump_path);
     ExpectContains(snapshot, "\"capturing\":false",
-                   "same-IC reactivation with a new caret must pause capture");
-    std::cout << "ok: same-IC caret change pauses capture\n";
+                   "next key after a stale same-IC reactivate must stay direct");
+    ExpectMissing(snapshot, "你好", "next key after same-IC reactivate must not stage");
+    std::cout << "ok: next key after same-IC reactivate is not captured\n";
 
     EnsureCapturing(frontend, uuid, dump_path);
-    SendKey(frontend, uuid, "BackSpace");
+    DrainStaged(frontend, uuid, dump_path);
+    ic->focusOut();
+    ic->focusIn();
+    ic->setCursorRect(fcitx::Rect(80, 200, 88, 220));
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "\"capturing\":false",
+                   "caret update after activate must not restore capture");
+    frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("你好");
+    Type(frontend, uuid, "nihao");
+    SendKey(frontend, uuid, "space");
+    snapshot = ReadDump(dump_path);
+    ExpectMissing(snapshot, "你好", "late caret update must not recapture the next key");
+    std::cout << "ok: caret update after activate does not recapture\n";
+
+    EnsureCapturing(frontend, uuid, dump_path);
     SendKey(frontend, uuid, "Escape");
     snapshot = ReadDump(dump_path);
     ExpectContains(snapshot, "\"visible\":false", "Escape did not hide");

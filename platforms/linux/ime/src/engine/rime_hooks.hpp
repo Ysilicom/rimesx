@@ -18,10 +18,10 @@
 //    After send-all closes the panel, Return auto-repeats are eaten until
 //    key-up so they cannot leak Enter into the host. A composing Return is
 //    passed through to Rime so it can settle, then must not send. Same-IC
-//    focus blips keep capture only while dragging (plus a short tail) or
-//    when the caret / surrounding / purpose are unchanged. A real field
-//    switch — including a same-IC caret move in Firefox — stages the raw
-//    input and returns the route to the host.
+//    reactivation keeps capture only during an explicit toolbar drag
+//    (plus a short tail). Every other same-IC reactivation — including a
+//    Firefox same-page field switch whose caret is still stale — stages
+//    the raw input and returns the route to the host.
 //
 // 3. Session / field isolation
 //    One Rime session per Fcitx5 InputContext (RimesState). Buffer is

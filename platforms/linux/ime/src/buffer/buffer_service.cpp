@@ -20,7 +20,6 @@
 #include <fcitx-utils/log.h>
 #include <fcitx/inputcontextmanager.h>
 #include <fcitx/inputpanel.h>
-#include <fcitx/surroundingtext.h>
 #include <fcitx/text.h>
 #include <fcitx/userinterface.h>
 
@@ -35,32 +34,7 @@ FCITX_DEFINE_LOG_CATEGORY(rimes_buffer_log, "rimes.buffer");
 constexpr int kHoldTickUs = 50000;
 constexpr int kDefaultFocusGraceMs = 5000;
 constexpr int kDragTailMs = 400;
-
-constexpr std::uint64_t kFieldPurposeMask =
-    static_cast<std::uint64_t>(CapabilityFlag::Password) |
-    static_cast<std::uint64_t>(CapabilityFlag::Email) |
-    static_cast<std::uint64_t>(CapabilityFlag::Digit) |
-    static_cast<std::uint64_t>(CapabilityFlag::Url) |
-    static_cast<std::uint64_t>(CapabilityFlag::Dialable) |
-    static_cast<std::uint64_t>(CapabilityFlag::Number) |
-    static_cast<std::uint64_t>(CapabilityFlag::Multiline) |
-    static_cast<std::uint64_t>(CapabilityFlag::Sensitive) |
-    static_cast<std::uint64_t>(CapabilityFlag::Terminal) |
-    static_cast<std::uint64_t>(CapabilityFlag::Date) |
-    static_cast<std::uint64_t>(CapabilityFlag::Time) |
-    static_cast<std::uint64_t>(CapabilityFlag::Name);
-
-bool CaretRectChanged(const rimes::buffer::CaretRect& left,
-                      const rimes::buffer::CaretRect& right) {
-    if (!left.valid && !right.valid) {
-        return false;
-    }
-    if (left.valid != right.valid) {
-        return true;
-    }
-    return left.x != right.x || left.y != right.y || left.width != right.width ||
-           left.height != right.height;
-}
+constexpr int kDragHardTimeoutMs = 6000;
 
 rimes::buffer::CaretRect CaretFromIc(InputContext* ic) {
     rimes::buffer::CaretRect caret;
@@ -175,6 +149,7 @@ BufferService::BufferService(Instance* instance, PostFn post)
 BufferService::~BufferService() {
     CancelHoldTimer();
     CancelFocusGraceTimer();
+    CancelDragHardTimer();
     ui_respawn_timer_.reset();
     StopSocket();
     ReapUi();
@@ -246,43 +221,36 @@ void BufferService::RefreshCaret(InputContext* ic) {
         model_.set_target_name(ic->program());
         target_token_ = TokenFor(ic);
     }
-    RememberField(ic);
-}
-
-void BufferService::RememberField(InputContext* ic) {
-    if (ic == nullptr) {
-        return;
-    }
-    capture_caret_ = CaretFromIc(ic);
-    const auto& surrounding = ic->surroundingText();
-    capture_surrounding_valid_ = surrounding.isValid();
-    capture_surrounding_ = capture_surrounding_valid_ ? surrounding.text() : std::string{};
-    capture_purpose_ = static_cast<std::uint64_t>(ic->capabilityFlags().toInteger()) &
-                       kFieldPurposeMask;
-}
-
-bool BufferService::SameCapturedField(InputContext* ic) const {
-    if (ic == nullptr) {
-        return false;
-    }
-    if (CaretRectChanged(capture_caret_, CaretFromIc(ic))) {
-        return false;
-    }
-    const auto purpose =
-        static_cast<std::uint64_t>(ic->capabilityFlags().toInteger()) & kFieldPurposeMask;
-    if (purpose != capture_purpose_) {
-        return false;
-    }
-    const auto& surrounding = ic->surroundingText();
-    if (capture_surrounding_valid_ && surrounding.isValid() &&
-        capture_surrounding_ != surrounding.text()) {
-        return false;
-    }
-    return true;
 }
 
 bool BufferService::InDragTail() const {
     return dragging_ || std::chrono::steady_clock::now() < drag_tail_until_;
+}
+
+void BufferService::EndDrag() {
+    dragging_ = false;
+    CancelDragHardTimer();
+    drag_tail_until_ =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(kDragTailMs);
+}
+
+void BufferService::ArmDragHardTimer() {
+    if (instance_ == nullptr) {
+        return;
+    }
+    const uint64_t delay_us = static_cast<uint64_t>(kDragHardTimeoutMs) * 1000;
+    drag_hard_timer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC, now(CLOCK_MONOTONIC) + delay_us, 0,
+        [this](EventSourceTime*, uint64_t) {
+            if (dragging_) {
+                EndDrag();
+            }
+            return true;
+        });
+}
+
+void BufferService::CancelDragHardTimer() {
+    drag_hard_timer_.reset();
 }
 
 void BufferService::ClearClientPreedit(InputContext* ic) {
@@ -463,20 +431,19 @@ void BufferService::OnActivate(InputContext* ic) {
     const bool same_ic = (!pending_unfocus_token_.empty() && pending_unfocus_token_ == token) ||
                          model_.captures(token);
     if (same_ic) {
-        // Firefox/Chromium keep one IC per window, so a real field switch
-        // looks like a WM blip. Keep capture only while dragging (plus a
-        // short tail) or when caret / surrounding / purpose are unchanged.
-        const bool keep = InDragTail() || SameCapturedField(ic);
-        dragging_ = false;
+        // Firefox/Chromium keep one IC per window. The caret rect is often
+        // still the previous field's at activate time, so "unchanged caret"
+        // is stale-equals-stale. Keep capture only for an explicit toolbar
+        // drag; every other same-IC reactivation is a field switch.
         pending_unfocus_token_.clear();
         CancelFocusGraceTimer();
-        if (keep) {
+        if (InDragTail()) {
             RefreshCaret(ic);
             OnPasswordField(ic, ic->capabilityFlags().test(CapabilityFlag::Password));
             Publish();
             return;
         }
-        DropCaptureForSwitch("same-ic-field-changed");
+        DropCaptureForSwitch("same-ic-reactivate");
     }
     if (model_.capture_enabled() && !model_.captures(token)) {
         DropCaptureForSwitch("focus-changed");
@@ -594,6 +561,7 @@ void BufferService::CloseAndPause() {
     CancelFocusGraceTimer();
     dragging_ = false;
     drag_tail_until_ = {};
+    CancelDragHardTimer();
     pending_unfocus_token_.clear();
     raw_input_.clear();
     ClearClientPreedit(LiveTarget());
@@ -621,6 +589,7 @@ void BufferService::DropCaptureForSwitch(std::string_view reason) {
     CancelFocusGraceTimer();
     dragging_ = false;
     drag_tail_until_ = {};
+    CancelDragHardTimer();
     pending_unfocus_token_.clear();
     model_.route_direct_preserving_content(reason);
 }
@@ -765,13 +734,13 @@ void BufferService::HandleCommand(const rimes::buffer::Command& command) {
             break;
         case rimes::buffer::CommandOp::DragBegin:
             dragging_ = true;
+            drag_tail_until_ = {};
             pending_unfocus_token_.clear();
             CancelFocusGraceTimer();
+            ArmDragHardTimer();
             return;
         case rimes::buffer::CommandOp::DragEnd:
-            dragging_ = false;
-            drag_tail_until_ = std::chrono::steady_clock::now() +
-                               std::chrono::milliseconds(kDragTailMs);
+            EndDrag();
             return;
         case rimes::buffer::CommandOp::Unknown:
             break;

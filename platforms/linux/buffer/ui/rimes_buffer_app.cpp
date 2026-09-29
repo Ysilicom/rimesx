@@ -53,6 +53,9 @@ struct App {
     rimes::buffer::Snapshot snapshot;
     bool wayland_layer = false;
     bool placed = false;
+    bool moving = false;
+    guint drag_settle_id = 0;
+    guint drag_fallback_id = 0;
 };
 
 App* g_app = nullptr;
@@ -389,10 +392,71 @@ void OnSizeAllocate(GtkWidget* /*widget*/, GdkRectangle* allocation, gpointer da
     WriteGeometryDump(static_cast<App*>(data));
 }
 
+void CancelDragTimers(App* app) {
+    if (app->drag_settle_id != 0) {
+        g_source_remove(app->drag_settle_id);
+        app->drag_settle_id = 0;
+    }
+    if (app->drag_fallback_id != 0) {
+        g_source_remove(app->drag_fallback_id);
+        app->drag_fallback_id = 0;
+    }
+}
+
+void FinishMoveDrag(App* app) {
+    if (!app->moving) {
+        return;
+    }
+    app->moving = false;
+    CancelDragTimers(app);
+    SendCommand(app, R"({"v":1,"op":"drag_end"})");
+}
+
+gboolean OnDragSettle(gpointer data) {
+    auto* app = static_cast<App*>(data);
+    app->drag_settle_id = 0;
+    FinishMoveDrag(app);
+    return G_SOURCE_REMOVE;
+}
+
+gboolean OnDragFallback(gpointer data) {
+    auto* app = static_cast<App*>(data);
+    app->drag_fallback_id = 0;
+    FinishMoveDrag(app);
+    return G_SOURCE_REMOVE;
+}
+
+void ArmDragSettle(App* app) {
+    if (app->drag_settle_id != 0) {
+        g_source_remove(app->drag_settle_id);
+    }
+    app->drag_settle_id = g_timeout_add(300, OnDragSettle, app);
+}
+
+gboolean OnConfigureDuringDrag(GtkWidget* /*widget*/, GdkEventConfigure* /*event*/,
+                               gpointer data) {
+    auto* app = static_cast<App*>(data);
+    if (app->moving) {
+        ArmDragSettle(app);
+    }
+    return FALSE;
+}
+
+gboolean OnButtonReleaseDuringDrag(GtkWidget* /*widget*/, GdkEventButton* event, gpointer data) {
+    auto* app = static_cast<App*>(data);
+    if (event->button == 1) {
+        FinishMoveDrag(app);
+    }
+    return FALSE;
+}
+
 gboolean OnToolbarDrag(GtkWidget* /*widget*/, GdkEventButton* event, gpointer data) {
     auto* app = static_cast<App*>(data);
     if (event->type == GDK_BUTTON_PRESS && event->button == 1 && !app->wayland_layer) {
+        CancelDragTimers(app);
+        app->moving = true;
         SendCommand(app, R"({"v":1,"op":"drag_begin"})");
+        app->drag_fallback_id = g_timeout_add(5000, OnDragFallback, app);
         gtk_window_begin_move_drag(GTK_WINDOW(app->window), static_cast<gint>(event->button),
                                    static_cast<gint>(event->x_root),
                                    static_cast<gint>(event->y_root), event->time);
@@ -509,8 +573,12 @@ void BuildUi(App* app) {
     gtk_widget_set_name(app->window, "rimes-buffer-window");
     gtk_style_context_add_class(gtk_widget_get_style_context(app->window), "rimes-buffer");
     gtk_widget_set_app_paintable(app->window, TRUE);
+    gtk_widget_add_events(app->window, GDK_BUTTON_RELEASE_MASK | GDK_STRUCTURE_MASK);
     g_signal_connect(app->window, "destroy", G_CALLBACK(gtk_main_quit), nullptr);
     g_signal_connect(app->window, "size-allocate", G_CALLBACK(OnSizeAllocate), app);
+    g_signal_connect(app->window, "configure-event", G_CALLBACK(OnConfigureDuringDrag), app);
+    g_signal_connect(app->window, "button-release-event", G_CALLBACK(OnButtonReleaseDuringDrag),
+                     app);
 
     ApplyLayerShell(GTK_WINDOW(app->window), app);
     // Layer-shell ignores default_size unless a request or stretch anchors exist.
@@ -522,8 +590,9 @@ void BuildUi(App* app) {
 
     GtkWidget* toolbar = gtk_event_box_new();
     gtk_widget_set_name(toolbar, "rimes-toolbar");
-    gtk_widget_add_events(toolbar, GDK_BUTTON_PRESS_MASK);
+    gtk_widget_add_events(toolbar, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
     g_signal_connect(toolbar, "button-press-event", G_CALLBACK(OnToolbarDrag), app);
+    g_signal_connect(toolbar, "button-release-event", G_CALLBACK(OnButtonReleaseDuringDrag), app);
     gtk_box_pack_start(GTK_BOX(chrome), toolbar, FALSE, FALSE, 0);
 
     GtkWidget* toolbar_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);

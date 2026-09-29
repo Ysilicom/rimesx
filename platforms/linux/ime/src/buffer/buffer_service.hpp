@@ -69,9 +69,10 @@ private:
 
     InputContext* LiveTarget() const;
     void RefreshCaret(InputContext* ic);
-    void RememberField(InputContext* ic);
-    bool SameCapturedField(InputContext* ic) const;
     bool InDragTail() const;
+    void EndDrag();
+    void ArmDragHardTimer();
+    void CancelDragHardTimer();
     void ClearClientPreedit(InputContext* ic);
     void ApplyReturnAction(rimes::buffer::ReturnGesture::Action action, InputContext* ic,
                            bool composing);
@@ -112,6 +113,7 @@ private:
     std::unique_ptr<EventSourceTime> hold_timer_;
     std::unique_ptr<EventSourceTime> focus_grace_timer_;
     std::unique_ptr<EventSourceTime> ui_respawn_timer_;
+    std::unique_ptr<EventSourceTime> drag_hard_timer_;
     pid_t ui_pid_ = 0;
     pid_t dropped_ui_pid_ = 0;
     int ui_respawn_attempt_ = 0;
@@ -119,10 +121,6 @@ private:
     std::string pending_unfocus_token_;
     std::string target_token_;
     std::string raw_input_;
-    rimes::buffer::CaretRect capture_caret_;
-    std::string capture_surrounding_;
-    bool capture_surrounding_valid_ = false;
-    std::uint64_t capture_purpose_ = 0;
     std::chrono::steady_clock::time_point drag_tail_until_{};
     bool dragging_ = false;
     bool auto_capture_ = false;

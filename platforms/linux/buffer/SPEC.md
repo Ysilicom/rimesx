@@ -74,14 +74,20 @@ content; blocks are not persisted.
 11. Destroying the captured input context (app exit) pauses capture, clears
     the toolbar target, and keeps any staged chips. The workbench stays
     visible as Paused with target `·` until the user closes it.
-12. A WM focus blip on the **same** IC keeps capture only while the toolbar
-    is being dragged (`drag_begin` / a short tail after `drag_end`) or when
-    the caret rect, surrounding text, and field purpose are unchanged.
-    Firefox / Chromium keep one IC per window, so a same-page field switch
-    looks like a WM blip: a same-IC reactivation with a **changed** caret
-    (or surrounding / purpose) pauses capture and stages any open preedit.
-    Another IC activating, or a focus-out grace (`RIMES_BUFFER_FOCUS_GRACE_MS`,
-    default 5000) without the same IC returning, also drops capture.
+12. A same-IC reactivation keeps capture **only** during an explicit toolbar
+    drag (`drag_begin` until `drag_end`, plus a short tail). The UI sends
+    `drag_end` when the WM move settles (configure idle), on button release,
+    or after a fallback timeout. `dragging_` also has a hard timeout of a
+    few seconds so a missed `drag_end` cannot later mask a real field
+    switch. Every other same-IC reactivation is a field switch — pause
+    capture and stage any open preedit. Firefox / Chromium keep one IC per
+    window and often still report the **previous** caret at activate time,
+    so “caret unchanged” is not a safe signal. A gedit hamburger-menu
+    focus blip is treated the same (capture pauses). Another IC activating,
+    or a focus-out grace (`RIMES_BUFFER_FOCUS_GRACE_MS`, default 5000)
+    without the same IC returning, also drops capture. A key must never be
+    routed into Buffer when the focused field may have changed since
+    capture started.
 13. An unresolved composition at a real field switch is staged as a `local`
     block using librime `get_input` (raw spelling, e.g. `zhongguoren`), the
     same text composing Return / `commit_raw_input` would settle. Syllable
@@ -120,7 +126,9 @@ content; blocks are not persisted.
   the caret rule again; the dragged position is **not** remembered (no
   layout file, and Wayland compositors own placement).
 - The window does not follow later caret motion on the same display.
-  Dragging the toolbar must not pause capture.
+  Dragging the toolbar must not pause capture. A non-drag same-IC
+  focus blip (for example gedit's hamburger menu) **does** pause
+  capture — that is the safe default.
 
 ### wlroots Wayland (labwc / sway)
 
