@@ -1,7 +1,7 @@
 # RIMES Android
 
 Native Android application and input method, targeting the behavior of the iOS
-keyboard. This is the first development foundation, **0.1.0-dev.1**, not an iOS
+keyboard. This is the first development foundation, **0.1.0-dev.2**, not an iOS
 feature-complete port. Minimum Android version: 8.0 / API 26.
 See [VALIDATION.md](VALIDATION.md) for the dated build and device evidence.
 
@@ -17,6 +17,8 @@ See [VALIDATION.md](VALIDATION.md) for the dated build and device evidence.
 - No network permission, clipboard reads, text logging, accounts or persisted
   typing. Development installs use `org.scholay.rimes.android.debug`.
 - English and simplified Chinese setup/control labels.
+- System navigation/cutout insets, a scrollable setup playground above the IME,
+  and a single-row landscape Buffer toolbar that keeps the key grid visible.
 
 Not implemented yet: librime/JNI and Chinese schemes, inline Chinese composition,
 chord input/sliding, candidate/association UI, Buffer cursor/selection editing,

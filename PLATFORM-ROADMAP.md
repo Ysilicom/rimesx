@@ -32,6 +32,8 @@ Windows/macOS 的交互目标相同，但 TSF、进程边界、安装机制必�
 - Android 从零建立原生工程、Gradle wrapper、独立开发包和设置/试打页面。
   英文、数字、符号通过 `InputConnection` 输入；临时 Buffer 支持按块/全部插入、清空和删除。
   编辑目标/修订绑定，密码与私密字段禁用；关闭键盘或换字段清除草稿。
+  Android 16 真机已安装 `0.1.0-dev.2` 并完成基础输入验证；修复了导航栏遮挡底排按键、
+  试打页被键盘遮住，以及横屏 Buffer 挤掉按键的问题。
 - 尚未实现的功能以上表和 [Android README](platforms/android/README.md) 为准。
   **当前仅完成第一批基础代码，不代表两个平台已完成对标。**
 
@@ -40,11 +42,11 @@ Windows/macOS 的交互目标相同，但 TSF、进程边界、安装机制必�
 | 项目 | 实际证据 | 仍缺少 |
 |---|---|---|
 | Windows | x64/x86 Release 均编译通过，各 8 项 CTest、完整数据包的默认方案引擎冒烟、Fake TSF + 真实 Broker 输入测试均通过；打包 9 项及既有策略 9 项测试通过；59 文件通过远端哈希复验 | 所有方案逐项输入、真实桌面宿主、安装/升级、完整 Buffer/Capsule/Mailbox |
-| Android | Debug APK 构建、9 项 JVM Buffer 测试、Lint 通过；Gradle wrapper JAR/发行包 checksum 已核对 | 真机输入、布局与生命周期验收；中文引擎/触控与完整 iOS 功能 |
-| 设备连接 | Young 通过已有受信主机密钥和机器名核对，已用于本轮构建；Android 16 手机首次安装返回 `INSTALL_FAILED_USER_RESTRICTED`，收尾时已离线 | 手机重新连接并允许 USB 安装；Windows 图形桌面验收 |
+| Android | Debug APK 构建、9 项 JVM Buffer 测试、Lint 通过；真机英文/数字/符号、删除/选区删除、换行、Buffer 逐块/全部插入、换框/隐藏/换键盘清理、密码框禁用通过；系统设置搜索框跨应用输入和搜索回车通过；横屏布局修复后复验通过 | 中文引擎/触控与完整 iOS 功能；私密标志/数字字段、旧系统、手势导航和更多宿主兼容性 |
+| 设备连接 | Young 通过已有受信主机密钥和机器名核对，已用于本轮构建；Android 16 手机重新连接后安装成功；测试完成已恢复原搜狗输入法与竖屏锁定，开发版保留 | Windows 图形桌面验收；Android 设备与宿主矩阵 |
 
 原生 Windows 验证提交为 `1b2a86a0ddb87d6e0743874df6f797eccc31d364`，
-Android APK 源码提交为 `e89a5f2fd2aa2be8bac554d91d20883848572de9`。
+Android APK 源码提交为 `55e2ec7b22471afd647436d7c68d5e90e50d6507`。
 细节见 [Windows 验证记录](platforms/windows/native/VALIDATION.md) 和
 [Android 验证记录](platforms/android/VALIDATION.md)。Android Lint 有 Gradle 新版本、图标和
 备份规则三条提示，无错误；远端 CI 未运行。未 push、发布或修改现有 macOS/iOS 安装。

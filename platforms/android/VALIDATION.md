@@ -1,10 +1,11 @@
 # Android foundation validation — 2026-09-29
 
-App source: `e89a5f2fd2aa2be8bac554d91d20883848572de9`.
-Version `0.1.0-dev.1` / code `1`, package `org.scholay.rimes.android.debug`.
+App source: `55e2ec7b22471afd647436d7c68d5e90e50d6507`.
+Version `0.1.0-dev.2` / code `2`, package `org.scholay.rimes.android.debug`.
 Development signature only; no Play Store or public release.
+Machine-readable evidence: [validation/2026-09-29.json](validation/2026-09-29.json).
 
-## Passed locally
+## Build and static checks
 
 JDK 21, Gradle 9.7.1, AGP 9.4.0, Android compile SDK 37.2, build tools 36.0.0:
 
@@ -13,33 +14,83 @@ cd platforms/android
 ./gradlew --no-daemon :core:test :app:assembleDebug :app:lintDebug
 ```
 
-- Debug APK built successfully.
-- Nine JVM tests passed: exact next/all text, rejected insertion retention,
+- Debug APK built successfully after the device fixes.
+- Nine JVM Buffer tests pass: exact next/all text, rejected insertion retention,
   target/revision invalidation, private-mode rejection, hide cleanup, single
   consumption, cross-session rejection, size limit and whole-block deletion.
-  These test the core model; they do not substitute for framework lifecycle tests.
+  The unchanged core tests were up-to-date during the final build. These model
+  tests do not substitute for Android framework lifecycle tests.
 - Lint: zero errors, three warnings (newer Gradle available, backup extraction
   rules, development app icon). No warning was suppressed to obtain this result.
-- `aapt2 dump badging`: min SDK 26, target SDK 37, launcher and IME components.
+- APK and installed-package readback: min SDK 26, target SDK 37, version code 2.
   `aapt2 dump permissions`: no requested app permissions.
 - Wrapper JAR matches Gradle's official 9.7.1 checksum. The distribution checksum
   is pinned in `gradle-wrapper.properties`.
 
 APK: `app/build/outputs/apk/debug/app-debug.apk`.
-SHA-256: `ce7a2539a51c970d4f2340aaa2ee69e0b73112b563ee45220efbef8c7dccb924`.
+SHA-256: `d721b15259ac2352816ddca59e231dac723548dce337abd21e354d10ccaa3068`.
+The installed base APK was pulled back from the device and its SHA-256 matches.
 Reports: `core/build/test-results/test/`, `app/build/reports/lint-results-debug.*`.
-The new workflow has been syntax-checked locally; remote CI has not been run.
+The Android workflow has been syntax-checked locally; remote CI has not been run.
 
-## Device result and remaining checks
+## Physical device
 
-One physical Android 16 / API 36 device was connected and authorized for ADB.
-The initial installation attempt returned `INSTALL_FAILED_USER_RESTRICTED`.
-The device was no longer available over ADB at the final check.
-No successful RIMES installation, keyboard enablement, visual acceptance or real
-host typing is claimed. No keyboard preference, app data or system security
-setting was changed to bypass that restriction. The later lifecycle fix was
-rebuilt locally and is included in the APK checksum above.
+Android 16 / API 36, model `25098PN5AC`, three-button navigation, English locale.
+Installation succeeded after reconnection; RIMES was enabled and selected through
+system keyboard settings. Initial installation was at 22:50:52 China time;
+installed version 2 was read back with an update time of 23:10:19.
+The earlier `INSTALL_FAILED_USER_RESTRICTED` attempt is resolved. No uninstall,
+app-data reset or change to the OEM secure-keyboard setting was needed.
 
-After installation is allowed, complete the [device checklist](README.md#device-acceptance).
-Chinese input, chord/touch behavior, full Buffer editing, AI and translation
-remain implementation work, not passed tests.
+All typing below used the real RIMES on-screen keys, not an automation typing IME.
+Host text and control state were checked with accessibility snapshots; screenshots
+were also inspected for layout and selection.
+
+| Check | Observed result |
+|---|---|
+| English, space, number, punctuation, backspace and multiline Return | Typed `hi 1!`, deleted `!`, pressed Return; host contained exactly `hi 1\n` |
+| Selected host text deletion | Selected all of `hi 1\n`; one Delete cleared the field |
+| Buffer capture | Typed `hello world`; Buffer held the text and host remained empty |
+| Next, all, empty Return | Insert produced `hello ` and retained `world`; Insert all produced exactly `hello world`; another Return inserted nothing |
+| Switch editor with a draft | Pending `x` disappeared; second field remained empty and first field was unchanged |
+| Hide/reopen | Pending `z` was cleared; reopened Buffer was off and enabling it showed an empty draft |
+| Password editor | Pending `p` was cleared; RIMES remained visible with its Buffer toggle disabled |
+| Separate host app | In `com.android.settings` search, previous draft did not carry over; Buffer kept `rimes` out of the host until Insert all |
+| Host editor action | Search editor advertised `imeOptions=0x3`; direct Return hid the keyboard and retained `rimes` without adding a newline |
+| Landscape | Final layout kept host field and every key visible; Buffer Return inserted `hi ` and Insert all completed exactly `hi ok` |
+| Rotation | Pending draft was cleared; portrait typing resumed with an empty Buffer |
+| Switch keyboard | Switched to the original Sogou keyboard and back; RIMES returned off with an empty draft |
+
+The full portrait/input lifecycle pass preceded the final landscape-only toolbar
+adjustment. The final APK then repeated landscape capture and next/all delivery,
+rotation, portrait `hello world` capture and keyboard-switch cleanup. Core delivery
+and lifecycle code did not change during the layout fixes.
+
+## Device defects fixed
+
+- Three-button navigation covered Space/Delete/Return. The IME now applies the
+  remaining system-bar and cutout insets instead of placing controls behind them.
+- The keyboard background allowed host text to show through; it is now opaque.
+- Expanding Buffer hid the active playground field. The setup frame now uses
+  system/IME insets to resize its scroll viewport, keeping the field reachable.
+- Landscape Buffer added two rows and clipped the bottom keys. It now shares the
+  wide toolbar with the preview and insert/clear actions.
+
+Final APK and screenshots are retained locally under the repository's ignored
+`.build/validation/` directory: `RIMES-Android-0.1.0-dev.2-55e2ec7.apk`,
+`android-buffer-compose.png`, and `android-landscape-buffer-fixed.png`.
+
+At the end, the original Sogou default keyboard and original portrait rotation
+lock (`accelerometer_rotation=0`, `user_rotation=0`) were restored and verified.
+RIMES remains installed and enabled for further testing.
+
+## Remaining acceptance
+
+- More host apps, older Android versions, gesture navigation, alternate density,
+  large fonts, dark theme and accessibility behavior.
+- Framework tests for `NO_PERSONALIZED_LEARNING`, numeric/phone and additional
+  password variations; rejected/stale framework connections and process death.
+- Real-host stress and long-running use. Rotation of the development playground
+  intentionally resets its unsaved sample text; it is not a persistent editor.
+- Chinese input/librime, chord and touch behavior, complete Buffer editing, AI
+  and translation remain implementation work. This is not iOS feature parity.
