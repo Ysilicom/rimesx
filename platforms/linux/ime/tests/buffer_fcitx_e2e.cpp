@@ -141,15 +141,25 @@ void EnsureCapturing(fcitx::AddonInstance* frontend, const fcitx::ICUUID& uuid,
 
 using ExtraTimers = std::vector<std::unique_ptr<fcitx::EventSourceTime>>;
 
-void AfterUs(fcitx::Instance& instance, ExtraTimers* timers, int delay_us,
-             std::function<void()> fn) {
-    timers->emplace_back(instance.eventLoop().addTimeEvent(
+struct SuiteCtx {
+    fcitx::Instance* instance = nullptr;
+    ExtraTimers* timers = nullptr;
+    fcitx::AddonInstance* frontend = nullptr;
+    fcitx::ICUUID uuid{};
+    fcitx::InputContext* ic = nullptr;
+    std::string dump_path;
+    std::unique_ptr<fcitx::EventSourceTime>* grace_timer = nullptr;
+    std::unique_ptr<fcitx::EventSourceTime>* hold_timer = nullptr;
+};
+
+void AfterUs(SuiteCtx ctx, int delay_us, std::function<void(SuiteCtx)> fn) {
+    ctx.timers->emplace_back(ctx.instance->eventLoop().addTimeEvent(
         CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + delay_us, 0,
-        [&instance, fn = std::move(fn)](fcitx::EventSourceTime*, uint64_t) {
+        [ctx, fn = std::move(fn)](fcitx::EventSourceTime*, uint64_t) {
             try {
-                fn();
+                fn(ctx);
             } catch (const TestFailed&) {
-                instance.exit();
+                ctx.instance->exit();
             }
             return true;
         }));
@@ -370,126 +380,166 @@ void RunBufferSuite(fcitx::Instance& instance,
 
     ic->focusIn();
     EnsureCapturing(frontend, uuid, dump_path);
+    const SuiteCtx ctx{&instance, extra_timers, frontend, uuid, ic, dump_path, grace_timer,
+                       hold_timer};
     SendBufferOp("drag_begin");
-    AfterUs(instance, extra_timers, 50000, [&]() {
-        AfterUs(instance, extra_timers, 2000000, [&]() {
-            ic->focusOut();
-            ic->focusIn();
-            auto snapshot = ReadDump(dump_path);
+    AfterUs(ctx, 50000, [](SuiteCtx ctx) {
+        AfterUs(ctx, 2000000, [](SuiteCtx ctx) {
+            ctx.ic->focusOut();
+            ctx.ic->focusIn();
+            auto snapshot = ReadDump(ctx.dump_path);
             ExpectContains(snapshot, "\"capturing\":true",
                            "same-IC reactivate 2s after drag_begin without drag_end must keep");
             std::cout << "ok: drag_begin without drag_end keeps capture for 2s\n";
 
             SendBufferOp("drag_begin");
-            AfterUs(instance, extra_timers, 50000, [&]() {
-                AfterUs(instance, extra_timers, 300000, [&]() {
+            AfterUs(ctx, 50000, [](SuiteCtx ctx) {
+                AfterUs(ctx, 300000, [](SuiteCtx ctx) {
                     SendBufferOp("drag_end");
-                    AfterUs(instance, extra_timers, 800000, [&]() {
-                        ic->focusOut();
-                        ic->focusIn();
-                        auto snapshot = ReadDump(dump_path);
+                    AfterUs(ctx, 800000, [](SuiteCtx ctx) {
+                        ctx.ic->focusOut();
+                        ctx.ic->focusIn();
+                        auto snapshot = ReadDump(ctx.dump_path);
                         ExpectContains(
                             snapshot, "\"capturing\":true",
                             "same-IC reactivate 800ms after drag_end must stay in the 1s tail");
                         std::cout << "ok: drag_end plus 800ms tail keeps capture\n";
 
-                        ic->focusOut();
-                        ic->focusIn();
-                        snapshot = ReadDump(dump_path);
+                        ctx.ic->focusOut();
+                        ctx.ic->focusIn();
+                        snapshot = ReadDump(ctx.dump_path);
                         ExpectContains(snapshot, "\"capturing\":false",
                                        "second same-IC after a consumed drag must pause");
                         std::cout << "ok: field switch after a completed drag pauses capture\n";
 
-                        EnsureCapturing(frontend, uuid, dump_path);
+                        EnsureCapturing(ctx.frontend, ctx.uuid, ctx.dump_path);
                         SendBufferOp("drag_begin");
-                        AfterUs(instance, extra_timers, 50000, [&]() {
+                        AfterUs(ctx, 50000, [](SuiteCtx ctx) {
                             SendBufferOp("drag_end");
-                            AfterUs(instance, extra_timers, 1200000, [&]() {
-                                ic->focusOut();
-                                ic->focusIn();
-                                auto snapshot = ReadDump(dump_path);
+                            AfterUs(ctx, 1200000, [](SuiteCtx ctx) {
+                                ctx.ic->focusOut();
+                                ctx.ic->focusIn();
+                                auto snapshot = ReadDump(ctx.dump_path);
                                 ExpectContains(snapshot, "\"capturing\":false",
                                                "same-IC reactivate after the drag tail must pause");
-                                std::cout << "ok: same-IC reactivate after drag tail expires pauses\n";
+                                std::cout
+                                    << "ok: same-IC reactivate after drag tail expires pauses\n";
 
-                                ic->focusIn();
-                                EnsureCapturing(frontend, uuid, dump_path);
-                                DrainStaged(frontend, uuid, dump_path);
-                                Type(frontend, uuid, "zhongguoren");
-    const auto uuid_switch =
-        frontend->call<fcitx::ITestFrontend::createInputContext>("rimes-buffer-switch");
-    auto* ic_switch = instance.inputContextManager().findByUUID(uuid_switch);
-    if (ic_switch == nullptr) {
-        Die("switch test input context was not created");
-    }
-    instance.setCurrentInputMethod(ic_switch, "rimes", true);
-    ic_switch->focusIn();
-    snapshot = ReadDump(dump_path);
-    ExpectContains(snapshot, "zhongguoren",
-                   "app switch must stage raw input, not syllable-spaced preedit");
-    ExpectMissing(snapshot, "zhong guo", "staged composition must not keep syllable spaces");
-    ExpectContains(snapshot, "\"capturing\":false", "app switch must pause capture");
-    std::cout << "ok: switching apps stages raw input zhongguoren\n";
-    frontend->call<fcitx::ITestFrontend::destroyInputContext>(uuid_switch);
+                                ctx.ic->focusIn();
+                                EnsureCapturing(ctx.frontend, ctx.uuid, ctx.dump_path);
+                                DrainStaged(ctx.frontend, ctx.uuid, ctx.dump_path);
+                                Type(ctx.frontend, ctx.uuid, "zhongguoren");
+                                const auto uuid_switch =
+                                    ctx.frontend->call<fcitx::ITestFrontend::createInputContext>(
+                                        "rimes-buffer-switch");
+                                auto* ic_switch =
+                                    ctx.instance->inputContextManager().findByUUID(uuid_switch);
+                                if (ic_switch == nullptr) {
+                                    Die("switch test input context was not created");
+                                }
+                                ctx.instance->setCurrentInputMethod(ic_switch, "rimes", true);
+                                ic_switch->focusIn();
+                                snapshot = ReadDump(ctx.dump_path);
+                                ExpectContains(snapshot, "zhongguoren",
+                                               "app switch must stage raw input, not "
+                                               "syllable-spaced preedit");
+                                ExpectMissing(snapshot, "zhong guo",
+                                              "staged composition must not keep syllable spaces");
+                                ExpectContains(snapshot, "\"capturing\":false",
+                                               "app switch must pause capture");
+                                std::cout << "ok: switching apps stages raw input zhongguoren\n";
+                                ctx.frontend->call<fcitx::ITestFrontend::destroyInputContext>(
+                                    uuid_switch);
 
-    ic->focusIn();
-    DrainStaged(frontend, uuid, dump_path);
-    Type(frontend, uuid, "shi");
-    ic->focusOut();
-    *grace_timer = instance.eventLoop().addTimeEvent(
-        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 400000, 0,
-        [&instance, frontend, uuid, ic, dump_path, hold_timer](fcitx::EventSourceTime*,
-                                                              uint64_t) {
-            try {
-                auto snapshot = ReadDump(dump_path);
-                ExpectContains(snapshot, "\"capturing\":false",
-                               "focus-out grace must drop capture");
-                ExpectContains(snapshot, "shi", "open composition must stage into Buffer");
-                std::cout << "ok: leaving a field stages the open preedit and drops capture\n";
+                                ctx.ic->focusIn();
+                                DrainStaged(ctx.frontend, ctx.uuid, ctx.dump_path);
+                                Type(ctx.frontend, ctx.uuid, "shi");
+                                ctx.ic->focusOut();
+                                *ctx.grace_timer = ctx.instance->eventLoop().addTimeEvent(
+                                    CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 400000, 0,
+                                    [ctx](fcitx::EventSourceTime*, uint64_t) {
+                                        try {
+                                            auto snapshot = ReadDump(ctx.dump_path);
+                                            ExpectContains(snapshot, "\"capturing\":false",
+                                                           "focus-out grace must drop capture");
+                                            ExpectContains(
+                                                snapshot, "shi",
+                                                "open composition must stage into Buffer");
+                                            std::cout << "ok: leaving a field stages the open "
+                                                         "preedit and drops capture\n";
 
-                ic->focusIn();
-                DrainStaged(frontend, uuid, dump_path);
-                Type(frontend, uuid, "nihao");
-                SendKey(frontend, uuid, "space");
-                Type(frontend, uuid, "shijie");
-                SendKey(frontend, uuid, "space");
-                snapshot = ReadDump(dump_path);
-                ExpectContains(snapshot, "你好", "hold-Return fixture missing first chip");
-                ExpectContains(snapshot, "世界", "hold-Return fixture missing second chip");
-                frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("你好");
-                frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("世界");
-                frontend->call<fcitx::ITestFrontend::keyEvent>(uuid, fcitx::Key("Return"),
-                                                               false);
+                                            ctx.ic->focusIn();
+                                            DrainStaged(ctx.frontend, ctx.uuid, ctx.dump_path);
+                                            Type(ctx.frontend, ctx.uuid, "nihao");
+                                            SendKey(ctx.frontend, ctx.uuid, "space");
+                                            Type(ctx.frontend, ctx.uuid, "shijie");
+                                            SendKey(ctx.frontend, ctx.uuid, "space");
+                                            snapshot = ReadDump(ctx.dump_path);
+                                            ExpectContains(snapshot, "你好",
+                                                           "hold-Return fixture missing first chip");
+                                            ExpectContains(
+                                                snapshot, "世界",
+                                                "hold-Return fixture missing second chip");
+                                            ctx.frontend
+                                                ->call<fcitx::ITestFrontend::pushCommitExpectation>(
+                                                    "你好");
+                                            ctx.frontend
+                                                ->call<fcitx::ITestFrontend::pushCommitExpectation>(
+                                                    "世界");
+                                            ctx.frontend->call<fcitx::ITestFrontend::keyEvent>(
+                                                ctx.uuid, fcitx::Key("Return"), false);
 
-                *hold_timer = instance.eventLoop().addTimeEvent(
-        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 1400000, 0,
-        [frontend, uuid, ic, &instance, dump_path](fcitx::EventSourceTime*, uint64_t) {
-            try {
-                const fcitx::Key repeat_return(FcitxKey_Return,
-                                               fcitx::KeyStates{fcitx::KeyState::Repeat});
-                for (int index = 0; index < 8; ++index) {
-                    frontend->call<fcitx::ITestFrontend::keyEvent>(uuid, repeat_return, false);
-                }
-                frontend->call<fcitx::ITestFrontend::keyEvent>(uuid, fcitx::Key("Return"), true);
-                const auto after = ReadDump(dump_path);
-                ExpectMissing(after, "你好", "hold-Return left the first chip");
-                ExpectMissing(after, "世界", "hold-Return left the second chip");
-                ExpectContains(after, "\"capturing\":false",
-                               "send-all + close-after-last must pause");
-                ExpectNoZwsp(ic, "after held-Return send-all");
-                std::cout << "ok: held-Return send-all ate leftover repeats\n";
-                frontend->call<fcitx::ITestFrontend::destroyInputContext>(uuid);
-                instance.exit();
-            } catch (const TestFailed&) {
-                instance.exit();
-            }
-            return true;
-        });
-            } catch (const TestFailed&) {
-                instance.exit();
-            }
-            return true;
-        });
+                                            *ctx.hold_timer =
+                                                ctx.instance->eventLoop().addTimeEvent(
+                                                    CLOCK_MONOTONIC,
+                                                    fcitx::now(CLOCK_MONOTONIC) + 1400000, 0,
+                                                    [ctx](fcitx::EventSourceTime*, uint64_t) {
+                                                        try {
+                                                            const fcitx::Key repeat_return(
+                                                                FcitxKey_Return,
+                                                                fcitx::KeyStates{
+                                                                    fcitx::KeyState::Repeat});
+                                                            for (int index = 0; index < 8;
+                                                                 ++index) {
+                                                                ctx.frontend->call<
+                                                                    fcitx::ITestFrontend::keyEvent>(
+                                                                    ctx.uuid, repeat_return, false);
+                                                            }
+                                                            ctx.frontend->call<
+                                                                fcitx::ITestFrontend::keyEvent>(
+                                                                ctx.uuid, fcitx::Key("Return"),
+                                                                true);
+                                                            const auto after =
+                                                                ReadDump(ctx.dump_path);
+                                                            ExpectMissing(
+                                                                after, "你好",
+                                                                "hold-Return left the first chip");
+                                                            ExpectMissing(
+                                                                after, "世界",
+                                                                "hold-Return left the second chip");
+                                                            ExpectContains(
+                                                                after, "\"capturing\":false",
+                                                                "send-all + close-after-last must "
+                                                                "pause");
+                                                            ExpectNoZwsp(
+                                                                ctx.ic,
+                                                                "after held-Return send-all");
+                                                            std::cout << "ok: held-Return send-all "
+                                                                         "ate leftover repeats\n";
+                                                            ctx.frontend->call<
+                                                                fcitx::ITestFrontend::
+                                                                    destroyInputContext>(ctx.uuid);
+                                                            ctx.instance->exit();
+                                                        } catch (const TestFailed&) {
+                                                            ctx.instance->exit();
+                                                        }
+                                                        return true;
+                                                    });
+                                        } catch (const TestFailed&) {
+                                            ctx.instance->exit();
+                                        }
+                                        return true;
+                                    });
                             });
                         });
                     });
