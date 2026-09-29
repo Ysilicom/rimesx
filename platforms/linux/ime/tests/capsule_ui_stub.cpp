@@ -43,6 +43,42 @@ std::string SocketPath(int argc, char** argv) {
     return {};
 }
 
+bool EnvFlag(const char* name) {
+    const char* value = std::getenv(name);
+    return value != nullptr && value[0] != '\0' && std::strcmp(value, "0") != 0;
+}
+
+void AppendLog(const char* path, std::string_view text) {
+    if (path == nullptr || path[0] == '\0') {
+        return;
+    }
+    FILE* log = std::fopen(path, "a");
+    if (log == nullptr) {
+        return;
+    }
+    std::fwrite(text.data(), 1, text.size(), log);
+    std::fputc('\n', log);
+    std::fclose(log);
+}
+
+void HandleCopiedNote(const rimes::capsule::Snapshot& snapshot,
+                      rimes::capsule::ClipboardApplyState* state) {
+    const bool wayland = EnvFlag("RIMES_CAPSULE_WAYLAND_CLIPBOARD");
+    const bool have_wl_copy = wayland && !rimes::capsule::FindOnPath("wl-copy").empty();
+    const auto decision = rimes::capsule::ApplyCopiedNote(
+        state, snapshot.copy_seq, snapshot.last_copied, wayland, have_wl_copy);
+    if (decision.path == rimes::capsule::ClipboardWritePath::Skip) {
+        return;
+    }
+    if (decision.path == rimes::capsule::ClipboardWritePath::WlCopy) {
+        rimes::capsule::SpawnWlCopy(snapshot.last_copied);
+    }
+    if (decision.status_override != nullptr) {
+        AppendLog(std::getenv("RIMES_CAPSULE_COPY_HINT_LOG"), decision.status_override);
+    }
+    AppendLog(std::getenv("RIMES_CAPSULE_CLIPBOARD_LOG"), snapshot.last_copied);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -73,9 +109,7 @@ int main(int argc, char** argv) {
         close(fd);
         return EXIT_FAILURE;
     }
-    const char* clipboard_log = std::getenv("RIMES_CAPSULE_CLIPBOARD_LOG");
-    bool seen_copy_seq = false;
-    std::uint64_t handled_copy_seq = 0;
+    rimes::capsule::ClipboardApplyState copy_state;
     std::string incoming;
     char chunk[4096];
     while (true) {
@@ -99,19 +133,7 @@ int main(int argc, char** argv) {
             if (!rimes::capsule::DecodeSnapshot(payload, &snapshot)) {
                 continue;
             }
-            if (rimes::capsule::ShouldWriteClipboard(seen_copy_seq, handled_copy_seq,
-                                                    snapshot.copy_seq, snapshot.last_copied) &&
-                clipboard_log != nullptr && clipboard_log[0] != '\0') {
-                FILE* log = std::fopen(clipboard_log, "a");
-                if (log != nullptr) {
-                    std::fwrite(snapshot.last_copied.data(), 1, snapshot.last_copied.size(),
-                                log);
-                    std::fputc('\n', log);
-                    std::fclose(log);
-                }
-            }
-            seen_copy_seq = true;
-            handled_copy_seq = snapshot.copy_seq;
+            HandleCopiedNote(snapshot, &copy_state);
         }
     }
     close(fd);

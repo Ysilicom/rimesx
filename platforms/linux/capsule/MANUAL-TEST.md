@@ -96,14 +96,21 @@ does nothing under another IM (including stock `fcitx5-rime`). The
     must still be `USERCLIP` (a replacement UI must not replay the last
     copy). Focus a Firefox password field and paste: you get `USERCLIP`,
     never the stale note. `Ctrl+C` again on the same card must copy the
-    note again.
+    note again. **labwc/sway:** from another app set a foreign value
+    (`wl-copy FOREIGN`) without moving the pointer onto the bar, then
+    press `Ctrl+C` from the keyboard only. The clipboard must become the
+    selected note (via `wl-copy`). If `wl-clipboard` is not installed,
+    the rail hint must say copy may need a click on the bar first — do
+    not fail silently — and a click on the bar then `Ctrl+C` may use the
+    GTK fallback.
 
 ## Session notes
 
 - Xfce X11: confirm `gtk_window` keep-above above a maximized gedit.
 - labwc/sway: if the rail is missing, check `libgtk-layer-shell0` is
   installed and `journalctl --user -u fcitx5` / `~/.local/share/rimes`
-  logs.
+  logs. Keyboard-only `Ctrl+C` needs `wl-clipboard` (`wl-copy` on
+  `PATH`); without it the rail hint must warn instead of failing silent.
 - Firefox and terminals sometimes need `GTK_IM_MODULE=fcitx` in the
   session, not only the shell that launched the test.
 - Capsule data lives in `~/.local/share/rimes/capsule`. Do not confuse it

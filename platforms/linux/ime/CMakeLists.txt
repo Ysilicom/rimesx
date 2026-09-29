@@ -51,6 +51,7 @@ add_library(RimesCapsuleCore STATIC
     "${RIMES_CAPSULE_ROOT}/core/capsule_store.cpp"
     "${RIMES_CAPSULE_ROOT}/core/capsule_model.cpp"
     "${RIMES_CAPSULE_ROOT}/core/capsule_protocol.cpp"
+    "${RIMES_CAPSULE_ROOT}/core/capsule_clipboard.cpp"
 )
 target_include_directories(RimesCapsuleCore PUBLIC
     "${RIMES_CAPSULE_ROOT}/core"

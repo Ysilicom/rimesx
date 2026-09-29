@@ -110,6 +110,11 @@ void ApplyLayerShell(GtkWindow* window, App* app) {
     gtk_layer_set_margin(window, GTK_LAYER_SHELL_EDGE_RIGHT, 80);
     gtk_layer_set_namespace(window, "rimes-capsule");
 #if GTK_LAYER_SHELL_MAJOR >= 0
+    // NONE keeps the rail from stealing focus. gtk_clipboard_set_text on
+    // Wayland then uses wl_data_device.set_selection with the last pointer
+    // serial. Ctrl+C is consumed by the IME, so this window never mints a
+    // keyboard serial; an unclicked bar often has serial 0 and labwc/sway
+    // drop the offer. Copy therefore prefers wl-copy (see ApplySnapshot).
     gtk_layer_set_keyboard_mode(window, GTK_LAYER_SHELL_KEYBOARD_MODE_NONE);
 #endif
     app->wayland_layer = true;
@@ -314,6 +319,39 @@ void SyncCards(App* app) {
     UpdateCardsInPlace(app);
 }
 
+bool DisplayIsWayland() {
+#ifdef GDK_WINDOWING_WAYLAND
+    GdkDisplay* display = gdk_display_get_default();
+    return display != nullptr && GDK_IS_WAYLAND_DISPLAY(display);
+#else
+    return false;
+#endif
+}
+
+void WriteGtkClipboard(const std::string& text) {
+    GtkClipboard* board = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+    gtk_clipboard_set_text(board, text.c_str(), -1);
+}
+
+void ApplyCopiedText(App* app, const rimes::capsule::ClipboardWriteDecision& decision) {
+    if (decision.path == rimes::capsule::ClipboardWritePath::Skip) {
+        return;
+    }
+    const auto& text = app->snapshot.last_copied;
+    if (decision.path == rimes::capsule::ClipboardWritePath::WlCopy) {
+        if (rimes::capsule::SpawnWlCopy(text)) {
+            return;
+        }
+        WriteGtkClipboard(text);
+        gtk_label_set_text(GTK_LABEL(app->hint), rimes::capsule::kWaylandCopyFallbackHint);
+        return;
+    }
+    WriteGtkClipboard(text);
+    if (decision.status_override != nullptr) {
+        gtk_label_set_text(GTK_LABEL(app->hint), decision.status_override);
+    }
+}
+
 void ApplySnapshot(App* app) {
     gtk_label_set_text(GTK_LABEL(app->count),
                        rimes::capsule::CountText(app->snapshot.count).c_str());
@@ -323,13 +361,15 @@ void ApplySnapshot(App* app) {
     gtk_label_set_text(GTK_LABEL(app->query), query.c_str());
     RebuildTabs(app);
     SyncCards(app);
-    if (rimes::capsule::ShouldWriteClipboard(app->seen_copy_seq, app->handled_copy_seq,
-                                             app->snapshot.copy_seq, app->snapshot.last_copied)) {
-        GtkClipboard* board = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
-        gtk_clipboard_set_text(board, app->snapshot.last_copied.c_str(), -1);
-    }
-    app->seen_copy_seq = true;
-    app->handled_copy_seq = app->snapshot.copy_seq;
+    const bool wayland = DisplayIsWayland();
+    const bool have_wl_copy = wayland && !rimes::capsule::FindOnPath("wl-copy").empty();
+    rimes::capsule::ClipboardApplyState copy_state{app->seen_copy_seq, app->handled_copy_seq};
+    const auto decision =
+        rimes::capsule::ApplyCopiedNote(&copy_state, app->snapshot.copy_seq,
+                                       app->snapshot.last_copied, wayland, have_wl_copy);
+    app->seen_copy_seq = copy_state.seen_seq;
+    app->handled_copy_seq = copy_state.handled_seq;
+    ApplyCopiedText(app, decision);
     if (app->snapshot.visible) {
         gtk_widget_show_all(app->window);
         PlaceOnX11(app);
