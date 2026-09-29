@@ -1,0 +1,246 @@
+#include "fake_tsf.hpp"
+
+#include <Windows.h>
+
+#include <cstdlib>
+#include <iostream>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "CandidateWindow.h"
+#include "ModuleState.h"
+#include "TextService.h"
+
+namespace {
+
+int g_failures = 0;
+
+void Fail(std::string_view message) {
+  std::cerr << "FAIL: " << message << '\n';
+  ++g_failures;
+}
+
+void Expect(bool condition, std::string_view message) {
+  if (!condition) {
+    Fail(message);
+  }
+}
+
+void DumpDocument(std::string_view label,
+                  const rimes::windows::e2e::FakeDocument& document) {
+  rimes::windows::tsf::CandidateSnapshot snapshot;
+  rimes::windows::tsf::CandidateWindow::GetLastSnapshot(&snapshot);
+  std::cerr << label << ": composing=" << document.composing
+            << " preedit_units=" << document.composition.size()
+            << " text_units=" << document.text.size()
+            << " candidates=" << snapshot.items.size()
+            << " visible=" << snapshot.visible << '\n';
+}
+
+void ClearCapsLockIfLatched() {
+  if ((GetKeyState(VK_CAPITAL) & 1) == 0) {
+    return;
+  }
+  keybd_event(VK_CAPITAL, 0x45, KEYEVENTF_EXTENDEDKEY, 0);
+  keybd_event(VK_CAPITAL, 0x45, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+}
+
+void TypeVirtualKey(rimes::windows::tsf::TextService* service,
+                    ITfContext* context,
+                    WPARAM virtual_key,
+                    bool require_eaten,
+                    rimes::windows::e2e::FakeDocument* document = nullptr,
+                    bool dump_after_key_down = false) {
+  using rimes::windows::tsf::TextService;
+  BOOL eaten = FALSE;
+  service->OnTestKeyDown(context, virtual_key, 0, &eaten);
+  eaten = FALSE;
+  const HRESULT down = service->OnKeyDown(context, virtual_key, 0, &eaten);
+  if (FAILED(down)) {
+    Fail("OnKeyDown failed");
+    return;
+  }
+  if (require_eaten && eaten == FALSE) {
+    Fail("expected the key down to be consumed");
+  }
+  if (dump_after_key_down && document != nullptr) {
+    DumpDocument("after keydown vk=" + std::to_string(virtual_key), *document);
+  }
+  eaten = FALSE;
+  service->OnTestKeyUp(context, virtual_key, 0, &eaten);
+  eaten = FALSE;
+  service->OnKeyUp(context, virtual_key, 0, &eaten);
+}
+
+void TypeLatin(rimes::windows::tsf::TextService* service,
+               ITfContext* context,
+               std::string_view letters,
+               rimes::windows::e2e::FakeDocument* document = nullptr) {
+  bool first = true;
+  for (const char letter : letters) {
+    const WPARAM virtual_key =
+        static_cast<WPARAM>(static_cast<unsigned char>(letter) & ~0x20U);
+    TypeVirtualKey(service, context, virtual_key, true, document, first);
+    first = false;
+  }
+}
+
+bool WaitForBroker(rimes::windows::tsf::TextService* service,
+                   DWORD timeout_millis) {
+  const DWORD started = GetTickCount();
+  while (GetTickCount() - started < timeout_millis) {
+    if (service->IsBrokerConnected()) {
+      return true;
+    }
+    Sleep(50);
+  }
+  return service->IsBrokerConnected();
+}
+
+std::vector<std::wstring> CandidateTexts() {
+  rimes::windows::tsf::CandidateSnapshot snapshot;
+  rimes::windows::tsf::CandidateWindow::GetLastSnapshot(&snapshot);
+  std::vector<std::wstring> texts;
+  texts.reserve(snapshot.items.size());
+  for (const auto& item : snapshot.items) {
+    texts.push_back(item.text);
+  }
+  return texts;
+}
+
+bool ContainsText(const std::vector<std::wstring>& texts,
+                  std::wstring_view expected) {
+  for (const std::wstring& text : texts) {
+    if (text == expected) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void ResetDocument(rimes::windows::e2e::FakeDocument* document) {
+  *document = rimes::windows::e2e::FakeDocument{};
+}
+
+int RunTypingScenarios() {
+  using rimes::windows::e2e::FakeContext;
+  using rimes::windows::e2e::FakeDocument;
+  using rimes::windows::e2e::FakeThreadMgr;
+  using rimes::windows::tsf::CandidateSnapshot;
+  using rimes::windows::tsf::CandidateWindow;
+  using rimes::windows::tsf::TextService;
+  using rimes::windows::tsf::module::SetInstance;
+
+  SetInstance(GetModuleHandleW(nullptr));
+  const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  if (FAILED(com) && com != RPC_E_CHANGED_MODE) {
+    std::cerr << "CoInitializeEx failed\n";
+    return EXIT_FAILURE;
+  }
+
+  FakeDocument document;
+  auto* thread_manager = new FakeThreadMgr();
+  auto* context = new FakeContext(&document);
+  auto* service = new TextService();
+
+  const HRESULT activated = service->Activate(thread_manager, 1);
+  if (FAILED(activated)) {
+    std::cerr << "TextService::Activate failed\n";
+    service->Release();
+    context->Release();
+    thread_manager->Release();
+    if (SUCCEEDED(com)) {
+      CoUninitialize();
+    }
+    return EXIT_FAILURE;
+  }
+
+  if (!WaitForBroker(service, 15000)) {
+    Fail("TSF client did not connect to the Broker within 15s");
+    service->Deactivate();
+    service->Release();
+    context->Release();
+    thread_manager->Release();
+    if (SUCCEEDED(com)) {
+      CoUninitialize();
+    }
+    return EXIT_FAILURE;
+  }
+
+  ClearCapsLockIfLatched();
+  std::cerr << "caps_lock=" << ((GetKeyState(VK_CAPITAL) & 1) != 0)
+            << " shift=" << ((GetKeyState(VK_SHIFT) & 0x8000) != 0) << '\n';
+
+  TypeLatin(service, context, "nihao", &document);
+  DumpDocument("after nihao", document);
+  Expect(document.composing, "nihao should start an inline composition");
+  Expect(!document.composition.empty(),
+         "nihao should produce a non-empty preedit");
+  const std::vector<std::wstring> after_nihao = CandidateTexts();
+  Expect(!after_nihao.empty(), "nihao should show a candidate page");
+  Expect(ContainsText(after_nihao, L"你好"),
+         "nihao candidates should include 你好");
+  CandidateSnapshot snapshot;
+  CandidateWindow::GetLastSnapshot(&snapshot);
+  Expect(snapshot.visible, "candidate window snapshot should be visible");
+  Expect(snapshot.caret_rect.left == document.caret_rect.left &&
+             snapshot.caret_rect.top == document.caret_rect.top,
+         "candidate window should use ITfContextView::GetTextExt caret");
+
+  TypeVirtualKey(service, context, VK_SPACE, true);
+  Expect(document.last_commit == L"你好", "Space should commit 你好");
+  Expect(document.text == L"你好", "document text should contain 你好");
+  Expect(!document.composing, "Space should end the composition");
+  CandidateWindow::GetLastSnapshot(&snapshot);
+  Expect(!snapshot.visible, "candidate window should hide after commit");
+
+  ResetDocument(&document);
+  TypeLatin(service, context, "nihao");
+  const std::vector<std::wstring> before_number = CandidateTexts();
+  Expect(before_number.size() >= 2, "nihao should offer at least two candidates");
+  const std::wstring second =
+      before_number.size() >= 2 ? before_number[1] : std::wstring();
+  TypeVirtualKey(service, context, static_cast<WPARAM>('2'), true);
+  Expect(document.last_commit == second,
+         "number 2 should commit the second candidate");
+  Expect(!document.composing, "number selection should end the composition");
+
+  ResetDocument(&document);
+  TypeLatin(service, context, "nihao");
+  const std::vector<std::wstring> page_one = CandidateTexts();
+  TypeVirtualKey(service, context, VK_NEXT, true);
+  const std::vector<std::wstring> page_two = CandidateTexts();
+  Expect(!page_one.empty() && !page_two.empty(),
+         "paging should keep a candidate page visible");
+  Expect(page_one != page_two,
+         "PageDown should replace the current candidate page");
+  Expect(document.composing, "paging should keep the composition active");
+  TypeVirtualKey(service, context, VK_ESCAPE, true);
+  Expect(document.text.empty(), "Escape after paging should not commit");
+  Expect(!document.composing, "Escape should cancel the composition");
+  CandidateWindow::GetLastSnapshot(&snapshot);
+  Expect(!snapshot.visible, "Escape should hide the candidate window");
+
+  ResetDocument(&document);
+  TypeLatin(service, context, "nihao");
+  TypeVirtualKey(service, context, VK_ESCAPE, true);
+  Expect(document.text.empty() && document.last_commit.empty(),
+         "Escape during preedit should not commit");
+  Expect(!document.composing, "Escape should clear composing state");
+
+  service->Deactivate();
+  service->Release();
+  context->Release();
+  thread_manager->Release();
+  if (SUCCEEDED(com)) {
+    CoUninitialize();
+  }
+  return g_failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+
+}  // namespace
+
+int wmain() {
+  return RunTypingScenarios();
+}

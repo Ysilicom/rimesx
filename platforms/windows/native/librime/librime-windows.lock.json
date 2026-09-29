@@ -1,0 +1,32 @@
+{
+  "formatVersion": 1,
+  "source": "https://github.com/rime/librime/releases/tag/1.17.0",
+  "repository": "https://github.com/rime/librime",
+  "tag": "1.17.0",
+  "commit": "33e78140250125871856cdc5b42ddc6a5fcd3cd4",
+  "commitShort": "33e7814",
+  "published": "2026-06-06",
+  "notes": [
+    "Official librime 1.17.0 Windows-msvc artifacts from rime/librime.",
+    "The MSVC rime.dll statically includes librime-lua (Lua 5.4.8) and OpenCC.",
+    "The archive does not ship OpenCC conversion tables; RIMES copies those from rime-data/opencc when assembling a shared-data tree.",
+    "The archive does not ship a separate rime-lua.dll. Product rime_ice lua scripts still need the RIMES rime-data lua tree on a real install.",
+    "CI typing tests use the isolated lua-free testdata/e2e schema, not rime_ice."
+  ],
+  "artifacts": {
+    "x64": {
+      "name": "rime-33e7814-Windows-msvc-x64.7z",
+      "url": "https://github.com/rime/librime/releases/download/1.17.0/rime-33e7814-Windows-msvc-x64.7z",
+      "sha256": "7478c7caa4ff6b37de86daba1f7ce4a994a4f5ba24872a820fb2b3a9b01fed15",
+      "size": 7428809,
+      "dllRelativePath": "dist/lib/rime.dll"
+    },
+    "x86": {
+      "name": "rime-33e7814-Windows-msvc-x86.7z",
+      "url": "https://github.com/rime/librime/releases/download/1.17.0/rime-33e7814-Windows-msvc-x86.7z",
+      "sha256": "af235c26c06152ce09ceb8fe9d9ab9fba7ab43ce30aa952b40174d806f5cc3d9",
+      "size": 7183925,
+      "dllRelativePath": "dist/lib/rime.dll"
+    }
+  }
+}

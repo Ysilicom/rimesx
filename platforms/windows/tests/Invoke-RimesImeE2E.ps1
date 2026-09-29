@@ -1,0 +1,181 @@
+#requires -Version 5.1
+[CmdletBinding()]
+param(
+    [ValidateSet('x64', 'x86')]
+    [string]$Architecture = 'x64',
+
+    [ValidateSet('Debug', 'Release')]
+    [string]$Configuration = 'Release',
+
+    [string]$ArtifactDirectory,
+    [string]$WorkDirectory,
+    [switch]$ProbeDesktop
+)
+
+Set-StrictMode -Version 3.0
+$ErrorActionPreference = 'Stop'
+
+function Resolve-RimesExistingPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][ValidateSet('Leaf', 'Container')][string]$PathType
+    )
+    $resolved = [System.IO.Path]::GetFullPath($Path)
+    if (-not (Test-Path -LiteralPath $resolved -PathType $PathType)) {
+        throw "Expected a $PathType path: $Path"
+    }
+    return $resolved
+}
+
+function Write-RimesJson {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]$Object
+    )
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, ($Object | ConvertTo-Json -Depth 6), $utf8)
+}
+
+function Get-RimesDesktopProbe {
+    $process = Get-Process -Id $PID
+    $sessionId = [int]$process.SessionId
+    $desktopName = ''
+    try {
+        $desktopName = [System.Environment]::GetEnvironmentVariable('SESSIONNAME')
+    } catch {
+        $desktopName = ''
+    }
+    $explorer = @(Get-Process -Name explorer -ErrorAction SilentlyContinue)
+    $notepadLaunch = [ordered]@{
+        Attempted = $false
+        Succeeded = $false
+        Detail = 'not attempted'
+    }
+    if ($ProbeDesktop) {
+        $notepadLaunch.Attempted = $true
+        try {
+            $notepad = Start-Process -FilePath "$env:SystemRoot\System32\notepad.exe" -PassThru -WindowStyle Minimized
+            Start-Sleep -Milliseconds 800
+            if ($null -ne $notepad -and -not $notepad.HasExited) {
+                $notepadLaunch.Succeeded = $true
+                $notepadLaunch.Detail = "notepad pid=$($notepad.Id)"
+                Stop-Process -Id $notepad.Id -Force -ErrorAction SilentlyContinue
+            } else {
+                $notepadLaunch.Detail = 'notepad exited immediately'
+            }
+        } catch {
+            $notepadLaunch.Detail = [string]$_.Exception.Message
+        }
+    }
+    return [ordered]@{
+        SessionId = $sessionId
+        SessionName = $desktopName
+        ExplorerProcessCount = $explorer.Count
+        InteractiveSession = ($sessionId -gt 0)
+        Notepad = $notepadLaunch
+        Gap = @(
+            'Hosted windows-2022 runners usually have a logon session and can start Notepad, but they do not provide a reliable interactive IME desktop.',
+            'Registering RimesTsf and SendInput into Notepad/Edge cannot assert preedit, candidates, or 你好 on this image: there is no Chinese language pack, no user IME switch, and TSF often never attaches.',
+            'The required typing assertions therefore run in-process: Fake ITfThreadMgr/ITfContext + real TextService + real Broker + pinned rime.dll.',
+            'A later real-hardware pass must cover Win32, browsers, Electron, Office, DPI, password fields, and sleep/lock. See platforms/windows/native/MANUAL-TEST.md.'
+        )
+    }
+}
+
+$windowsRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$nativeRoot = Join-Path $windowsRoot 'native'
+$fetchScript = Join-Path $windowsRoot 'scripts/Fetch-RimesLibrime.ps1'
+$schemaRoot = Join-Path $nativeRoot 'testdata/e2e'
+$openccRoot = [System.IO.Path]::GetFullPath((Join-Path $windowsRoot '..\..\rime-data\opencc'))
+if ([string]::IsNullOrWhiteSpace($ArtifactDirectory)) {
+    $ArtifactDirectory = Join-Path $nativeRoot "out/build/windows-$Architecture/$Configuration"
+}
+$artifactRoot = Resolve-RimesExistingPath -Path $ArtifactDirectory -PathType Container
+$brokerPath = Resolve-RimesExistingPath -Path (Join-Path $artifactRoot 'RimesBroker.exe') -PathType Leaf
+$e2ePath = Resolve-RimesExistingPath -Path (Join-Path $artifactRoot 'RimesTsfE2E.exe') -PathType Leaf
+$schemaRoot = Resolve-RimesExistingPath -Path $schemaRoot -PathType Container
+
+if ([string]::IsNullOrWhiteSpace($WorkDirectory)) {
+    $WorkDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ('rimes-ime-e2e-' + [guid]::NewGuid().ToString('N'))
+}
+$workRoot = [System.IO.Path]::GetFullPath($WorkDirectory)
+New-Item -ItemType Directory -Path $workRoot -Force | Out-Null
+
+$runtime = & $fetchScript -Architecture $Architecture -OutputDirectory (Join-Path $workRoot 'librime')
+$rimeDll = Resolve-RimesExistingPath -Path $runtime.DllPath -PathType Leaf
+
+$sharedDir = Join-Path $workRoot 'shared'
+$userDir = Join-Path $workRoot 'user'
+$logDir = Join-Path $workRoot 'logs'
+New-Item -ItemType Directory -Path $sharedDir, $userDir, $logDir -Force | Out-Null
+Copy-Item -Path (Join-Path $schemaRoot '*') -Destination $sharedDir -Force
+if (Test-Path -LiteralPath $openccRoot -PathType Container) {
+    $openccDestination = Join-Path $sharedDir 'opencc'
+    New-Item -ItemType Directory -Path $openccDestination -Force | Out-Null
+    Copy-Item -Path (Join-Path $openccRoot '*') -Destination $openccDestination -Recurse -Force
+}
+
+$env:RIMES_ALLOW_SESSION_0 = '1'
+$probe = Get-RimesDesktopProbe
+Write-RimesJson -Path (Join-Path $workRoot 'desktop-probe.json') -Object $probe
+Write-Host ("Desktop probe: session={0} explorer={1} notepad={2}" -f $probe.SessionId, $probe.ExplorerProcessCount, $probe.Notepad.Detail)
+
+$brokerStdout = Join-Path $logDir 'broker-stdout.log'
+$brokerStderr = Join-Path $logDir 'broker-stderr.log'
+$brokerArgs = @(
+    '--full-maintenance-check',
+    '--rime-dll', $rimeDll,
+    '--shared-data-dir', $sharedDir,
+    '--user-data-dir', $userDir,
+    '--log-dir', $logDir
+)
+$broker = Start-Process -FilePath $brokerPath -ArgumentList $brokerArgs -PassThru -WindowStyle Hidden `
+    -RedirectStandardOutput $brokerStdout -RedirectStandardError $brokerStderr
+if ($null -eq $broker) {
+    throw 'Failed to start RimesBroker.exe'
+}
+
+$e2eExit = 1
+try {
+    Start-Sleep -Seconds 2
+    if ($broker.HasExited) {
+        throw "RimesBroker exited before the typing tests with code $($broker.ExitCode). stderr=$(Get-Content -LiteralPath $brokerStderr -Raw -ErrorAction SilentlyContinue)"
+    }
+
+    $e2e = Start-Process -FilePath $e2ePath -Wait -PassThru -NoNewWindow
+    $e2eExit = [int]$e2e.ExitCode
+    if ($e2eExit -ne 0) {
+        Write-Host "--- broker stderr ---"
+        if (Test-Path -LiteralPath $brokerStderr) {
+            Get-Content -LiteralPath $brokerStderr -Raw
+        }
+        Write-Host "--- broker stdout ---"
+        if (Test-Path -LiteralPath $brokerStdout) {
+            Get-Content -LiteralPath $brokerStdout -Raw
+        }
+        throw "RimesTsfE2E.exe exited with code $e2eExit"
+    }
+} finally {
+    if (-not $broker.HasExited) {
+        Stop-Process -Id $broker.Id -Force -ErrorAction SilentlyContinue
+        try { $broker.WaitForExit(5000) | Out-Null } catch { }
+    }
+}
+
+Write-RimesJson -Path (Join-Path $workRoot 'e2e-result.json') -Object ([ordered]@{
+    Passed = ($e2eExit -eq 0)
+    Architecture = $Architecture
+    RimeDll = $rimeDll
+    LibrimeSource = [string]$runtime.Source
+    LibrimeTag = [string]$runtime.Tag
+    LibrimeSha256 = [string]$runtime.Sha256
+    DesktopProbe = $probe
+})
+
+[pscustomobject]@{
+    Passed = $true
+    Architecture = $Architecture
+    WorkDirectory = $workRoot
+    RimeDll = $rimeDll
+    DesktopProbe = $probe
+}

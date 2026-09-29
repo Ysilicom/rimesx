@@ -23,6 +23,7 @@
 
 #include "../core/broker_protocol.hpp"
 #include "Diagnostics.h"
+#include "ModuleState.h"
 
 namespace rimes::windows::tsf {
 namespace {
@@ -33,7 +34,11 @@ namespace protocol = rimes::windows::core;
 // for a cold Broker to accept, authenticate and create its first librime
 // session instead of permanently giving up after one scheduler hiccup.
 constexpr ULONGLONG kConnectBudgetMillis = 2000;
-constexpr ULONGLONG kKeyBudgetMillis = 20;
+constexpr ULONGLONG kLaunchConnectBudgetMillis = 15000;
+// Daily-use first key after a cold Broker page-in, plus hosted CI VMs, can
+// exceed a 20 ms budget even when the engine is healthy. Keep this short
+// enough that a hung Broker still fail-opens.
+constexpr ULONGLONG kKeyBudgetMillis = 80;
 constexpr ULONGLONG kCloseBudgetMillis = 10;
 constexpr DWORD kConnectRetryMillis = 50;
 constexpr DWORD kBusyPipeWaitMillis = 200;
@@ -424,9 +429,19 @@ bool BuildEndpoint(std::wstring* endpoint,
   if (endpoint == nullptr || current_identity == nullptr ||
       current_session_id == nullptr ||
       !ReadProcessIdentity(GetCurrentProcess(), current_identity) ||
-      !ProcessIdToSessionId(GetCurrentProcessId(), current_session_id) ||
-      *current_session_id == 0) {
+      !ProcessIdToSessionId(GetCurrentProcessId(), current_session_id)) {
     return false;
+  }
+  if (*current_session_id == 0) {
+    // Session 0 is the services session on a real desktop. Hosted Windows
+    // runners and some automated hosts still use it; opt in explicitly so a
+    // production TSF host does not talk to a session-0 broker by accident.
+    wchar_t allow[8]{};
+    const DWORD length =
+        GetEnvironmentVariableW(L"RIMES_ALLOW_SESSION_0", allow, 8);
+    if (length == 0 || allow[0] == L'\0' || allow[0] == L'0') {
+      return false;
+    }
   }
   std::wostringstream suffix;
   suffix << L".v1.session-" << *current_session_id << L".user-" << std::hex
@@ -590,6 +605,61 @@ bool IsCompositionCommand(WPARAM virtual_key) noexcept {
   }
 }
 
+bool SiblingBrokerPath(std::wstring* path) noexcept {
+  if (path == nullptr) {
+    return false;
+  }
+  HINSTANCE instance = module::Instance();
+  if (instance == nullptr) {
+    instance = GetModuleHandleW(nullptr);
+  }
+  wchar_t module_path[MAX_PATH]{};
+  const DWORD length =
+      GetModuleFileNameW(instance, module_path, MAX_PATH);
+  if (length == 0 || length >= MAX_PATH) {
+    return false;
+  }
+  std::wstring directory(module_path, length);
+  const std::size_t slash = directory.find_last_of(L"\\/");
+  if (slash == std::wstring::npos) {
+    return false;
+  }
+  directory.resize(slash + 1);
+  *path = directory + L"RimesBroker.exe";
+  const DWORD attributes = GetFileAttributesW(path->c_str());
+  return attributes != INVALID_FILE_ATTRIBUTES &&
+         (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+bool LaunchBrokerProcess() noexcept {
+  std::wstring broker_path;
+  if (!SiblingBrokerPath(&broker_path)) {
+    return false;
+  }
+  STARTUPINFOW startup{};
+  startup.cb = sizeof(startup);
+  startup.dwFlags = STARTF_USESHOWWINDOW;
+  startup.wShowWindow = SW_HIDE;
+  PROCESS_INFORMATION process{};
+  std::wstring command = L"\"" + broker_path + L"\"";
+  std::wstring working_directory =
+      broker_path.substr(0, broker_path.find_last_of(L"\\/"));
+  const BOOL created = CreateProcessW(
+      broker_path.c_str(), command.data(), nullptr, nullptr, FALSE,
+      CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP, nullptr,
+      working_directory.c_str(), &startup, &process);
+  if (!created) {
+    return false;
+  }
+  if (process.hThread != nullptr) {
+    CloseHandle(process.hThread);
+  }
+  if (process.hProcess != nullptr) {
+    CloseHandle(process.hProcess);
+  }
+  return true;
+}
+
 bool ShouldOfferKey(WPARAM virtual_key,
                     std::uint32_t modifiers,
                     bool composing) noexcept {
@@ -620,6 +690,10 @@ class NamedPipeBrokerClient final : public BrokerClient {
       CloseHandle(stop_event_);
       stop_event_ = nullptr;
     }
+  }
+
+  bool IsConnected() const noexcept override {
+    return connected_.load(std::memory_order_acquire);
   }
 
   void BeginConnect() noexcept override {
@@ -818,6 +892,8 @@ class NamedPipeBrokerClient final : public BrokerClient {
         // consumed.  Keep the pair together even if librime reports that the
         // release itself caused no additional mutation; exposing an orphan
         // KeyUp to the host breaks chord_composer and some app key state.
+        // Leave `state` as the empty default (has_snapshot=false) so TSF does
+        // not treat this eat-without-mutation as "cancel the composition".
         return key_up ? BrokerKeyResult::kConsumed
                       : BrokerKeyResult::kPassThrough;
       }
@@ -827,6 +903,7 @@ class NamedPipeBrokerClient final : public BrokerClient {
       }
 
       if (state != nullptr) {
+        state->has_snapshot = true;
         state->composing = is_composing;
         state->revision = decoded.revision;
         state->caret_utf16 = decoded.caret_utf16;
@@ -834,6 +911,32 @@ class NamedPipeBrokerClient final : public BrokerClient {
         if (!Utf8ToWide(decoded.composition, &state->composition) ||
             !Utf8ToWide(decoded.commit_text, &state->commit_text)) {
           LogDiagnosticStage(DiagnosticStage::kKeyResponseDecodeFailed);
+          FailConnectionLocked();
+          return BrokerKeyResult::kUnavailable;
+        }
+        state->candidates_visible =
+            (decoded.state_flags &
+             static_cast<std::uint32_t>(
+                 protocol::InputStateFlags::kCandidatesVisible)) != 0;
+        state->highlighted_candidate = decoded.highlighted_candidate;
+        state->page_start = decoded.page_start;
+        state->page_size = decoded.page_size;
+        state->candidates.clear();
+        try {
+          state->candidates.reserve(decoded.candidates.size());
+          for (const protocol::Candidate& candidate : decoded.candidates) {
+            BrokerCandidate item;
+            item.id = candidate.id;
+            if (!Utf8ToWide(candidate.text, &item.text) ||
+                !Utf8ToWide(candidate.comment, &item.comment) ||
+                !Utf8ToWide(candidate.label, &item.label)) {
+              LogDiagnosticStage(DiagnosticStage::kKeyResponseDecodeFailed);
+              FailConnectionLocked();
+              return BrokerKeyResult::kUnavailable;
+            }
+            state->candidates.push_back(std::move(item));
+          }
+        } catch (...) {
           FailConnectionLocked();
           return BrokerKeyResult::kUnavailable;
         }
@@ -878,7 +981,8 @@ class NamedPipeBrokerClient final : public BrokerClient {
 
       const DWORD flags = FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT |
                           SECURITY_IDENTIFICATION;
-      const ULONGLONG deadline = GetTickCount64() + kConnectBudgetMillis;
+      bool launched_broker = false;
+      ULONGLONG deadline = GetTickCount64() + kConnectBudgetMillis;
       HANDLE pipe = INVALID_HANDLE_VALUE;
       while (!stopping_.load(std::memory_order_acquire) &&
              RemainingWait(deadline) > 0) {
@@ -898,17 +1002,26 @@ class NamedPipeBrokerClient final : public BrokerClient {
                          (std::min)(remaining, kBusyPipeWaitMillis));
           continue;
         }
+        if (open_error == ERROR_FILE_NOT_FOUND) {
+          if (!launched_broker) {
+            launched_broker = LaunchBrokerProcess();
+            if (launched_broker) {
+              deadline = GetTickCount64() + kLaunchConnectBudgetMillis;
+            }
+          }
+          if (WaitForSingleObject(
+                  stop_event_, (std::min)(remaining, kConnectRetryMillis)) ==
+              WAIT_OBJECT_0) {
+            LogDiagnosticStage(DiagnosticStage::kConnectCancelledWhileOpening);
+            return;
+          }
+          continue;
+        }
         if (open_error != ERROR_FILE_NOT_FOUND) {
           LogDiagnosticStage(
               open_error == ERROR_ACCESS_DENIED
                   ? DiagnosticStage::kConnectPipeAccessDenied
                   : DiagnosticStage::kConnectPipeOpenFailed);
-          return;
-        }
-        if (WaitForSingleObject(
-                stop_event_, (std::min)(remaining, kConnectRetryMillis)) ==
-            WAIT_OBJECT_0) {
-          LogDiagnosticStage(DiagnosticStage::kConnectCancelledWhileOpening);
           return;
         }
       }
@@ -1058,11 +1171,13 @@ class NamedPipeBrokerClient final : public BrokerClient {
       last_revision_ = 0;
       composing_.store(false, std::memory_order_release);
       connected_.store(true, std::memory_order_release);
+      reconnecting_.store(false, std::memory_order_release);
       LogDiagnosticStage(DiagnosticStage::kConnectSucceeded);
     } catch (...) {
       LogDiagnosticStage(DiagnosticStage::kConnectWorkerException);
       connected_.store(false, std::memory_order_release);
     }
+    reconnecting_.store(false, std::memory_order_release);
   }
 
   void BestEffortCloseSessionLocked() noexcept {
@@ -1097,6 +1212,25 @@ class NamedPipeBrokerClient final : public BrokerClient {
     }
   }
 
+  void ScheduleReconnectLocked() noexcept {
+    if (stopping_.load(std::memory_order_acquire) ||
+        reconnecting_.exchange(true, std::memory_order_acq_rel)) {
+      return;
+    }
+    try {
+      if (connect_thread_.joinable()) {
+        connect_thread_.join();
+      }
+      if (stop_event_ != nullptr) {
+        ResetEvent(stop_event_);
+      }
+      connect_thread_ = std::thread(&NamedPipeBrokerClient::ConnectWorker,
+                                    this);
+    } catch (...) {
+      reconnecting_.store(false, std::memory_order_release);
+    }
+  }
+
   void FailConnectionLocked() noexcept {
     if (pipe_ != INVALID_HANDLE_VALUE) {
       CancelIoEx(pipe_, nullptr);
@@ -1104,6 +1238,7 @@ class NamedPipeBrokerClient final : public BrokerClient {
       pipe_ = INVALID_HANDLE_VALUE;
     }
     ResetSessionLocked();
+    ScheduleReconnectLocked();
   }
 
   void FailConnection() noexcept {
@@ -1117,6 +1252,7 @@ class NamedPipeBrokerClient final : public BrokerClient {
   std::thread connect_thread_;
   std::atomic_bool stopping_{true};
   std::atomic_bool connected_{false};
+  std::atomic_bool reconnecting_{false};
   std::atomic_bool composing_{false};
   std::array<std::atomic_bool, 256> pressed_keys_{};
   std::uint64_t input_session_id_ = 0;

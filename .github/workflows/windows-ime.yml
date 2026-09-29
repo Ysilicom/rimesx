@@ -1,29 +1,27 @@
-name: Windows Native Foundation
+name: Windows IME
 
 on:
-  # The native Windows foundation is maintained independently of the macOS
-  # product release path. A scheduled/manual run keeps evidence available
-  # without blocking ordinary PRs or macOS releases. Do not add pull_request
-  # here: MacOSReleaseGatePolicyTests forbids it (PR #31). PR-time IME
-  # evidence lives in windows-ime.yml and stays non-required.
-  schedule:
-    # Monday 04:07 Asia/Shanghai, after the data-preview maintenance run.
-    - cron: '7 20 * * 0'
+  # Non-required Windows IME evidence on PRs that touch this tree. macOS
+  # remains the only product release gate (PR #31). Do not add this workflow
+  # to REQUIRED_WORKFLOWS or branch protection.
+  pull_request:
+    paths:
+      - 'platforms/windows/**'
+      - '.github/workflows/windows-ime.yml'
+      - '.github/workflows/windows-native.yml'
+      - 'rime-data/**'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: windows-native-${{ github.workflow }}-${{ github.ref }}
+  group: windows-ime-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-and-test:
     name: Release ${{ matrix.architecture }}
-    # The checked-in CMake presets intentionally target Visual Studio 17 2022.
-    # Pin the matching image instead of following windows-latest to a newer
-    # Visual Studio generation that cannot resolve that generator.
     runs-on: windows-2022
     timeout-minutes: 30
     strategy:
@@ -48,7 +46,7 @@ jobs:
       - name: Upload unsigned foundation binaries
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: RIMES-Windows-Native-Foundation-UNSIGNED-${{ matrix.architecture }}-${{ github.sha }}
+          name: RIMES-Windows-IME-UNSIGNED-${{ matrix.architecture }}-${{ github.sha }}
           path: |
             platforms/windows/native/out/build/windows-${{ matrix.architecture }}/Release/RimesTsf.dll
             platforms/windows/native/out/build/windows-${{ matrix.architecture }}/Release/RimesBroker.exe
@@ -79,7 +77,7 @@ jobs:
       - name: Download unsigned foundation binaries
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
-          name: RIMES-Windows-Native-Foundation-UNSIGNED-${{ matrix.architecture }}-${{ github.sha }}
+          name: RIMES-Windows-IME-UNSIGNED-${{ matrix.architecture }}-${{ github.sha }}
           path: platforms/windows/native/out/build/windows-${{ matrix.architecture }}/Release
 
       - name: Run in-process IME typing tests

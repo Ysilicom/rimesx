@@ -60,12 +60,21 @@ bool Parse(Arguments* arguments,
                             error);
 }
 
-void TestMissingEngineConfigurationFails() {
+void TestMissingEngineConfigurationUsesDefaults() {
   Arguments arguments{L"RimesBroker.exe"};
   BrokerOptions options;
   std::wstring error;
+#if defined(_WIN32)
+  EXPECT(Parse(&arguments, &options, &error));
+  EXPECT(options.used_default_paths);
+  EXPECT(options.engine.dll_path.is_absolute());
+  EXPECT(options.engine.shared_data_dir.is_absolute());
+  EXPECT(options.engine.user_data_dir.is_absolute());
+  EXPECT(options.engine.log_dir.is_absolute());
+#else
   EXPECT(!Parse(&arguments, &options, &error));
   EXPECT(!error.empty());
+#endif
 }
 
 void TestDiagnosticsNeedNoEngine() {
@@ -82,6 +91,25 @@ void TestDiagnosticsNeedNoEngine() {
     std::wstring error;
     EXPECT(Parse(&arguments, &options, &error));
     EXPECT(options.print_endpoint);
+  }
+  {
+    Arguments arguments{L"RimesBroker.exe", L"--remove-autostart"};
+    BrokerOptions options;
+    std::wstring error;
+    EXPECT(Parse(&arguments, &options, &error));
+    EXPECT(options.remove_autostart);
+  }
+  {
+    Arguments arguments{L"RimesBroker.exe", L"--print-paths"};
+    BrokerOptions options;
+    std::wstring error;
+#if defined(_WIN32)
+    EXPECT(Parse(&arguments, &options, &error));
+    EXPECT(options.print_paths);
+    EXPECT(options.used_default_paths);
+#else
+    EXPECT(!Parse(&arguments, &options, &error));
+#endif
   }
 }
 
@@ -138,7 +166,7 @@ void TestAmbiguousOrRelativeConfigurationFails() {
 }  // namespace
 
 int RunBrokerOptionsTests() {
-  TestMissingEngineConfigurationFails();
+  TestMissingEngineConfigurationUsesDefaults();
   TestDiagnosticsNeedNoEngine();
   TestExplicitEngineConfiguration();
   TestAmbiguousOrRelativeConfigurationFails();

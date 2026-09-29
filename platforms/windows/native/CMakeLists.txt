@@ -85,8 +85,10 @@ target_link_libraries(RimesEngine PUBLIC RimesCore)
 rimes_harden_target(RimesEngine)
 
 add_executable(RimesBroker
+    src/broker/autostart.cpp
     src/broker/broker_connection.cpp
     src/broker/broker_options.cpp
+    src/broker/default_paths.cpp
     src/broker/key_translation.cpp
     src/broker/main.cpp
     src/broker/named_pipe_server.cpp
@@ -106,7 +108,9 @@ rimes_use_unicode_console_entrypoint(RimesBroker)
 
 add_library(RimesTsf SHARED
     src/tsf/BrokerClient.cpp
+    src/tsf/CandidateWindow.cpp
     src/tsf/ClassFactory.cpp
+    src/tsf/DisplayAttribute.cpp
     src/tsf/DllMain.cpp
     src/tsf/Exports.cpp
     src/tsf/ModuleState.cpp
@@ -118,7 +122,11 @@ target_include_directories(RimesTsf PRIVATE
 )
 target_link_libraries(RimesTsf PRIVATE
     RimesCore
+    advapi32
+    gdi32
     ole32
+    oleaut32
+    user32
     uuid
 )
 set_target_properties(RimesTsf PROPERTIES
@@ -179,10 +187,46 @@ if(RIMES_BUILD_TESTS)
     add_executable(RimesBrokerOptionsTests
         src/broker/broker_options.cpp
         src/broker/broker_options_tests.cpp
+        src/broker/default_paths.cpp
     )
     target_link_libraries(RimesBrokerOptionsTests PRIVATE RimesCore)
     rimes_harden_target(RimesBrokerOptionsTests)
     rimes_use_unicode_console_entrypoint(RimesBrokerOptionsTests)
+
+    add_executable(RimesCandidateLayoutTests
+        src/tsf/candidate_layout_tests.cpp
+    )
+    target_include_directories(RimesCandidateLayoutTests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/tsf"
+    )
+    rimes_harden_target(RimesCandidateLayoutTests)
+
+    # In-process TSF + live Broker typing host. Not a default CTest: it needs
+    # a launched Broker, a pinned rime.dll, and the isolated e2e schema.
+    add_executable(RimesTsfE2E
+        src/e2e/main.cpp
+        src/e2e/fake_tsf.cpp
+        src/tsf/BrokerClient.cpp
+        src/tsf/CandidateWindow.cpp
+        src/tsf/DisplayAttribute.cpp
+        src/tsf/ModuleState.cpp
+        src/tsf/TextService.cpp
+    )
+    target_include_directories(RimesTsfE2E PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/e2e"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/tsf"
+    )
+    target_link_libraries(RimesTsfE2E PRIVATE
+        RimesCore
+        advapi32
+        gdi32
+        ole32
+        oleaut32
+        user32
+        uuid
+    )
+    rimes_harden_target(RimesTsfE2E)
+    rimes_use_unicode_console_entrypoint(RimesTsfE2E)
 
     # Live end-to-end probe. It deliberately is not a default CTest because it
     # requires an already-running Broker configured with real librime data.
@@ -210,16 +254,20 @@ if(RIMES_BUILD_TESTS)
     add_test(NAME RimesBrokerKeyTranslation
              COMMAND RimesBrokerKeyTranslationTests)
     add_test(NAME RimesBrokerOptions COMMAND RimesBrokerOptionsTests)
+    add_test(NAME RimesCandidateLayout COMMAND RimesCandidateLayoutTests)
     add_test(NAME RimesRegistrarMetadata COMMAND RimesRegistrar metadata)
     add_test(NAME RimesBrokerEndpoint COMMAND RimesBroker --print-endpoint)
+    add_test(NAME RimesBrokerPrintPaths COMMAND RimesBroker --print-paths)
 
     set_tests_properties(
         RimesBrokerProtocol
         RimesEngineUnit
         RimesBrokerKeyTranslation
         RimesBrokerOptions
+        RimesCandidateLayout
         RimesRegistrarMetadata
         RimesBrokerEndpoint
+        RimesBrokerPrintPaths
         PROPERTIES TIMEOUT 10
     )
 endif()

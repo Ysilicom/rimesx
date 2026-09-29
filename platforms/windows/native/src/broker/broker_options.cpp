@@ -1,5 +1,7 @@
 #include "broker_options.hpp"
 
+#include "default_paths.hpp"
+
 #include <filesystem>
 #include <string_view>
 
@@ -73,7 +75,10 @@ bool ParseBrokerOptions(int argc,
     BrokerOptions parsed;
     bool saw_once = false;
     bool saw_endpoint = false;
+    bool saw_paths = false;
     bool saw_help = false;
+    bool saw_install_autostart = false;
+    bool saw_remove_autostart = false;
     bool saw_full_maintenance = false;
     bool saw_dll = false;
     bool saw_shared = false;
@@ -100,6 +105,27 @@ bool ParseBrokerOptions(int argc,
         }
         saw_endpoint = true;
         parsed.print_endpoint = true;
+      } else if (argument == L"--print-paths") {
+        if (saw_paths) {
+          SetError(error, L"duplicate option: --print-paths");
+          return false;
+        }
+        saw_paths = true;
+        parsed.print_paths = true;
+      } else if (argument == L"--install-autostart") {
+        if (saw_install_autostart) {
+          SetError(error, L"duplicate option: --install-autostart");
+          return false;
+        }
+        saw_install_autostart = true;
+        parsed.install_autostart = true;
+      } else if (argument == L"--remove-autostart") {
+        if (saw_remove_autostart) {
+          SetError(error, L"duplicate option: --remove-autostart");
+          return false;
+        }
+        saw_remove_autostart = true;
+        parsed.remove_autostart = true;
       } else if (argument == L"--help" || argument == L"-h" ||
                  argument == L"/?") {
         if (saw_help) {
@@ -154,7 +180,9 @@ bool ParseBrokerOptions(int argc,
     const bool has_any_engine_option = saw_dll || saw_shared || saw_user ||
                                        saw_log || saw_full_maintenance;
     if (parsed.print_endpoint) {
-      if (parsed.serve_once || has_any_engine_option) {
+      if (parsed.serve_once || parsed.print_paths ||
+          parsed.install_autostart || parsed.remove_autostart ||
+          has_any_engine_option) {
         SetError(error,
                  L"--print-endpoint cannot be combined with serving or engine options");
         return false;
@@ -162,12 +190,40 @@ bool ParseBrokerOptions(int argc,
       *options = std::move(parsed);
       return true;
     }
-
-    if (!saw_dll || !saw_shared || !saw_user || !saw_log) {
+    if (parsed.install_autostart && parsed.remove_autostart) {
       SetError(error,
-               L"serving requires --rime-dll, --shared-data-dir, "
-               L"--user-data-dir, and --log-dir; no paths are inferred");
+               L"--install-autostart and --remove-autostart cannot be combined");
       return false;
+    }
+    if ((parsed.install_autostart || parsed.remove_autostart) &&
+        (parsed.serve_once || parsed.print_paths || has_any_engine_option)) {
+      SetError(error,
+               L"autostart commands cannot be combined with serving or engine options");
+      return false;
+    }
+    if (parsed.remove_autostart || parsed.install_autostart) {
+      *options = std::move(parsed);
+      return true;
+    }
+
+    if (!(saw_dll && saw_shared && saw_user && saw_log)) {
+      DefaultBrokerPaths defaults;
+      if (!ResolveDefaultBrokerPaths(&defaults, error)) {
+        return false;
+      }
+      if (!saw_dll) {
+        parsed.engine.dll_path = defaults.dll_path;
+      }
+      if (!saw_shared) {
+        parsed.engine.shared_data_dir = defaults.shared_data_dir;
+      }
+      if (!saw_user) {
+        parsed.engine.user_data_dir = defaults.user_data_dir;
+      }
+      if (!saw_log) {
+        parsed.engine.log_dir = defaults.log_dir;
+      }
+      parsed.used_default_paths = !saw_dll || !saw_shared || !saw_user || !saw_log;
     }
     if (!RequireAbsolute(parsed.engine.dll_path, L"--rime-dll", error) ||
         !RequireAbsolute(parsed.engine.shared_data_dir, L"--shared-data-dir",

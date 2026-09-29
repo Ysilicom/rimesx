@@ -3,47 +3,38 @@
 This directory contains the native Windows implementation of RIMES. It is
 separate from the Weasel data preview in the parent directory.
 
-The current foundation deliberately keeps the in-process TSF DLL small:
+The in-process TSF DLL stays small:
 
-- `RimesTsf.dll` implements the Windows Text Services Framework boundary.
+- `RimesTsf.dll` is the Windows Text Services Framework boundary. It now
+  starts an inline composition (preedit + dotted display attribute), shows a
+  DPI-aware candidate window near `ITfContextView::GetTextExt`, and commits
+  through a write edit session.
 - `RimesBroker.exe` is a per-user process that owns the single `librime`
-  instance and all input sessions. It accepts authenticated, bounded named-pipe
-  requests from the TSF clients.
-- `RimesRegistrar.exe` registers or removes the TSF text service by using the
-  documented TSF APIs.
-- `src/core` contains the bounded, versioned named-pipe protocol shared by the
-  TSF and broker processes.
+  instance. Missing path flags resolve to files next to the executable or to
+  `%LOCALAPPDATA%\RIMES` / `%APPDATA%\RIMES`. `--install-autostart` writes a
+  current-user Run key. The TSF client launches a sibling Broker on first use
+  and reconnects after a crash.
+- `RimesRegistrar.exe` registers or removes the TSF text service.
+- `src/core` is the bounded named-pipe protocol shared by TSF and Broker.
+- `librime/` pins official `rime.dll` (x64 and x86) for CI and local smokes.
 
-The end-to-end commit path is implemented: a TSF client can send physical key
-down/up events to the Broker, let `librime` select a candidate, and insert the
-committed UTF-16 text into the host through a write edit session. The returned
-range is collapsed to its end and becomes the new caret selection; caret
-positioning is best-effort after a successful insertion so a host quirk cannot
-cause a duplicate commit.
+TSF still must not load `librime` or do network I/O. Broker failure fail-opens.
 
-This foundation is not yet a user-facing Windows release. It does not render
-preedit or candidates, start the Broker at logon, install through a signed MSI,
-or reproduce the macOS settings, buffer, and workbench. A successful commit
-smoke therefore does not prove the full host compatibility, DPI/multi-monitor,
-upgrade, repair, uninstall, or feature-parity matrix.
+This is not a signed Windows release. Buffer, Capsule, Mailbox, MSI, and
+SmartScreen are out of scope.
 
-## Verified milestone
+## Interaction (macOS-aligned)
 
-The current source has been verified on Windows 11 x64 with Visual Studio 2022
-and Windows SDK 10.0.26100:
+Where the TSF host cooperates, typing matches the macOS RIMES controller:
 
-- Release builds complete under `/W4 /WX` for x64 and Win32.
-- All six native CTests pass for both architectures.
-- An isolated real-`librime` smoke completes a composition and requires a
-  non-empty Space-key commit.
-- The interactive x64 TSF test host accepts `nihao` followed by Space and
-  displays `你好`.
-- The live Session-1 Broker wire smoke requires a handled selection key,
-  non-empty committed text, and a finished composition.
-- x64 and x86 COM/TSF registrations verify simultaneously without changing
-  the user's default input method.
+- Latin keys while composing stay inside the engine.
+- Space commits the highlighted candidate.
+- `1`–`9` select by label.
+- PageDown / PageUp page the menu.
+- Escape cancels and commits nothing.
 
-These checks validate the commit-only milestone, not a signed release.
+The candidate panel is a `WS_EX_NOACTIVATE` topmost tool window so it cannot
+steal focus from the host.
 
 ## Build
 
@@ -63,14 +54,73 @@ ctest --preset windows-x86-release
 Both architectures are required. A 64-bit TSF DLL cannot be loaded by a
 32-bit application, and vice versa.
 
+CTest covers protocol, engine unit, key translation, broker options, candidate
+layout, registrar metadata, the pipe endpoint, and inferred default paths. It
+does not load `rime.dll`.
+
+## Pinned librime and typing tests
+
+```powershell
+..\scripts\Fetch-RimesLibrime.ps1 -Architecture x64
+..\tests\Invoke-RimesImeE2E.ps1 -Architecture x64 -ProbeDesktop
+```
+
+`Invoke-RimesImeE2E.ps1` starts a real Broker against the isolated
+`testdata/e2e` table schema and drives the real `TextService` through a Fake
+TSF stack (`ITfThreadMgr` / `ITfContext` / `ITfComposition`). It asserts
+preedit, candidate contents, `nihao`+Space → `你好`, number selection, paging,
+and Escape.
+
+Hosted GitHub `windows-2022` runners usually have a logon session and can
+launch Notepad, but they are **not** a reliable interactive IME desktop: no
+Chinese language pack, no user IME switch, and TSF often never attaches to a
+SendInput host. The required CI assertions are therefore in-process. The
+script records a desktop probe for honesty. Real-host coverage is
+[MANUAL-TEST.md](MANUAL-TEST.md).
+
+PR-time evidence is the non-required **Windows IME** workflow
+(`.github/workflows/windows-ime.yml`). The older **Windows Native Foundation**
+workflow stays schedule/manual only so it cannot join the macOS release gate.
+
+See [librime/README.md](librime/README.md) for URLs and SHA-256.
+
+## Daily-use layout
+
+With no path flags, Broker uses:
+
+| Role | Default |
+| --- | --- |
+| `rime.dll` | `<exe>\rime.dll`, else `%LOCALAPPDATA%\RIMES\runtime\rime.dll` |
+| Shared data | `<exe>\shared`, else `%LOCALAPPDATA%\RIMES\shared` |
+| User data | `%APPDATA%\RIMES` |
+| Logs | `%LOCALAPPDATA%\RIMES\logs` |
+
+```powershell
+.\RimesBroker.exe --print-paths
+.\RimesBroker.exe --install-autostart
+.\RimesBroker.exe --remove-autostart
+```
+
+First TSF activation also launches `RimesBroker.exe` from the same directory
+as `RimesTsf.dll` when the pipe is missing.
+
 ## Safety boundaries
 
 - The TSF DLL must not perform network requests or load `librime`.
 - Pipe frames and every variable-length field are bounded before allocation.
-- Broker failure or protocol incompatibility must fail open for typing: the
-  host application's key event is left untouched.
-- Registration identifiers in `src/tsf/Guids.h` are release identity. Do not
-  regenerate them between builds.
-- Registration and installation are reversible, but they change the current
-  Windows input profiles and therefore must only be run on an explicitly
-  authorized test machine.
+- Broker failure or protocol incompatibility must fail open for typing.
+- Secure-mode TSF hosts never connect to the Broker.
+- Registration identifiers in `src/tsf/Guids.h` are release identity.
+- Registration changes input profiles and must only run on an authorized
+  test machine.
+
+## Later-step blockers
+
+- Product `rime_ice` still needs the RIMES lua tree in shared data; the
+  official MSVC `rime.dll` embeds librime-lua but not those scripts.
+- Display-attribute underline depends on the host querying
+  `ITfDisplayAttributeProvider`. The registrar does not add a new TSF
+  category, so some hosts may skip the dotted underline.
+- Buffer, Capsule, and Mailbox have no Windows frontend yet.
+- There is no signed installer; SmartScreen will warn on downloaded binaries.
+- Dual-architecture registration remains a manual/elevated step.
