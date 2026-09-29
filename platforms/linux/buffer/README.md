@@ -10,9 +10,10 @@ deliberate macOS gaps are in [SPEC.md](SPEC.md). Real-desktop checks are in
   format. Shared by the addon, `rimes-buffer`, `rimes-buffer-ctl`, and tests.
   This is a new C++ implementation of the macOS contract, not a rewrite of
   the Swift sources.
-- `ui/` — GTK 3 workbench. X11: keep-above + caret placement below the
-  candidate popup. wlroots Wayland: `gtk-layer-shell` overlay stretched
-  left/right with a 760×78 size request.
+- `ui/` — GTK 3 workbench. X11: keep-above + caret placement on the opposite
+  side of the stock candidate popup (below the caret when the list flips
+  up). wlroots Wayland: `gtk-layer-shell` overlay stretched left/right with
+  a 760×78 size request.
 - `ctl/` — `rimes-buffer-ctl` talks to the IME socket without a display.
 - Built from `platforms/linux/ime/CMakeLists.txt` and shipped in the same
   `fcitx5-rimes` `.deb`.

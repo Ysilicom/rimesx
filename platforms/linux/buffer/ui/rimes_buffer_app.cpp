@@ -23,6 +23,7 @@
 
 #include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -400,7 +401,24 @@ gboolean OnToolbarDrag(GtkWidget* /*widget*/, GdkEventButton* event, gpointer da
     return FALSE;
 }
 
+int ConnectDelayMs() {
+    const char* value = g_getenv("RIMES_BUFFER_CONNECT_DELAY_MS");
+    if (value == nullptr || value[0] == '\0') {
+        return 0;
+    }
+    char* end = nullptr;
+    const auto parsed = std::strtol(value, &end, 10);
+    if (end == value || parsed < 0 || parsed > 30000) {
+        return 0;
+    }
+    return static_cast<int>(parsed);
+}
+
 gboolean ConnectSocket(App* app, const std::string& path) {
+    const int delay_ms = ConnectDelayMs();
+    if (delay_ms > 0) {
+        g_usleep(static_cast<gulong>(delay_ms) * 1000);
+    }
     app->socket_fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (app->socket_fd < 0) {
         return FALSE;

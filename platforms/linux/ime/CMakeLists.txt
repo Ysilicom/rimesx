@@ -232,6 +232,22 @@ if(RIMES_BUILD_TESTS)
         )
         rimes_harden(rimes-buffer-fcitx-e2e)
 
+        add_executable(rimes-buffer-ui-stub tests/buffer_ui_stub.cpp)
+        target_link_libraries(rimes-buffer-ui-stub PRIVATE RimesBufferCore)
+        rimes_harden(rimes-buffer-ui-stub)
+        set_target_properties(rimes-buffer-ui-stub PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+        )
+
+        add_executable(rimes-buffer-respawn-e2e tests/buffer_respawn_e2e.cpp)
+        target_link_libraries(rimes-buffer-respawn-e2e PRIVATE
+            Fcitx5::Core
+            Fcitx5::Module::TestFrontend
+            RimesEngine
+            RimesBufferCore
+        )
+        rimes_harden(rimes-buffer-respawn-e2e)
+
         # Layout expected by fcitx::setupTestingEnvironment.
         # setupTestingEnvironment treats each data dir as an fcitx5 data root,
         # so addon/ and inputmethod/ sit directly under test-data/.

@@ -55,12 +55,24 @@ int main() {
     }
     Expect(gone, "waitpid reaps a killed UI pid");
 
-    Expect(!rimes::buffer::ShouldForceUiRespawn(false, 0),
-           "first retry still trusts waitpid");
-    Expect(rimes::buffer::ShouldForceUiRespawn(false, 1),
-           "second retry forces a respawn after a dropped socket");
-    Expect(!rimes::buffer::ShouldForceUiRespawn(true, 1),
-           "already-gone pid does not need a force");
+    const pid_t lingering = fork();
+    if (lingering < 0) {
+        std::cerr << "FAIL: fork lingering child\n";
+        return EXIT_FAILURE;
+    }
+    if (lingering == 0) {
+        pause();
+        _exit(0);
+    }
+    rimes::buffer::DiscardUiProcess(lingering);
+    Expect(rimes::buffer::UiProcessGone(lingering), "DiscardUiProcess kills and reaps");
+
+    Expect(!rimes::buffer::ShouldForceUiRespawn(0, 1234), "no current pid does not force");
+    Expect(!rimes::buffer::ShouldForceUiRespawn(5678, 1234),
+           "a pid this retry started must not be forced");
+    Expect(rimes::buffer::ShouldForceUiRespawn(1234, 1234),
+           "the pid that dropped the socket may be replaced");
+    Expect(!rimes::buffer::ShouldForceUiRespawn(1234, 0), "no dropped pid does not force");
 
     if (failures != 0) {
         std::cerr << failures << " process-gone checks failed\n";

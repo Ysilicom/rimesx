@@ -581,6 +581,15 @@ private:
             *output = EngineSnapshot{};
             return false;
         }
+        if (api_->get_input != nullptr) {
+            const char* raw = api_->get_input(session);
+            if (raw != nullptr && raw[0] != '\0') {
+                if (!CopyBoundedUtf8(raw, kMaxTextBytes, &output->raw_input, error)) {
+                    *output = EngineSnapshot{};
+                    return false;
+                }
+            }
+        }
         if (!output->preedit.empty()) {
             output->composing = true;
         }

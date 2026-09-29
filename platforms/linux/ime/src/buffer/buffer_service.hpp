@@ -1,6 +1,8 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -38,7 +40,7 @@ public:
     bool OnCommit(InputContext* ic, std::string_view text);
     bool HandleEarlyKey(KeyEvent& event, bool composing);
     void AfterRime(InputContext* ic, KeyEvent& event, bool rime_handled,
-                   bool composing, std::string_view preedit);
+                   bool composing, std::string_view preedit, std::string_view raw_input);
     void OnActivate(InputContext* ic);
     void OnDeactivate(InputContext* ic, bool switching_im);
     void OnInputContextDestroyed(InputContext* ic);
@@ -67,6 +69,9 @@ private:
 
     InputContext* LiveTarget() const;
     void RefreshCaret(InputContext* ic);
+    void RememberField(InputContext* ic);
+    bool SameCapturedField(InputContext* ic) const;
+    bool InDragTail() const;
     void ClearClientPreedit(InputContext* ic);
     void ApplyReturnAction(rimes::buffer::ReturnGesture::Action action, InputContext* ic,
                            bool composing);
@@ -74,6 +79,8 @@ private:
     void HandleCommand(const rimes::buffer::Command& command);
     void EnsureUi();
     void ReapUi();
+    void ReplaceDroppedUi();
+    int UiClientCount();
     void StartSocket();
     void StopSocket();
     void SocketLoop();
@@ -106,10 +113,17 @@ private:
     std::unique_ptr<EventSourceTime> focus_grace_timer_;
     std::unique_ptr<EventSourceTime> ui_respawn_timer_;
     pid_t ui_pid_ = 0;
+    pid_t dropped_ui_pid_ = 0;
     int ui_respawn_attempt_ = 0;
     int focus_grace_ms_ = 5000;
     std::string pending_unfocus_token_;
     std::string target_token_;
+    std::string raw_input_;
+    rimes::buffer::CaretRect capture_caret_;
+    std::string capture_surrounding_;
+    bool capture_surrounding_valid_ = false;
+    std::uint64_t capture_purpose_ = 0;
+    std::chrono::steady_clock::time_point drag_tail_until_{};
     bool dragging_ = false;
     bool auto_capture_ = false;
     bool headless_ = false;

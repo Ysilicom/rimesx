@@ -15,6 +15,7 @@
 #include <fcitx-utils/eventdispatcher.h>
 #include <fcitx-utils/key.h>
 #include <fcitx-utils/keysym.h>
+#include <fcitx-utils/rect.h>
 #include <fcitx-utils/testing.h>
 #include <fcitx/addonmanager.h>
 #include <fcitx/inputcontextmanager.h>
@@ -223,6 +224,16 @@ void RunBufferSuite(fcitx::Instance& instance,
     std::cout << "ok: capturing never installs a client-preedit ZWSP\n";
     std::cout << "ok: same-IC focus-out/in keeps capture\n";
 
+    ic->setCursorRect(fcitx::Rect(80, 200, 88, 220));
+    ic->focusOut();
+    ic->focusIn();
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "\"capturing\":false",
+                   "same-IC reactivation with a new caret must pause capture");
+    std::cout << "ok: same-IC caret change pauses capture\n";
+
+    EnsureCapturing(frontend, uuid, dump_path);
+    SendKey(frontend, uuid, "BackSpace");
     SendKey(frontend, uuid, "Escape");
     snapshot = ReadDump(dump_path);
     ExpectContains(snapshot, "\"visible\":false", "Escape did not hide");
@@ -275,6 +286,25 @@ void RunBufferSuite(fcitx::Instance& instance,
     snapshot = ReadDump(dump_path);
     ExpectContains(snapshot, "\"capturing\":false", "destroyed IC must drop capture");
     std::cout << "ok: destroying the captured IC pauses capture and clears the route\n";
+
+    ic->focusIn();
+    EnsureCapturing(frontend, uuid, dump_path);
+    Type(frontend, uuid, "zhongguoren");
+    const auto uuid_switch =
+        frontend->call<fcitx::ITestFrontend::createInputContext>("rimes-buffer-switch");
+    auto* ic_switch = instance.inputContextManager().findByUUID(uuid_switch);
+    if (ic_switch == nullptr) {
+        Die("switch test input context was not created");
+    }
+    instance.setCurrentInputMethod(ic_switch, "rimes", true);
+    ic_switch->focusIn();
+    snapshot = ReadDump(dump_path);
+    ExpectContains(snapshot, "zhongguoren",
+                   "app switch must stage raw input, not syllable-spaced preedit");
+    ExpectMissing(snapshot, "zhong guo", "staged composition must not keep syllable spaces");
+    ExpectContains(snapshot, "\"capturing\":false", "app switch must pause capture");
+    std::cout << "ok: switching apps stages raw input zhongguoren\n";
+    frontend->call<fcitx::ITestFrontend::destroyInputContext>(uuid_switch);
 
     ic->focusIn();
     EnsureCapturing(frontend, uuid, dump_path);

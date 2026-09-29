@@ -65,23 +65,29 @@ content; blocks are not persisted.
    last pending block close-and-pauses.
 10. The companion `rimes-buffer` process is a renderer. If it dies (including
     `kill -9`) or its socket drops, the addon treats `waitpid` `ECHILD` /
-    `ESRCH` as dead. A dropped socket also starts a short retry/backoff
-    (50 ms, then 150/400/1000 ms) and **forces** a respawn on the second
-    attempt even if the pid is not yet a zombie, so the panel comes back
-    without waiting for the next key. Fcitx5's SIGCHLD handler may already
-    have reaped the pid.
+    `ESRCH` as dead. A dropped socket starts a retry/backoff (50 ms, then
+    2 s waits). Only the pid that dropped the socket is force-replaced; a
+    child this retry already started is given several seconds to connect
+    (GTK can take well over 150 ms on slow hardware). The old child is
+    reaped or killed before a replacement is forked. There is at most one
+    UI process. Fcitx5's SIGCHLD handler may already have reaped the pid.
 11. Destroying the captured input context (app exit) pauses capture, clears
     the toolbar target, and keeps any staged chips. The workbench stays
     visible as Paused with target `·` until the user closes it.
-12. A WM focus blip on the **same** IC (xfwm move-grab while dragging the
-    toolbar, brief unfocus/refocus) does **not** change the input route.
-    The UI sends `drag_begin` before `begin_move_drag`. A real field switch
-    (another IC activates) or a focus-out grace (`RIMES_BUFFER_FOCUS_GRACE_MS`,
-    default 5000) without the same IC returning drops capture.
+12. A WM focus blip on the **same** IC keeps capture only while the toolbar
+    is being dragged (`drag_begin` / a short tail after `drag_end`) or when
+    the caret rect, surrounding text, and field purpose are unchanged.
+    Firefox / Chromium keep one IC per window, so a same-page field switch
+    looks like a WM blip: a same-IC reactivation with a **changed** caret
+    (or surrounding / purpose) pauses capture and stages any open preedit.
+    Another IC activating, or a focus-out grace (`RIMES_BUFFER_FOCUS_GRACE_MS`,
+    default 5000) without the same IC returning, also drops capture.
 13. An unresolved composition at a real field switch is staged as a `local`
-    block using the current preedit spelling (same idea as composing Return /
-    `commit_raw_input`), then the Rime session is reset. It is not committed
-    to the host and is not the highlighted candidate.
+    block using librime `get_input` (raw spelling, e.g. `zhongguoren`), the
+    same text composing Return / `commit_raw_input` would settle. Syllable
+    spaces in the display preedit (`zhong guo ren`) are not kept. The Rime
+    session is then reset. The text is not committed to the host and is not
+    the highlighted candidate.
 
 ## Workbench chrome
 
@@ -103,11 +109,13 @@ content; blocks are not persisted.
 - Window type is `UTILITY` (not `DOCK`) so xfwm can honor
   `gtk_window_begin_move_drag` on the toolbar. DOCK windows on Xfce are not
   user-movable.
-- On first show, if Fcitx5 reports a caret rect, center horizontally on it
-  and **prefer above the caret** (stock Fcitx5 candidates grow downward).
-  If that does not fit the workarea, dock to the **bottom** of the monitor.
-  Never sit a small gap immediately below the caret — a 9-row popup is
-  ~250 px tall and would cover the chips.
+- On first show, if Fcitx5 reports a caret rect, center horizontally on it.
+  Stock Fcitx5 candidates are ~250 px (9 rows). They grow downward unless
+  caret-bottom + ~260 px exceeds the workarea, in which case the popup
+  **flips upward**. Place the panel on the opposite side of the popup:
+  prefer **above** the caret when the list opens down; when it would flip
+  up, sit **below** the caret if that fits, otherwise dock to the **top**
+  of the monitor. Never sit a small gap on the same side as the popup.
 - A user drag moves the window for this showing only. The next open uses
   the caret rule again; the dragged position is **not** remembered (no
   layout file, and Wayland compositors own placement).
@@ -165,4 +173,7 @@ Environment for tests: `RIMES_BUFFER_HEADLESS=1` (no GTK spawn),
 `RIMES_BUFFER_AUTO_CAPTURE=1` (capture on activate),
 `RIMES_BUFFER_CLOSE_AFTER_LAST=0`,
 `RIMES_BUFFER_FOCUS_GRACE_MS` (same-IC unfocus grace; default 5000),
+`RIMES_BUFFER_UI=/path` (override the GTK binary, used by the respawn e2e),
+`RIMES_BUFFER_CONNECT_DELAY_MS` (UI sleeps before connecting; simulates
+slow GTK startup),
 `RIMES_BUFFER_DUMP=/path.json` (atomic snapshot file for in-process e2e).

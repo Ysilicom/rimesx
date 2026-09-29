@@ -114,7 +114,8 @@ void RimesState::keyEvent(KeyEvent& event) {
         return;
     }
     applySnapshot(snapshot);
-    ime_->buffer().AfterRime(ic_, event, snapshot.handled, composing_, snapshot.preedit);
+    ime_->buffer().AfterRime(ic_, event, snapshot.handled, composing_, snapshot.preedit,
+                             snapshot.raw_input);
     if (snapshot.handled) {
         event.filterAndAccept();
     }

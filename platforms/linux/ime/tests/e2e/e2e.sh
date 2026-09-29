@@ -99,6 +99,13 @@ fi
 echo "==> in-process Fcitx5 Buffer (stage / send / Return / hold / focus / destroy)"
 "$BUILD_DIR/rimes-buffer-fcitx-e2e" "$BUILD_DIR" "." "test-data"
 
+if [[ ! -x "$BUILD_DIR/rimes-buffer-respawn-e2e" || ! -x "$BUILD_DIR/rimes-buffer-ui-stub" ]]; then
+    echo "error: missing rimes-buffer-respawn-e2e or rimes-buffer-ui-stub" >&2
+    exit 1
+fi
+echo "==> in-process Fcitx5 Buffer UI respawn (kill + delayed connect)"
+"$BUILD_DIR/rimes-buffer-respawn-e2e" "$BUILD_DIR" "." "test-data"
+
 if (( SKIP_DISPLAY == 1 )); then
     echo "skip: display clients (--skip-display)"
     exit 0

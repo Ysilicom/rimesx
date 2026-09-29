@@ -52,6 +52,31 @@ int main() {
     Expect(dock.y + kHeight <= work.height, "docked panel stays in the workarea");
     Expect(dock.y > 400, "docked panel is far from a top caret / candidate list");
 
+    CaretRect firefox_low;
+    firefox_low.x = 80;
+    firefox_low.y = 546;
+    firefox_low.width = 8;
+    firefox_low.height = 20;
+    firefox_low.valid = true;
+    const auto below = PlaceX11Panel(firefox_low, work, kWidth, kHeight, kGap);
+    Expect(below.side == PanelSide::BelowCaret,
+           "low caret whose popup flips up sits below the caret");
+    Expect(below.y >= firefox_low.y + firefox_low.height,
+           "below-caret panel starts under the caret");
+    Expect(below.y + kHeight <= work.height, "below-caret panel stays in the workarea");
+
+    CaretRect bottom;
+    bottom.x = 80;
+    bottom.y = 715;
+    bottom.width = 8;
+    bottom.height = 20;
+    bottom.valid = true;
+    const auto dock_top = PlaceX11Panel(bottom, work, kWidth, kHeight, kGap);
+    Expect(dock_top.side == PanelSide::DockTop,
+           "caret too low for a below-panel docks to the top");
+    Expect(dock_top.y <= 16, "dock-top panel sits at the top of the workarea");
+    Expect(dock_top.y + kHeight < bottom.y, "dock-top panel is not under the upward popup");
+
     if (failures != 0) {
         std::cerr << failures << " placement checks failed\n";
         return EXIT_FAILURE;

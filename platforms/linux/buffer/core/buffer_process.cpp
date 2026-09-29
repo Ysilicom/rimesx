@@ -2,6 +2,7 @@
 
 #include <cerrno>
 #include <csignal>
+#include <unistd.h>
 #include <sys/wait.h>
 
 namespace rimes::buffer {
@@ -24,11 +25,20 @@ bool UiProcessGone(pid_t pid) {
     return false;
 }
 
-bool ShouldForceUiRespawn(bool process_gone, int retry_attempt) {
-    if (process_gone) {
-        return false;
+void DiscardUiProcess(pid_t pid) {
+    if (pid <= 0) {
+        return;
     }
-    return retry_attempt >= 1;
+    if (!UiProcessGone(pid)) {
+        kill(pid, SIGKILL);
+    }
+    for (int attempt = 0; attempt < 50 && !UiProcessGone(pid); ++attempt) {
+        usleep(2000);
+    }
+}
+
+bool ShouldForceUiRespawn(pid_t current_pid, pid_t dropped_pid) {
+    return current_pid > 0 && dropped_pid > 0 && current_pid == dropped_pid;
 }
 
 }  // namespace rimes::buffer

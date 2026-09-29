@@ -8,9 +8,13 @@ namespace rimes::buffer {
 // parent that already reaped SIGCHLD (Fcitx5's event loop) still respawns.
 bool UiProcessGone(pid_t pid);
 
-// After the UI socket drops, the pid can still look alive for a beat
-// (not yet a zombie). The second retry treats that pid as dead so we
-// fork a replacement without waiting for the next keystroke.
-bool ShouldForceUiRespawn(bool process_gone, int retry_attempt);
+// SIGKILL + reap a leftover UI child before a replacement is forked.
+// No-op when pid is already gone (including ECHILD).
+void DiscardUiProcess(pid_t pid);
+
+// Force-clear the recorded pid only when it is still the one that dropped
+// the socket. A child this retry sequence started must be given time to
+// connect — GTK can take well over 150 ms on slow hardware.
+bool ShouldForceUiRespawn(pid_t current_pid, pid_t dropped_pid);
 
 }  // namespace rimes::buffer

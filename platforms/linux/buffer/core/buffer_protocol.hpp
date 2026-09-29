@@ -49,6 +49,7 @@ struct Snapshot {
     std::string staged_text;
     CaretRect caret;
     std::vector<Block> blocks;
+    int ui_clients = 0;
 };
 
 Snapshot MakeSnapshot(const BufferModel& model);

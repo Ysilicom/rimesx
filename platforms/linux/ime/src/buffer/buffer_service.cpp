@@ -20,6 +20,7 @@
 #include <fcitx-utils/log.h>
 #include <fcitx/inputcontextmanager.h>
 #include <fcitx/inputpanel.h>
+#include <fcitx/surroundingtext.h>
 #include <fcitx/text.h>
 #include <fcitx/userinterface.h>
 
@@ -33,6 +34,48 @@ FCITX_DEFINE_LOG_CATEGORY(rimes_buffer_log, "rimes.buffer");
 
 constexpr int kHoldTickUs = 50000;
 constexpr int kDefaultFocusGraceMs = 5000;
+constexpr int kDragTailMs = 400;
+
+constexpr std::uint64_t kFieldPurposeMask =
+    static_cast<std::uint64_t>(CapabilityFlag::Password) |
+    static_cast<std::uint64_t>(CapabilityFlag::Email) |
+    static_cast<std::uint64_t>(CapabilityFlag::Digit) |
+    static_cast<std::uint64_t>(CapabilityFlag::Url) |
+    static_cast<std::uint64_t>(CapabilityFlag::Dialable) |
+    static_cast<std::uint64_t>(CapabilityFlag::Number) |
+    static_cast<std::uint64_t>(CapabilityFlag::Multiline) |
+    static_cast<std::uint64_t>(CapabilityFlag::Sensitive) |
+    static_cast<std::uint64_t>(CapabilityFlag::Terminal) |
+    static_cast<std::uint64_t>(CapabilityFlag::Date) |
+    static_cast<std::uint64_t>(CapabilityFlag::Time) |
+    static_cast<std::uint64_t>(CapabilityFlag::Name);
+
+bool CaretRectChanged(const rimes::buffer::CaretRect& left,
+                      const rimes::buffer::CaretRect& right) {
+    if (!left.valid && !right.valid) {
+        return false;
+    }
+    if (left.valid != right.valid) {
+        return true;
+    }
+    return left.x != right.x || left.y != right.y || left.width != right.width ||
+           left.height != right.height;
+}
+
+rimes::buffer::CaretRect CaretFromIc(InputContext* ic) {
+    rimes::buffer::CaretRect caret;
+    if (ic == nullptr) {
+        return caret;
+    }
+    const auto& rect = ic->cursorRect();
+    caret.x = rect.left();
+    caret.y = rect.top();
+    caret.width = rect.width();
+    caret.height = rect.height();
+    caret.valid = caret.width >= 0 && caret.height >= 0 &&
+                  (caret.width > 0 || caret.height > 0 || caret.x != 0 || caret.y != 0);
+    return caret;
+}
 
 int FocusGraceMsFromEnv() {
     const char* value = std::getenv("RIMES_BUFFER_FOCUS_GRACE_MS");
@@ -198,19 +241,48 @@ void BufferService::RefreshCaret(InputContext* ic) {
     if (ic == nullptr) {
         return;
     }
-    rimes::buffer::CaretRect caret;
-    const auto& rect = ic->cursorRect();
-    caret.x = rect.left();
-    caret.y = rect.top();
-    caret.width = rect.width();
-    caret.height = rect.height();
-    caret.valid = caret.width >= 0 && caret.height >= 0 &&
-                  (caret.width > 0 || caret.height > 0 || caret.x != 0 || caret.y != 0);
-    model_.set_caret(caret);
+    model_.set_caret(CaretFromIc(ic));
     if (!ic->program().empty()) {
         model_.set_target_name(ic->program());
         target_token_ = TokenFor(ic);
     }
+    RememberField(ic);
+}
+
+void BufferService::RememberField(InputContext* ic) {
+    if (ic == nullptr) {
+        return;
+    }
+    capture_caret_ = CaretFromIc(ic);
+    const auto& surrounding = ic->surroundingText();
+    capture_surrounding_valid_ = surrounding.isValid();
+    capture_surrounding_ = capture_surrounding_valid_ ? surrounding.text() : std::string{};
+    capture_purpose_ = static_cast<std::uint64_t>(ic->capabilityFlags().toInteger()) &
+                       kFieldPurposeMask;
+}
+
+bool BufferService::SameCapturedField(InputContext* ic) const {
+    if (ic == nullptr) {
+        return false;
+    }
+    if (CaretRectChanged(capture_caret_, CaretFromIc(ic))) {
+        return false;
+    }
+    const auto purpose =
+        static_cast<std::uint64_t>(ic->capabilityFlags().toInteger()) & kFieldPurposeMask;
+    if (purpose != capture_purpose_) {
+        return false;
+    }
+    const auto& surrounding = ic->surroundingText();
+    if (capture_surrounding_valid_ && surrounding.isValid() &&
+        capture_surrounding_ != surrounding.text()) {
+        return false;
+    }
+    return true;
+}
+
+bool BufferService::InDragTail() const {
+    return dragging_ || std::chrono::steady_clock::now() < drag_tail_until_;
 }
 
 void BufferService::ClearClientPreedit(InputContext* ic) {
@@ -237,6 +309,7 @@ bool BufferService::OnCommit(InputContext* ic, std::string_view text) {
     model_.finish_direct_run();
     model_.append(text, rimes::buffer::Origin::Rime);
     model_.set_preedit({});
+    raw_input_.clear();
     if (!model_.visible()) {
         model_.set_visible(true);
     }
@@ -349,17 +422,20 @@ bool BufferService::HandleEarlyKey(KeyEvent& event, bool composing) {
 }
 
 void BufferService::AfterRime(InputContext* ic, KeyEvent& event, bool rime_handled,
-                              bool composing, std::string_view preedit) {
+                              bool composing, std::string_view preedit,
+                              std::string_view raw_input) {
     if (ic == nullptr) {
         return;
     }
     if (!model_.captures(TokenFor(ic))) {
         if (model_.preedit() != preedit && !model_.capture_enabled()) {
             model_.set_preedit({});
+            raw_input_.clear();
         }
         return;
     }
     model_.set_preedit(std::string(preedit));
+    raw_input_ = std::string(raw_input);
     RefreshCaret(ic);
     if (!rime_handled && !event.isRelease() && !composing) {
         char printable = 0;
@@ -384,18 +460,23 @@ void BufferService::OnActivate(InputContext* ic) {
         << "activate token=" << token << " capturing=" << model_.capture_enabled()
         << " auto=" << auto_capture_ << " drag=" << dragging_
         << " pending=" << pending_unfocus_token_;
-    const bool same_field = (!pending_unfocus_token_.empty() && pending_unfocus_token_ == token) ||
-                            model_.captures(token);
-    if (same_field) {
-        // xfwm move-grab and other WM focus blips deactivate then
-        // reactivate the same IC. Keep the capture route.
+    const bool same_ic = (!pending_unfocus_token_.empty() && pending_unfocus_token_ == token) ||
+                         model_.captures(token);
+    if (same_ic) {
+        // Firefox/Chromium keep one IC per window, so a real field switch
+        // looks like a WM blip. Keep capture only while dragging (plus a
+        // short tail) or when caret / surrounding / purpose are unchanged.
+        const bool keep = InDragTail() || SameCapturedField(ic);
         dragging_ = false;
         pending_unfocus_token_.clear();
         CancelFocusGraceTimer();
-        RefreshCaret(ic);
-        OnPasswordField(ic, ic->capabilityFlags().test(CapabilityFlag::Password));
-        Publish();
-        return;
+        if (keep) {
+            RefreshCaret(ic);
+            OnPasswordField(ic, ic->capabilityFlags().test(CapabilityFlag::Password));
+            Publish();
+            return;
+        }
+        DropCaptureForSwitch("same-ic-field-changed");
     }
     if (model_.capture_enabled() && !model_.captures(token)) {
         DropCaptureForSwitch("focus-changed");
@@ -512,14 +593,20 @@ void BufferService::CloseAndPause() {
     CancelHoldTimer();
     CancelFocusGraceTimer();
     dragging_ = false;
+    drag_tail_until_ = {};
     pending_unfocus_token_.clear();
+    raw_input_.clear();
     ClearClientPreedit(LiveTarget());
     model_.pause_capture_preserving_content();
     Publish();
 }
 
 void BufferService::StageOpenPreedit() {
-    const auto text = model_.preedit();
+    auto text = raw_input_;
+    if (text.empty()) {
+        text = model_.preedit();
+    }
+    raw_input_.clear();
     if (text.empty()) {
         return;
     }
@@ -533,6 +620,7 @@ void BufferService::DropCaptureForSwitch(std::string_view reason) {
     CancelHoldTimer();
     CancelFocusGraceTimer();
     dragging_ = false;
+    drag_tail_until_ = {};
     pending_unfocus_token_.clear();
     model_.route_direct_preserving_content(reason);
 }
@@ -682,6 +770,8 @@ void BufferService::HandleCommand(const rimes::buffer::Command& command) {
             return;
         case rimes::buffer::CommandOp::DragEnd:
             dragging_ = false;
+            drag_tail_until_ = std::chrono::steady_clock::now() +
+                               std::chrono::milliseconds(kDragTailMs);
             return;
         case rimes::buffer::CommandOp::Unknown:
             break;
@@ -721,6 +811,19 @@ void BufferService::ReapUi() {
     if (rimes::buffer::UiProcessGone(ui_pid_)) {
         ui_pid_ = 0;
     }
+}
+
+void BufferService::ReplaceDroppedUi() {
+    if (!rimes::buffer::ShouldForceUiRespawn(ui_pid_, dropped_ui_pid_)) {
+        return;
+    }
+    rimes::buffer::DiscardUiProcess(ui_pid_);
+    ui_pid_ = 0;
+}
+
+int BufferService::UiClientCount() {
+    std::lock_guard<std::recursive_mutex> lock(clients_mu_);
+    return static_cast<int>(clients_.size());
 }
 
 void BufferService::StartSocket() {
@@ -904,6 +1007,7 @@ void BufferService::ScheduleUiRespawn() {
     if (headless_ || !model_.visible()) {
         return;
     }
+    dropped_ui_pid_ = ui_pid_;
     ui_respawn_attempt_ = 0;
     ArmUiRespawnTimer(50000);
 }
@@ -916,16 +1020,15 @@ void BufferService::ArmUiRespawnTimer(int delay_us) {
         CLOCK_MONOTONIC, now(CLOCK_MONOTONIC) + delay_us, 0,
         [this](EventSourceTime*, uint64_t) {
             ReapUi();
-            if (ui_pid_ > 0 &&
-                rimes::buffer::ShouldForceUiRespawn(false, ui_respawn_attempt_)) {
-                ui_pid_ = 0;
-            }
+            // Only replace the pid that dropped the socket. A child this
+            // retry already started gets several seconds to connect.
+            ReplaceDroppedUi();
             ++ui_respawn_attempt_;
             if (model_.visible()) {
                 EnsureUi();
             }
             if (model_.visible() && !HasUiClients() && ui_respawn_attempt_ < 5) {
-                const int delays[] = {150000, 400000, 1000000, 2000000};
+                const int delays[] = {2000000, 2000000, 2000000, 2000000};
                 const int index = std::min(ui_respawn_attempt_ - 1, 3);
                 ArmUiRespawnTimer(delays[index]);
             }
@@ -954,7 +1057,9 @@ void BufferService::Publish() {
     if (model_.visible()) {
         EnsureUi();
     }
-    const auto json = rimes::buffer::EncodeSnapshot(rimes::buffer::MakeSnapshot(model_));
+    auto snapshot = rimes::buffer::MakeSnapshot(model_);
+    snapshot.ui_clients = UiClientCount();
+    const auto json = rimes::buffer::EncodeSnapshot(snapshot);
     WriteAll(json);
     if (dump_path_.empty()) {
         return;

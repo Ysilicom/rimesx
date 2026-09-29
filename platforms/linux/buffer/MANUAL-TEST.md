@@ -53,11 +53,13 @@ For each host above, switch to **RIMES** (雾凇全拼) first.
    field** (or the hotkey, or Close). Buffer hides. The chip is still there
    when you reopen. The host did not receive it.
 10. **Focus change.** Open Buffer, stage a chip, click another field or
-    window. Later typing goes to the new field (direct). The old chip stays.
-    Sending must not write into the new field until you reopen Buffer on it.
-    The field you leave must **not** gain U+200B / ZWSP. In the new field
-    (including a Firefox password box) press Escape: that app must receive
-    Escape; Buffer must stay visible.
+    window — including **another text field on the same Firefox / Chromium
+    page** (one IC per window). Later typing goes to the new field (direct).
+    The old chip stays. Sending must not write into the new field until you
+    reopen Buffer on it. The field you leave must **not** gain U+200B /
+    ZWSP. In the new field (including a Firefox password box) press Escape:
+    that app must receive Escape; Buffer must stay visible. Dragging the
+    X11 toolbar must **not** count as a field switch.
 11. **Password.** Click a password field in a GTK host that keeps the IM
     enabled. Buffer must hide or scrub chips. Typed secrets must not appear
     in the workbench. **Firefox-esr disables the IM on
@@ -67,25 +69,29 @@ For each host above, switch to **RIMES** (雾凇全拼) first.
 12. **Close after last.** With the default on, sending the last chip hides
     Buffer.
 13. **X11 placement.** On Xfce, the first open sits **above** the caret
-    when there is room (type `shi` — the 9-row candidate list under the
-    caret must not cover chips or the typed text). If the caret is at the
-    very top, the panel docks to the bottom of the monitor instead. Drag
-    the toolbar: the body rail does not drag, **capture stays on**, and
-    the next key still stages. The dragged position is forgotten on the
-    next open (expected).
+    when the 9-row candidate list has room below the caret (type `shi` —
+    the popup must not cover chips). If the caret is at the very top, the
+    panel docks to the **bottom**. If the caret is low so the popup would
+    flip upward (~260 px of room missing below), the panel sits **below**
+    the caret when that fits, otherwise it docks to the **top** of the
+    monitor. Drag the toolbar: the body rail does not drag, **capture
+    stays on**, and the next key still stages. The dragged position is
+    forgotten on the next open (expected).
 14. **Wayland placement.** On labwc/sway the panel is overlay / always
     visible, at least 760 px wide (stretched with side margins; ~1118×77
     on a 1280-wide output is fine), chips are readable, and it does not
     steal focus. It sits at the bottom, not under the caret — expected.
-15. **UI respawn.** While capturing, `kill -9` the `rimes-buffer` process.
-    The panel should come back within about a second **without** needing
-    another key. Staging/send must keep working; do not restart fcitx5.
+15. **UI respawn.** While capturing, `kill -9` the `rimes-buffer` process
+    and press no keys. After a few seconds `pgrep -x rimes-buffer` must
+    show **exactly one** process. There must be one panel, not a stack of
+    copies. Staging/send must keep working; do not restart fcitx5.
 16. **Stale target.** Quit the captured app (e.g. Firefox) while the
     panel is open. Capture pauses, the target must not stay `firefox-esr`,
     chips remain.
-17. **Composition on switch.** Start a composition (`shi`, do not Space),
-    click another field. The spelling is staged as a chip (not inserted
-    into the old field). Switching away no longer silently drops it.
+17. **Composition on switch.** Start a composition (`zhongguoren`, do not
+    Space), click another field. The chip is the raw input `zhongguoren`
+    (no syllable spaces). It is not inserted into the old field. Switching
+    away no longer silently drops it.
 
 ## Session notes
 

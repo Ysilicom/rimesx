@@ -25,6 +25,7 @@ struct EngineSnapshot {
     bool ascii_mode = false;
     std::string schema_id;
     std::string preedit;
+    std::string raw_input;
     std::string commit_text;
     std::size_t caret_utf8 = 0;
     int page_no = 0;

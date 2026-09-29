@@ -177,6 +177,7 @@ std::string EncodeSnapshot(const Snapshot& snapshot) {
     out << ",\"caret\":{\"x\":" << snapshot.caret.x << ",\"y\":" << snapshot.caret.y
         << ",\"w\":" << snapshot.caret.width << ",\"h\":" << snapshot.caret.height
         << ",\"valid\":" << (snapshot.caret.valid ? "true" : "false") << "}";
+    out << ",\"ui_clients\":" << snapshot.ui_clients;
     out << ",\"blocks\":[";
     for (std::size_t index = 0; index < snapshot.blocks.size(); ++index) {
         const auto& block = snapshot.blocks[index];
