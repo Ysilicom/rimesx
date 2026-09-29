@@ -1,8 +1,11 @@
 package org.scholay.rimes.android;
 
+import android.content.res.Configuration;
 import android.inputmethodservice.InputMethodService;
+import android.os.Build;
 import android.text.InputType;
 import android.view.View;
+import android.view.WindowInsets;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
@@ -44,7 +47,26 @@ public final class RimesInputMethodService extends InputMethodService {
     @Override public View onCreateInputView() {
         keyboard = new LinearLayout(this);
         keyboard.setOrientation(LinearLayout.VERTICAL);
+        keyboard.setBackgroundColor(getColor(android.R.color.background_light));
         keyboard.setPadding(dp(4), dp(6), dp(4), dp(6));
+        keyboard.setOnApplyWindowInsetsListener((view, insets) -> {
+            // The IME window can extend behind system navigation on recent Android versions.
+            // Use the remaining insets so framework-reserved space is not counted twice.
+            int left, right, bottom;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                android.graphics.Insets safe = insets.getInsets(
+                        WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                left = safe.left;
+                right = safe.right;
+                bottom = safe.bottom;
+            } else {
+                left = insets.getSystemWindowInsetLeft();
+                right = insets.getSystemWindowInsetRight();
+                bottom = insets.getSystemWindowInsetBottom();
+            }
+            view.setPadding(dp(4) + left, dp(6), dp(4) + right, dp(6) + bottom);
+            return insets;
+        });
         render();
         return keyboard;
     }
@@ -135,6 +157,8 @@ public final class RimesInputMethodService extends InputMethodService {
         button(toolbar, "🌐", () -> getSystemService(InputMethodManager.class).showInputMethodPicker(), 1)
                 .setContentDescription(getString(R.string.switch_keyboard));
         if (buffer.isEnabled()) {
+            boolean landscape = getResources().getConfiguration().orientation
+                    == Configuration.ORIENTATION_LANDSCAPE;
             TextView preview = new TextView(this);
             preview.setText(buffer.text().isEmpty() ? getString(R.string.buffer_empty) : buffer.text());
             preview.setTextSize(18);
@@ -142,8 +166,10 @@ public final class RimesInputMethodService extends InputMethodService {
             preview.setPadding(dp(10), dp(8), dp(10), dp(8));
             HorizontalScrollView scroll = new HorizontalScrollView(this);
             scroll.addView(preview);
-            keyboard.addView(scroll, new LinearLayout.LayoutParams(-1, dp(44)));
-            LinearLayout actions = row();
+            // Share the wide toolbar in landscape so Buffer cannot push the keys off screen.
+            if (landscape) toolbar.addView(scroll, new LinearLayout.LayoutParams(0, -1, 3));
+            else keyboard.addView(scroll, new LinearLayout.LayoutParams(-1, dp(44)));
+            LinearLayout actions = landscape ? toolbar : row();
             button(actions, getString(R.string.insert_next), () -> insert(false), 1).setEnabled(buffer.blockCount() > 0);
             button(actions, getString(R.string.insert_all), () -> insert(true), 1).setEnabled(buffer.blockCount() > 0);
             button(actions, getString(R.string.clear), () -> { buffer.clear(); render(); }, 1);

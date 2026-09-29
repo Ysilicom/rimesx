@@ -2,12 +2,15 @@ package org.scholay.rimes.android;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.InputType;
+import android.view.WindowInsets;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -18,7 +21,7 @@ public final class SetupActivity extends Activity {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         int inset = Math.round(24 * getResources().getDisplayMetrics().density);
-        content.setPadding(inset, inset * 2, inset, inset);
+        content.setPadding(inset, inset, inset, inset);
         TextView title = new TextView(this);
         title.setText(R.string.welcome);
         title.setTextSize(28);
@@ -49,7 +52,20 @@ public final class SetupActivity extends Activity {
         }
         ScrollView scroll = new ScrollView(this);
         scroll.addView(content);
-        setContentView(scroll);
+        FrameLayout frame = new FrameLayout(this);
+        frame.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+        frame.setOnApplyWindowInsetsListener((view, insets) -> {
+            // Keep every playground field scrollable above the IME in edge-to-edge windows.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                android.graphics.Insets safe = insets.getInsets(WindowInsets.Type.systemBars()
+                        | WindowInsets.Type.displayCutout() | WindowInsets.Type.ime());
+                view.setPadding(safe.left, safe.top, safe.right, safe.bottom);
+            } else {
+                view.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+                        insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+            }
+            return insets;
+        });
+        setContentView(frame);
     }
 }
-
