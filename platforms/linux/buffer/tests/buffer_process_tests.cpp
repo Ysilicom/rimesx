@@ -46,7 +46,14 @@ int main() {
         _exit(0);
     }
     Expect(kill(killed, SIGKILL) == 0, "SIGKILL the child");
-    Expect(rimes::buffer::UiProcessGone(killed), "waitpid reaps a killed UI pid");
+    bool gone = false;
+    for (int attempt = 0; attempt < 50 && !gone; ++attempt) {
+        gone = rimes::buffer::UiProcessGone(killed);
+        if (!gone) {
+            usleep(2000);
+        }
+    }
+    Expect(gone, "waitpid reaps a killed UI pid");
 
     if (failures != 0) {
         std::cerr << failures << " process-gone checks failed\n";
