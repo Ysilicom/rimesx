@@ -133,6 +133,22 @@ void EnsureCapturing(fcitx::AddonInstance* frontend, const fcitx::ICUUID& uuid,
     ExpectContains(snapshot, "\"capturing\":true", "could not resume Buffer capture");
 }
 
+void DrainStaged(fcitx::AddonInstance* frontend, const fcitx::ICUUID& uuid,
+                 const std::string& dump_path) {
+    EnsureCapturing(frontend, uuid, dump_path);
+    for (int attempt = 0; attempt < 12; ++attempt) {
+        const auto snapshot = ReadDump(dump_path);
+        if (HasNeedle(snapshot, "\"empty\":true")) {
+            return;
+        }
+        SendKey(frontend, uuid, "BackSpace");
+    }
+    const auto leftover = ReadDump(dump_path);
+    if (!HasNeedle(leftover, "\"empty\":true")) {
+        Die("could not drain leftover Buffer chips");
+    }
+}
+
 void RunBufferSuite(fcitx::Instance& instance,
                     fcitx::AddonInstance* frontend,
                     const fcitx::ICUUID& uuid,
@@ -307,8 +323,7 @@ void RunBufferSuite(fcitx::Instance& instance,
     frontend->call<fcitx::ITestFrontend::destroyInputContext>(uuid_switch);
 
     ic->focusIn();
-    EnsureCapturing(frontend, uuid, dump_path);
-    SendKey(frontend, uuid, "BackSpace");
+    DrainStaged(frontend, uuid, dump_path);
     Type(frontend, uuid, "shi");
     ic->focusOut();
     *grace_timer = instance.eventLoop().addTimeEvent(
@@ -323,8 +338,7 @@ void RunBufferSuite(fcitx::Instance& instance,
                 std::cout << "ok: leaving a field stages the open preedit and drops capture\n";
 
                 ic->focusIn();
-                EnsureCapturing(frontend, uuid, dump_path);
-                SendKey(frontend, uuid, "BackSpace");
+                DrainStaged(frontend, uuid, dump_path);
                 Type(frontend, uuid, "nihao");
                 SendKey(frontend, uuid, "space");
                 Type(frontend, uuid, "shijie");
