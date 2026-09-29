@@ -78,8 +78,12 @@ For each host above, switch to **RIMES** (雾凇全拼) first.
     flip upward (~260 px of room missing below), the panel sits **below**
     the caret when that fits, otherwise it docks to the **top** of the
     monitor. Drag the toolbar: the body rail does not drag, **capture
-    stays on**, and the next key still stages. The dragged position is
-    forgotten on the next open (expected).
+    stays on**, and the next key still stages. Also check a **tiny**
+    move (~3 px over ~0.8 s), and drags that **hold still 2 s and 5 s**
+    before release — the next key must still go to Buffer. After a
+    finished drag, clicking another Firefox field on the same page must
+    pause capture. The dragged position is forgotten on the next open
+    (expected).
 14. **Wayland placement.** On labwc/sway the panel is overlay / always
     visible, at least 760 px wide (stretched with side margins; ~1118×77
     on a 1280-wide output is fine), chips are readable, and it does not

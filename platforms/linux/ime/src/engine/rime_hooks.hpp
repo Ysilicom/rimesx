@@ -19,9 +19,10 @@
 //    key-up so they cannot leak Enter into the host. A composing Return is
 //    passed through to Rime so it can settle, then must not send. Same-IC
 //    reactivation keeps capture only during an explicit toolbar drag
-//    (plus a short tail). Every other same-IC reactivation — including a
-//    Firefox same-page field switch whose caret is still stale — stages
-//    the raw input and returns the route to the host.
+//    (until the pointer is released, plus a 1 s tail). The first same-IC
+//    reactivation after drag_begin consumes the drag. Every other
+//    same-IC reactivation — including a Firefox same-page field switch
+//    — stages the raw input and returns the route to the host.
 //
 // 3. Session / field isolation
 //    One Rime session per Fcitx5 InputContext (RimesState). Buffer is

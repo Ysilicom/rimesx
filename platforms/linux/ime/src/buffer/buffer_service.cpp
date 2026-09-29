@@ -33,8 +33,8 @@ FCITX_DEFINE_LOG_CATEGORY(rimes_buffer_log, "rimes.buffer");
 
 constexpr int kHoldTickUs = 50000;
 constexpr int kDefaultFocusGraceMs = 5000;
-constexpr int kDragTailMs = 400;
-constexpr int kDragHardTimeoutMs = 6000;
+constexpr int kDragTailMs = 1000;
+constexpr int kDragHardTimeoutMs = 30000;
 
 rimes::buffer::CaretRect CaretFromIc(InputContext* ic) {
     rimes::buffer::CaretRect caret;
@@ -230,8 +230,17 @@ bool BufferService::InDragTail() const {
 void BufferService::EndDrag() {
     dragging_ = false;
     CancelDragHardTimer();
-    drag_tail_until_ =
-        std::chrono::steady_clock::now() + std::chrono::milliseconds(kDragTailMs);
+    if (!drag_blip_consumed_) {
+        drag_tail_until_ =
+            std::chrono::steady_clock::now() + std::chrono::milliseconds(kDragTailMs);
+    }
+}
+
+void BufferService::ConsumeDragBlip() {
+    dragging_ = false;
+    drag_blip_consumed_ = true;
+    drag_tail_until_ = {};
+    CancelDragHardTimer();
 }
 
 void BufferService::ArmDragHardTimer() {
@@ -431,13 +440,15 @@ void BufferService::OnActivate(InputContext* ic) {
     const bool same_ic = (!pending_unfocus_token_.empty() && pending_unfocus_token_ == token) ||
                          model_.captures(token);
     if (same_ic) {
-        // Firefox/Chromium keep one IC per window. The caret rect is often
-        // still the previous field's at activate time, so "unchanged caret"
-        // is stale-equals-stale. Keep capture only for an explicit toolbar
-        // drag; every other same-IC reactivation is a field switch.
+        // Firefox/Chromium keep one IC per window. Keep capture only for an
+        // explicit toolbar drag (or its short tail). The first same-IC
+        // reactivation after drag_begin is the WM move-grab ending: keep
+        // capture and consume the drag so a later same-IC click is a
+        // real field switch.
         pending_unfocus_token_.clear();
         CancelFocusGraceTimer();
-        if (InDragTail()) {
+        if (dragging_ || InDragTail()) {
+            ConsumeDragBlip();
             RefreshCaret(ic);
             OnPasswordField(ic, ic->capabilityFlags().test(CapabilityFlag::Password));
             Publish();
@@ -560,6 +571,7 @@ void BufferService::CloseAndPause() {
     CancelHoldTimer();
     CancelFocusGraceTimer();
     dragging_ = false;
+    drag_blip_consumed_ = false;
     drag_tail_until_ = {};
     CancelDragHardTimer();
     pending_unfocus_token_.clear();
@@ -588,6 +600,7 @@ void BufferService::DropCaptureForSwitch(std::string_view reason) {
     CancelHoldTimer();
     CancelFocusGraceTimer();
     dragging_ = false;
+    drag_blip_consumed_ = false;
     drag_tail_until_ = {};
     CancelDragHardTimer();
     pending_unfocus_token_.clear();
@@ -734,6 +747,7 @@ void BufferService::HandleCommand(const rimes::buffer::Command& command) {
             break;
         case rimes::buffer::CommandOp::DragBegin:
             dragging_ = true;
+            drag_blip_consumed_ = false;
             drag_tail_until_ = {};
             pending_unfocus_token_.clear();
             CancelFocusGraceTimer();

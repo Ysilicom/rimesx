@@ -54,8 +54,8 @@ struct App {
     bool wayland_layer = false;
     bool placed = false;
     bool moving = false;
-    guint drag_settle_id = 0;
-    guint drag_fallback_id = 0;
+    guint drag_poll_id = 0;
+    guint drag_cap_id = 0;
 };
 
 App* g_app = nullptr;
@@ -393,13 +393,13 @@ void OnSizeAllocate(GtkWidget* /*widget*/, GdkRectangle* allocation, gpointer da
 }
 
 void CancelDragTimers(App* app) {
-    if (app->drag_settle_id != 0) {
-        g_source_remove(app->drag_settle_id);
-        app->drag_settle_id = 0;
+    if (app->drag_poll_id != 0) {
+        g_source_remove(app->drag_poll_id);
+        app->drag_poll_id = 0;
     }
-    if (app->drag_fallback_id != 0) {
-        g_source_remove(app->drag_fallback_id);
-        app->drag_fallback_id = 0;
+    if (app->drag_cap_id != 0) {
+        g_source_remove(app->drag_cap_id);
+        app->drag_cap_id = 0;
     }
 }
 
@@ -412,34 +412,46 @@ void FinishMoveDrag(App* app) {
     SendCommand(app, R"({"v":1,"op":"drag_end"})");
 }
 
-gboolean OnDragSettle(gpointer data) {
+bool PointerButton1Down(App* app) {
+    if (app->window == nullptr) {
+        return false;
+    }
+    GdkWindow* gdk_window = gtk_widget_get_window(app->window);
+    GdkDisplay* display = gtk_widget_get_display(app->window);
+    if (gdk_window == nullptr || display == nullptr) {
+        return true;
+    }
+    GdkSeat* seat = gdk_display_get_default_seat(display);
+    if (seat == nullptr) {
+        return true;
+    }
+    GdkDevice* pointer = gdk_seat_get_pointer(seat);
+    if (pointer == nullptr) {
+        return true;
+    }
+    GdkModifierType mask = static_cast<GdkModifierType>(0);
+    gdk_device_get_state(pointer, gdk_window, nullptr, &mask);
+    return (mask & GDK_BUTTON1_MASK) != 0;
+}
+
+gboolean OnDragPoll(gpointer data) {
     auto* app = static_cast<App*>(data);
-    app->drag_settle_id = 0;
+    if (!app->moving) {
+        app->drag_poll_id = 0;
+        return G_SOURCE_REMOVE;
+    }
+    if (!PointerButton1Down(app)) {
+        FinishMoveDrag(app);
+        return G_SOURCE_REMOVE;
+    }
+    return G_SOURCE_CONTINUE;
+}
+
+gboolean OnDragHardCap(gpointer data) {
+    auto* app = static_cast<App*>(data);
+    app->drag_cap_id = 0;
     FinishMoveDrag(app);
     return G_SOURCE_REMOVE;
-}
-
-gboolean OnDragFallback(gpointer data) {
-    auto* app = static_cast<App*>(data);
-    app->drag_fallback_id = 0;
-    FinishMoveDrag(app);
-    return G_SOURCE_REMOVE;
-}
-
-void ArmDragSettle(App* app) {
-    if (app->drag_settle_id != 0) {
-        g_source_remove(app->drag_settle_id);
-    }
-    app->drag_settle_id = g_timeout_add(300, OnDragSettle, app);
-}
-
-gboolean OnConfigureDuringDrag(GtkWidget* /*widget*/, GdkEventConfigure* /*event*/,
-                               gpointer data) {
-    auto* app = static_cast<App*>(data);
-    if (app->moving) {
-        ArmDragSettle(app);
-    }
-    return FALSE;
 }
 
 gboolean OnButtonReleaseDuringDrag(GtkWidget* /*widget*/, GdkEventButton* event, gpointer data) {
@@ -456,7 +468,8 @@ gboolean OnToolbarDrag(GtkWidget* /*widget*/, GdkEventButton* event, gpointer da
         CancelDragTimers(app);
         app->moving = true;
         SendCommand(app, R"({"v":1,"op":"drag_begin"})");
-        app->drag_fallback_id = g_timeout_add(5000, OnDragFallback, app);
+        app->drag_poll_id = g_timeout_add(50, OnDragPoll, app);
+        app->drag_cap_id = g_timeout_add(30000, OnDragHardCap, app);
         gtk_window_begin_move_drag(GTK_WINDOW(app->window), static_cast<gint>(event->button),
                                    static_cast<gint>(event->x_root),
                                    static_cast<gint>(event->y_root), event->time);
@@ -573,10 +586,12 @@ void BuildUi(App* app) {
     gtk_widget_set_name(app->window, "rimes-buffer-window");
     gtk_style_context_add_class(gtk_widget_get_style_context(app->window), "rimes-buffer");
     gtk_widget_set_app_paintable(app->window, TRUE);
-    gtk_widget_add_events(app->window, GDK_BUTTON_RELEASE_MASK | GDK_STRUCTURE_MASK);
+    gtk_widget_add_events(app->window, GDK_BUTTON_RELEASE_MASK);
     g_signal_connect(app->window, "destroy", G_CALLBACK(gtk_main_quit), nullptr);
     g_signal_connect(app->window, "size-allocate", G_CALLBACK(OnSizeAllocate), app);
-    g_signal_connect(app->window, "configure-event", G_CALLBACK(OnConfigureDuringDrag), app);
+    // Button-release is a backup. The WM move-grab usually swallows it;
+    // the 50 ms pointer-button poll is the real end signal. Do not treat
+    // grab-broken as drag_end: xfwm fires that when it *takes* the grab.
     g_signal_connect(app->window, "button-release-event", G_CALLBACK(OnButtonReleaseDuringDrag),
                      app);
 

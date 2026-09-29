@@ -4,11 +4,17 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
+#include <vector>
+
+#include "buffer_protocol.hpp"
 
 #include <fcitx-utils/capabilityflags.h>
 #include <fcitx-utils/event.h>
@@ -133,6 +139,48 @@ void EnsureCapturing(fcitx::AddonInstance* frontend, const fcitx::ICUUID& uuid,
     ExpectContains(snapshot, "\"capturing\":true", "could not resume Buffer capture");
 }
 
+using ExtraTimers = std::vector<std::unique_ptr<fcitx::EventSourceTime>>;
+
+void AfterUs(fcitx::Instance& instance, ExtraTimers* timers, int delay_us,
+             std::function<void()> fn) {
+    timers->emplace_back(instance.eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + delay_us, 0,
+        [&instance, fn = std::move(fn)](fcitx::EventSourceTime*, uint64_t) {
+            try {
+                fn();
+            } catch (const TestFailed&) {
+                instance.exit();
+            }
+            return true;
+        }));
+}
+
+void SendBufferOp(const char* op) {
+    const char* path = std::getenv("RIMES_BUFFER_SOCKET");
+    if (path == nullptr || path[0] == '\0') {
+        Die("RIMES_BUFFER_SOCKET is missing");
+    }
+    const int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0) {
+        Die("could not open the Buffer socket");
+    }
+    sockaddr_un address{};
+    address.sun_family = AF_UNIX;
+    std::strncpy(address.sun_path, path, sizeof(address.sun_path) - 1);
+    if (connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0) {
+        close(fd);
+        Die("could not connect to the Buffer socket");
+    }
+    const std::string json = std::string("{\"v\":1,\"op\":\"") + op + "\"}";
+    std::string frame;
+    if (!rimes::buffer::EncodeFrame(json, &frame) ||
+        send(fd, frame.data(), frame.size(), MSG_NOSIGNAL) != static_cast<ssize_t>(frame.size())) {
+        close(fd);
+        Die(std::string("could not send Buffer op ") + op);
+    }
+    close(fd);
+}
+
 void DrainStaged(fcitx::AddonInstance* frontend, const fcitx::ICUUID& uuid,
                  const std::string& dump_path) {
     EnsureCapturing(frontend, uuid, dump_path);
@@ -155,7 +203,8 @@ void RunBufferSuite(fcitx::Instance& instance,
                     fcitx::InputContext* ic,
                     const std::string& dump_path,
                     std::unique_ptr<fcitx::EventSourceTime>* grace_timer,
-                    std::unique_ptr<fcitx::EventSourceTime>* hold_timer) {
+                    std::unique_ptr<fcitx::EventSourceTime>* hold_timer,
+                    ExtraTimers* extra_timers) {
     ic->setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit} |
                            fcitx::CapabilityFlag::ClientUnfocusCommit);
 
@@ -321,7 +370,52 @@ void RunBufferSuite(fcitx::Instance& instance,
 
     ic->focusIn();
     EnsureCapturing(frontend, uuid, dump_path);
-    Type(frontend, uuid, "zhongguoren");
+    SendBufferOp("drag_begin");
+    AfterUs(instance, extra_timers, 50000, [&]() {
+        AfterUs(instance, extra_timers, 2000000, [&]() {
+            ic->focusOut();
+            ic->focusIn();
+            auto snapshot = ReadDump(dump_path);
+            ExpectContains(snapshot, "\"capturing\":true",
+                           "same-IC reactivate 2s after drag_begin without drag_end must keep");
+            std::cout << "ok: drag_begin without drag_end keeps capture for 2s\n";
+
+            SendBufferOp("drag_begin");
+            AfterUs(instance, extra_timers, 50000, [&]() {
+                AfterUs(instance, extra_timers, 300000, [&]() {
+                    SendBufferOp("drag_end");
+                    AfterUs(instance, extra_timers, 800000, [&]() {
+                        ic->focusOut();
+                        ic->focusIn();
+                        auto snapshot = ReadDump(dump_path);
+                        ExpectContains(
+                            snapshot, "\"capturing\":true",
+                            "same-IC reactivate 800ms after drag_end must stay in the 1s tail");
+                        std::cout << "ok: drag_end plus 800ms tail keeps capture\n";
+
+                        ic->focusOut();
+                        ic->focusIn();
+                        snapshot = ReadDump(dump_path);
+                        ExpectContains(snapshot, "\"capturing\":false",
+                                       "second same-IC after a consumed drag must pause");
+                        std::cout << "ok: field switch after a completed drag pauses capture\n";
+
+                        EnsureCapturing(frontend, uuid, dump_path);
+                        SendBufferOp("drag_begin");
+                        AfterUs(instance, extra_timers, 50000, [&]() {
+                            SendBufferOp("drag_end");
+                            AfterUs(instance, extra_timers, 1200000, [&]() {
+                                ic->focusOut();
+                                ic->focusIn();
+                                auto snapshot = ReadDump(dump_path);
+                                ExpectContains(snapshot, "\"capturing\":false",
+                                               "same-IC reactivate after the drag tail must pause");
+                                std::cout << "ok: same-IC reactivate after drag tail expires pauses\n";
+
+                                ic->focusIn();
+                                EnsureCapturing(frontend, uuid, dump_path);
+                                DrainStaged(frontend, uuid, dump_path);
+                                Type(frontend, uuid, "zhongguoren");
     const auto uuid_switch =
         frontend->call<fcitx::ITestFrontend::createInputContext>("rimes-buffer-switch");
     auto* ic_switch = instance.inputContextManager().findByUUID(uuid_switch);
@@ -396,6 +490,13 @@ void RunBufferSuite(fcitx::Instance& instance,
             }
             return true;
         });
+                            });
+                        });
+                    });
+                });
+            });
+        });
+    });
 }
 
 }  // namespace
@@ -426,6 +527,7 @@ int main(int argc, char** argv) {
         std::unique_ptr<fcitx::EventSourceTime> wait_timer;
         std::unique_ptr<fcitx::EventSourceTime> grace_timer;
         std::unique_ptr<fcitx::EventSourceTime> hold_timer;
+        ExtraTimers extra_timers;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(180);
         bool suite_started = false;
 
@@ -480,7 +582,7 @@ int main(int argc, char** argv) {
                     std::cout << "ok: buffer testfrontend left Deploying\n";
                     try {
                         RunBufferSuite(instance, frontend, uuid, ic, dump_path, &grace_timer,
-                                       &hold_timer);
+                                       &hold_timer, &extra_timers);
                     } catch (const TestFailed&) {
                         instance.exit();
                     }
