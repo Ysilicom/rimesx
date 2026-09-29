@@ -13,7 +13,7 @@
 #     second path and poisons TIS/LaunchServices → blank/greyed picker row. So
 #     we assemble in a throwaway staging dir and delete it after installing.
 #
-# (The SPM target / source dir stay named "RimeBuffer" — internal codename / repo;
+# (The SPM target / source dir stay named "RimeBuffer" — internal code symbols;
 # the shipped product is RIMES.)
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -480,6 +480,14 @@ fi
 COMPANION_AGENT_BACKUP=""
 COMPANION_AGENT_CHANGED=0
 rm -rf "$DEST_BACKUP"
+
+# TextInputMenuAgent can keep the previous input method's title and icon after
+# the bundle swap even when TIS reports the new RIMES mode as selected. Let
+# macOS relaunch the agent so the menu bar reflects the registered source.
+if /usr/bin/pgrep -x TextInputMenuAgent >/dev/null 2>&1; then
+    echo "==> refreshing the macOS input-source menu"
+    /usr/bin/killall TextInputMenuAgent 2>/dev/null || true
+fi
 
 if [ "$ACTIVATION_READY" -eq 1 ]; then
     activation_summary="Installed, registered, and enabled RIMES."

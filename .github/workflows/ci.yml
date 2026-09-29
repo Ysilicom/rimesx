@@ -586,6 +586,7 @@ jobs:
             buffer-smoke
             buffer-window-smoke
             buffer-music-smoke
+            morse-smoke
             buffer-music-audio-smoke
             buffer-music-view-smoke
             buffer-music-panel-smoke
@@ -619,6 +620,7 @@ jobs:
             ai-text-smoke
             ai-text-mailbox-smoke
             capsule-smoke
+            capsule-structure-smoke
             stream-input-smoke
             settings-routing-smoke
             status-menu-smoke

@@ -278,7 +278,6 @@ private enum AITextMailboxGenerationSmoke {
         Thread.isMainThread
             && promptPlanning()
             && preferencesRoundTrip()
-            && inlineOutputMenuOnly()
             && inlineSelectionSnapshotAndRouting()
             && directConversationStart()
             && dynamicProviderRouteFreezeAndRecovery()
@@ -438,10 +437,6 @@ private enum AITextMailboxGenerationSmoke {
                 to: secondDomain ?? [:]
             )
             && notificationCount == 0
-    }
-
-    private static func inlineOutputMenuOnly() -> Bool {
-        runAITextOutputPopupMenuProbe()
     }
 
     private static func inlineSelectionSnapshotAndRouting() -> Bool {

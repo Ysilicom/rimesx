@@ -24,13 +24,6 @@ enum GlobalHotKeyAction: UInt32, CaseIterable, Hashable {
         case .openSettings: return .openSettings
         }
     }
-
-    /// Utility surfaces keep working while another input method is selected.
-    /// Settings still belongs to the live RIMES session because several of its
-    /// actions deploy or mutate the active input method.
-    var requiresRimeInputSource: Bool {
-        self == .openSettings
-    }
 }
 
 struct GlobalHotKeyDefinition {
@@ -73,11 +66,12 @@ enum GlobalHotKeyRouting {
     /// process-global shortcuts while preserving its stable Carbon signature.
     static let signature: OSType = 0x4554_4257
 
-    static func registeredActions(currentSourceIsOwn: Bool)
-        -> Set<GlobalHotKeyAction> {
-        Set(GlobalHotKeyAction.allCases.filter {
-            currentSourceIsOwn || !$0.requiresRimeInputSource
-        })
+    /// Every shortcut stays registered under any input source. Calling a
+    /// component up under another input method selects RIMES first (see
+    /// `RimeInputSourceSelection`), so Settings, too, always opens with the
+    /// live RIMES session it deploys and mutates.
+    static func registeredActions() -> Set<GlobalHotKeyAction> {
+        Set(GlobalHotKeyAction.allCases)
     }
 
     static func definitions(defaults: UserDefaults = .standard)
@@ -283,8 +277,9 @@ final class GlobalHotKeyController {
         )
     }
 
-    /// Four utility shortcuts remain process-global across input-source changes.
-    /// Only RIMES-owned actions are added or removed with IMK authority.
+    /// All four shortcuts remain process-global across input-source changes;
+    /// a source transition records the new IMK authority and retries any
+    /// registration that failed.
     @discardableResult
     func setRuntimeEnabledForInputSource(_ enabled: Bool) -> Bool {
         dispatchPrecondition(condition: .onQueue(.main))
@@ -294,9 +289,7 @@ final class GlobalHotKeyController {
         // failure log per key. Preferences explicitly call reload; a real
         // source transition performs the next retry.
         if lastReconciledInputSourceState == enabled {
-            let desiredActions = GlobalHotKeyRouting.registeredActions(
-                currentSourceIsOwn: enabled
-            )
+            let desiredActions = GlobalHotKeyRouting.registeredActions()
             return eventHandlerRef != nil
                 && Set(hotKeyRefs.keys) == desiredActions
                 && Set(registeredDefinitions.keys) == desiredActions
@@ -312,9 +305,7 @@ final class GlobalHotKeyController {
         dispatchPrecondition(condition: .onQueue(.main))
         rimeInputSourceIsActive = currentSourceIsOwn
         lastReconciledInputSourceState = currentSourceIsOwn
-        let desiredActions = GlobalHotKeyRouting.registeredActions(
-            currentSourceIsOwn: currentSourceIsOwn
-        )
+        let desiredActions = GlobalHotKeyRouting.registeredActions()
         for action in Array(hotKeyRefs.keys)
         where !desiredActions.contains(action) {
             if let hotKeyRef = hotKeyRefs.removeValue(forKey: action) {
@@ -458,12 +449,6 @@ final class GlobalHotKeyController {
                 identifier: identifier
             )
             guard route != .ignore else { return false }
-            if action.requiresRimeInputSource
-                && (!hadAuthorityBeforeMainHop || !hasAuthorityAtMainBoundary) {
-                _ = self.setRuntimeEnabledForInputSource(false)
-                IMELog.write("RIMES-only global hotkey ignored for external source")
-                return true
-            }
             // Consult the definition that actually owns this Carbon
             // registration. Preferences can change immediately before a
             // reload; re-reading them here could describe a different chord
@@ -481,18 +466,47 @@ final class GlobalHotKeyController {
                     shortcutUsesShift: shortcutUsesShift
                 )
             }
+            // Opening (never closing) a component under another input method
+            // selects RIMES first; the component opens once RIMES owns input.
             switch route {
             case .toggleWorkbench:
-                BufferWindowController.shared.toggleVisibility()
+                let buffer = BufferWindowController.shared
+                if buffer.isVisible {
+                    buffer.toggleVisibility()
+                } else {
+                    RimeInputSourceSelection.open("Buffer", awaitsFocus: true) {
+                        buffer.openAndResume()
+                    }
+                }
                 IMELog.write("global hotkey toggled buffer workbench")
             case .toggleClipboardHistory:
-                ClipboardHistoryWindowController.shared.toggleVisibility()
+                let rail = ClipboardHistoryWindowController.shared
+                if rail.isVisible {
+                    rail.toggleVisibility()
+                } else {
+                    RimeInputSourceSelection.open("Capsule rail", awaitsFocus: true) {
+                        rail.show()
+                    }
+                }
                 IMELog.write("global hotkey toggled Capsule rail")
             case .openMailbox:
-                let action = MailboxWindowController.shared.toggleVisibility()
+                let mailbox = MailboxWindowController.shared
+                let action = MailboxWindowVisibilityRules.action(
+                    isVisible: MailboxWindowController.isVisible
+                )
+                switch action {
+                case .close:
+                    mailbox.toggleVisibility()
+                case .show:
+                    RimeInputSourceSelection.open("Mailbox", awaitsFocus: false) {
+                        mailbox.show()
+                    }
+                }
                 IMELog.write("global hotkey toggled Mailbox action=\(action)")
             case .openSettings:
-                SettingsWindowController.shared.show()
+                RimeInputSourceSelection.open("Settings", awaitsFocus: false) {
+                    _ = SettingsWindowController.shared.show()
+                }
                 IMELog.write("global hotkey opened settings")
             case .ignore:
                 break

@@ -9,10 +9,28 @@ struct PresetBufferPluginCatalogEntry: Equatable {
     let version: String
     let summaryZH: String
     let summaryEN: String
+    let producerID: String
     let defaultInstalled: Bool
     let defaultEnabled: Bool
     let downloadAssetName: String?
     let sha256: String?
+
+    init(id: String, nameZH: String, nameEN: String, version: String,
+         summaryZH: String, summaryEN: String, producerID: String = "official",
+         defaultInstalled: Bool, defaultEnabled: Bool,
+         downloadAssetName: String?, sha256: String?) {
+        self.id = id
+        self.nameZH = nameZH
+        self.nameEN = nameEN
+        self.version = version
+        self.summaryZH = summaryZH
+        self.summaryEN = summaryEN
+        self.producerID = producerID
+        self.defaultInstalled = defaultInstalled
+        self.defaultEnabled = defaultEnabled
+        self.downloadAssetName = downloadAssetName
+        self.sha256 = sha256
+    }
 
     var isDownloadable: Bool {
         !defaultInstalled && downloadAssetName != nil && sha256 != nil

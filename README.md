@@ -25,12 +25,12 @@
 
 ## 主要能力
 
-安装完成并进入图形登录会话后，一次性后台任务会用 `open -g` 启动同一个 RIMES 进程，因此 Buffer、Clipboard History、Mailbox 与 Capsule 的全局快捷键可跨输入法使用。开发安装原子发布当前用户任务；发布包在替换系统 payload 前会审计全部本机普通账户，除可由 postinstall 退休的当前 GUI 用户开发版外，发现同 ID 开发版 App/任务或无法安全核验的 home 就直接失败。postinstall 退休开发版、再次审计后，才以可回滚事务更新系统任务；登录 guard 对后来出现的开发版痕迹只作防御性短路。两种任务都不设 `KeepAlive`，也不会启动第二个 UI/IME 服务。Mailbox 与 Capsule 是正常取得键盘焦点的管理窗口；这些周边功能在其他输入法下不会访问 IMK 客户端、主动切换输入源，也不会读取、提交或取消外部输入法的组字；唯一的按键注入是 Capsule 激活时可选的一次 `⌘V`（见下方 Capsule 底栏）。设置窗口仍只在当前输入源为 RIMES 时打开，其中 Mailbox 与 Capsule 页面只展示配置和状态，实际会话与内容管理留在各自独立窗口。
+安装完成并进入图形登录会话后，一次性后台任务会用 `open -g` 启动同一个 RIMES 进程，因此 Buffer、Clipboard History、Mailbox 与 Capsule 的全局快捷键可跨输入法使用。开发安装原子发布当前用户任务；发布包在替换系统 payload 前会审计全部本机普通账户，除可由 postinstall 退休的当前 GUI 用户开发版外，发现同 ID 开发版 App/任务或无法安全核验的 home 就直接失败。postinstall 退休开发版、再次审计后，才以可回滚事务更新系统任务；登录 guard 对后来出现的开发版痕迹只作防御性短路。两种任务都不设 `KeepAlive`，也不会启动第二个 UI/IME 服务。Mailbox 与 Capsule 是正常取得键盘焦点的管理窗口。在其他输入法下用快捷键（或 Mailbox 通知）唤出任一周边功能时，RIMES 会先把自己切换为当前输入法再打开它，保证功能完整；关闭时不会切回，你之后自行切到其他输入法也不会被撤销，此时周边按下文描述降级。周边功能不会访问其他输入法的 IMK 客户端，也不会读取、提交或取消外部输入法的组字；唯一的按键注入是 Capsule 激活时可选的一次 `⌘V`（见下方 Capsule 底栏）。设置的快捷键同样跨输入法可用，其中 Mailbox 与 Capsule 页面只展示配置和状态，实际会话与内容管理留在各自独立窗口。
 
 | 能力 | 说明 |
 |---|---|
 | 输入方案 | 雾凇全拼、自然码双拼、小鹤双拼、五笔 86、英文；可选并击扩展 |
-| 缓冲工作台 | `⌘⇧B` 开关；RIMES 输入源下可捕获并分块投递，其他输入源下只允许显式从系统剪贴板导入或把结果复制到剪贴板，不访问 IMK 投递通道 |
+| 缓冲工作台 | `⌘⇧B` 开关，在其他输入法下唤出时先切换到 RIMES；RIMES 输入源下可捕获并分块投递，之后若自行切到其他输入源，则只允许显式从系统剪贴板导入或把结果复制到剪贴板，不访问 IMK 投递通道 |
 | Capsule 底栏 | 原 Clipboard History，与 Buffer 同级；`⌘⇧V` 跨输入法打开屏幕底部独立窗口。头部标签在「最近」（剪贴板历史）与只读的笔记、图片、PDF、技能、密码之间切换，`⌘S` 把「最近」中所选卡片收入 Capsule，齿轮与卡片悬停画笔打开 Capsule 管理。收录开启且无安全保护时在后台保存文本、链接、图片、文件与颜色，原始表示只落本机私有数据库。单击只选择，双击、Return 或 `⌘1`–`⌘9` 激活；没有精确目标或使用其他输入法时，内容先无损恢复到系统剪贴板、提升到历史首位并静默关闭，再由 RIMES 合成一次 `⌘V` 粘贴到目标 App。这一步需要你在「设置 › 权限」中授予辅助功能：未授权时只恢复到剪贴板，由你自行按 `⌘V`；也可以在设置中改为「只放入剪贴板」。粘贴路径本身从不弹出授权对话框，也不会右键或注入其他按键；`⌘C` 仍只复制所选内容 |
 | Mailbox | 与 Buffer 同级；`⌘⇧M` 跨输入法打开/关闭正常 key window，独立保存 AI 会话、备注与待审核外部推送。窗口内可“新建对话”并选择已配置的连接器/模型；CLI 只使用各自默认模型，OpenAI 使用本机配置模型，选择只绑定新会话且不改全局设置。草稿不创建空会话，首次 Return 才创建会话并发起生成 |
 | Capsule 管理 | 从底栏齿轮或卡片画笔打开，外观是底栏向上长高，齿轮或 Esc 返回底栏；逐条维护五类内容并预览、复制图片/PDF/文件。查看 Password 明文前须按顺序完成四组原生物理键并击；默认 `RH / WO / CVN / QU`，四个槽位显示进度，成功后最多展示 15 秒。更换或恢复口令都先验证当前口令；自定义原码不落盘、不进 iCloud，只保存单个本机加盐摘要凭据。可选择 iCloud Drive 文件夹自动双向同步六类普通条目与媒体资产，Password、Skill 路径、查看口令及主密钥保持本机 |
@@ -46,10 +46,16 @@
 
 | 插件 | ID | 版本 | 默认安装 | 默认状态 |
 |---|---|---:|---|---|
-| AI 生成 | `builtin.ai-text` | 2.1 | 随 RIMES 预装 | 启用 |
-| 实时翻译 | `builtin.apple-translation` | 2.1 | 随 RIMES 预装 | 启用 |
+| ChatGPT | `builtin.codex-cli` | 1.1 | 随 RIMES 预装 | 启用 |
+| Claude | `builtin.claude-code-cli` | 1.1 | 随 RIMES 预装 | 启用 |
+| AI API | `builtin.openai-compatible` | 1.0 | 随 RIMES 预装 | 启用 |
+| Reference | `builtin.scholay` | 0.1 | 随 RIMES 预装 | 启用 |
+| Polisher | `builtin.polisher` | 0.1 | 随 RIMES 预装 | 启用 |
+| LaTeX | `builtin.latex` | 0.1 | 随 RIMES 预装 | 启用 |
+| 实时翻译 | `builtin.apple-translation` | 2.2 | 随 RIMES 预装 | 启用 |
 | 意识流输入 | `builtin.stream-input` | 1.4 | 随 RIMES 预装 | 启用 |
 | 电音演奏 | `builtin.music` | 0.2.3 | 随 RIMES 预装 | 启用 |
+| 摩斯电码 | `builtin.morse` | 0.1.0 | 随 RIMES 预装 | 启用 |
 
 表中插件均随 RIMES 预装，并在全新安装后默认启用。
 <!-- END PRESET BUFFER PLUGINS -->
@@ -217,13 +223,5 @@ Pre-release，不进入自动更新。Windows/Linux `platform-preview-vX.Y.Z` �
 RIMES 自有代码采用 [MIT License](LICENSE)。随包 Rime 方案、词库和 Lua/OpenCC 数据
 保留各自的 GPL/LGPL/CC 许可与署名；完整边界见
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 `rime-data/licenses/`。
-
-## 赞助
-
-如果 RIMES 对你有帮助，欢迎微信扫码赞助（催更）：
-
-<p align="center">
-  <img src="images/sponsor-wechat.png" alt="微信赞助二维码" width="280">
-</p>
 
 Capsule 捕获、图像编辑和录屏的使用说明、存储约定与验收状态见 [CAPTURE.md](CAPTURE.md)。

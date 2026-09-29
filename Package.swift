@@ -36,7 +36,11 @@ let package = Package(
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
             ],
             path: "Sources/RimeBuffer",
-            resources: [.copy("Resources/Music")],
+            resources: [
+                .copy("Resources/Music"),
+                .copy("Resources/PluginIcons"),
+                .copy("Resources/Skills"),
+            ],
             linkerSettings: [
                 .linkedFramework("InputMethodKit"),
                 .linkedFramework("Cocoa"),

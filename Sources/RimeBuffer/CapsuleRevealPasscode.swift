@@ -210,6 +210,8 @@ final class CapsuleRevealChordCaptureView: NSView {
         }
     }
     private let compact: Bool
+    private let railPresentation: Bool
+    var displayedStep = 1 { didSet { needsDisplay = true } }
     var onChord: ((CapsuleRevealChord) -> Void)?
     /// Presentation receives progress only, never the actual key combination.
     var onProgress: ((Bool) -> Void)?
@@ -226,12 +228,13 @@ final class CapsuleRevealChordCaptureView: NSView {
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    init(compact: Bool = false) {
+    init(compact: Bool = false, railPresentation: Bool = false) {
         self.compact = compact
+        self.railPresentation = railPresentation
         super.init(frame: .zero)
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(equalToConstant: compact ? 30 : 54).isActive = true
+        heightAnchor.constraint(equalToConstant: railPresentation ? 40 : (compact ? 30 : 54)).isActive = true
         setAccessibilityLabel("并击口令输入区")
         setAccessibilityHelp("按顺序输入现有口令，每组字母全部松开后继续；输错可直接重试")
     }
@@ -327,6 +330,26 @@ final class CapsuleRevealChordCaptureView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        if railPresentation {
+            let message = feedback == .input
+                ? "正在输入第 \(displayedStep) 组"
+                : "键盘已就绪 · 请按第 \(displayedStep) 组"
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: RimeUI.textSecondary,
+            ]
+            ("⌨" as NSString).draw(
+                in: NSRect(x: 2, y: (bounds.height - 16) / 2,
+                           width: 21, height: 16),
+                withAttributes: attributes
+            )
+            (message as NSString).draw(
+                in: NSRect(x: 31, y: (bounds.height - 16) / 2,
+                           width: max(0, bounds.width - 34), height: 16),
+                withAttributes: attributes
+            )
+            return
+        }
         let rect = bounds.insetBy(dx: 1, dy: 1)
         let path = NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7)
         RimeUI.surface3.setFill()
@@ -376,28 +399,52 @@ final class CapsuleRevealChordCaptureView: NSView {
 
 private final class CapsuleRevealPasscodeSlotsView: NSStackView {
     private let labels: [NSTextField]
+    private let railBoxes: [NSView]
+    private let railPresentation: Bool
 
-    init(compact: Bool = false) {
+    init(compact: Bool = false, railPresentation: Bool = false) {
+        self.railPresentation = railPresentation
         labels = (0..<CapsuleRevealPasscode.slotCount).map { index in
             let label = NSTextField(labelWithString: "\(index + 1)")
             label.identifier = NSUserInterfaceItemIdentifier("capsule-passcode-slot-\(index + 1)")
             label.alignment = .center
             label.font = NSFont.monospacedSystemFont(ofSize: 15, weight: .semibold)
-            label.wantsLayer = true
-            label.layer?.cornerRadius = 7
-            label.layer?.borderWidth = 1
             label.translatesAutoresizingMaskIntoConstraints = false
-            label.widthAnchor.constraint(greaterThanOrEqualToConstant: compact ? 24 : 62).isActive = true
-            label.heightAnchor.constraint(equalToConstant: compact ? 23 : 42).isActive = true
+            if !railPresentation {
+                label.wantsLayer = true
+                label.drawsBackground = true
+                label.layer?.cornerRadius = 7
+                label.layer?.borderWidth = 1
+                label.widthAnchor.constraint(greaterThanOrEqualToConstant:
+                    compact ? 24 : 62).isActive = true
+                label.heightAnchor.constraint(equalToConstant:
+                    compact ? 23 : 42).isActive = true
+            }
             return label
         }
+        railBoxes = railPresentation ? labels.map { label in
+            let box = NSView()
+            box.wantsLayer = true
+            box.layer?.cornerRadius = 9
+            box.layer?.borderWidth = 1
+            box.translatesAutoresizingMaskIntoConstraints = false
+            box.addSubview(label)
+            NSLayoutConstraint.activate([
+                box.widthAnchor.constraint(greaterThanOrEqualToConstant: 72),
+                box.heightAnchor.constraint(equalToConstant: 42),
+                label.centerXAnchor.constraint(equalTo: box.centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+            ])
+            return box
+        } : []
         super.init(frame: .zero)
         orientation = .horizontal
         alignment = .centerY
         distribution = .fillEqually
-        spacing = 8
+        spacing = railPresentation ? 12 : 8
         translatesAutoresizingMaskIntoConstraints = false
-        labels.forEach(addArrangedSubview)
+        if railPresentation { railBoxes.forEach(addArrangedSubview) }
+        else { labels.forEach(addArrangedSubview) }
         update(completed: 0, active: false)
     }
 
@@ -411,13 +458,26 @@ private final class CapsuleRevealPasscodeSlotsView: NSStackView {
         active: Bool
     ) {
         for (index, label) in labels.enumerated() {
-            label.layer?.borderColor = (index == min(completed, labels.count - 1)
-                ? RimeUI.accentGreen
-                : RimeUI.border).cgColor
-            label.backgroundColor = RimeUI.surface3
-            label.textColor = RimeUI.textPrimary
+            let current = index == min(completed, labels.count - 1)
+            let surface: NSView = railPresentation ? railBoxes[index] : label
+            surface.layer?.borderColor = (current
+                ? (railPresentation ? NSColor.systemGreen : RimeUI.accentGreen)
+                : railPresentation && index < completed
+                    ? NSColor.systemGreen.withAlphaComponent(0.35)
+                    : RimeUI.border).cgColor
+            if railPresentation {
+                surface.layer?.backgroundColor = (index < completed
+                    ? NSColor.systemGreen.withAlphaComponent(0.08)
+                    : RimeUI.surface3).cgColor
+            } else {
+                label.backgroundColor = RimeUI.surface3
+            }
+            label.textColor = railPresentation
+                ? (index < completed ? NSColor.systemGreen
+                   : current ? RimeUI.textPrimary : RimeUI.textMuted)
+                : RimeUI.textPrimary
             if index < completed {
-                label.stringValue = "●"
+                label.stringValue = railPresentation ? "✓" : "●"
                 label.setAccessibilityLabel("口令槽位 \(index + 1)，已输入")
             } else if index == completed, active {
                 label.stringValue = "●"
@@ -436,14 +496,53 @@ final class CapsuleInlinePasscodeView: NSView {
     var onVerified: (() -> Void)?
     var onCancel: (() -> Void)?
     private let store: CapsuleRevealPasscodeStore
-    let capture = CapsuleRevealChordCaptureView(compact: true)
-    private let slots = CapsuleRevealPasscodeSlotsView(compact: true)
+    private let railPresentation: Bool
+    let capture: CapsuleRevealChordCaptureView
+    private let slots: CapsuleRevealPasscodeSlotsView
+    private var railErrorLabel: NSTextField?
     private var attempt = CapsuleRevealPasscodeAttempt()
     private var completed = false
 
-    init(store: CapsuleRevealPasscodeStore) {
+    init(store: CapsuleRevealPasscodeStore, railPresentation: Bool = false) {
         self.store = store
+        self.railPresentation = railPresentation
+        capture = CapsuleRevealChordCaptureView(compact: true,
+                                                 railPresentation: railPresentation)
+        slots = CapsuleRevealPasscodeSlotsView(compact: true,
+                                                railPresentation: railPresentation)
         super.init(frame: .zero)
+        if railPresentation { configureRailPresentation() }
+        else { configureCompactPresentation() }
+        capture.feedback = .idle
+        capture.onProgress = { [weak self] active in
+            guard let self, !self.completed else { return }
+            self.slots.update(completed: self.attempt.chords.count, active: active)
+            if active {
+                self.capture.feedback = .input
+            } else if self.capture.feedback == .input {
+                // A released group is recorded in the slots. The input area
+                // waits for the next group, preserving terminal error feedback.
+                self.capture.feedback = .idle
+            }
+            self.refreshRailPresentation()
+        }
+        capture.onChord = { [weak self] chord in self?.accept(chord) }
+        capture.onInvalidChord = { [weak self] in
+            guard let self, !self.completed else { return }
+            self.attempt.reset()
+            self.slots.update(completed: 0, active: false)
+            self.capture.feedback = .failure
+            self.refreshRailPresentation()
+        }
+        capture.onCancel = { [weak self] in self?.reset(); self?.onCancel?() }
+        capture.onFocusLost = { [weak self] in
+            guard let self, !self.completed else { return }
+            self.reset()
+        }
+        refreshRailPresentation()
+    }
+
+    private func configureCompactPresentation() {
         let input = NSStackView(views: [slots, capture])
         input.orientation = .vertical
         input.alignment = .leading
@@ -458,38 +557,107 @@ final class CapsuleInlinePasscodeView: NSView {
             capture.widthAnchor.constraint(equalTo: input.widthAnchor),
             heightAnchor.constraint(greaterThanOrEqualToConstant: 70),
         ])
-        capture.feedback = .idle
-        capture.onProgress = { [weak self] active in
-            guard let self, !self.completed else { return }
-            self.slots.update(completed: self.attempt.chords.count, active: active)
-            if active {
-                self.capture.feedback = .input
-            } else if self.capture.feedback == .input {
-                // A released group is recorded in the slots. The input area
-                // waits for the next group, preserving terminal error feedback.
-                self.capture.feedback = .idle
-            }
+    }
+
+    private func configureRailPresentation() {
+        let module = NSView()
+        module.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(module)
+
+        let heading = NSTextField(labelWithString: "验证查看口令")
+        heading.font = .systemFont(ofSize: 13, weight: .semibold)
+        heading.textColor = RimeUI.textPrimary
+        let explanation = NSTextField(labelWithString:
+            "依次按四组并击键 · Esc 返回")
+        explanation.font = .systemFont(ofSize: 10)
+        explanation.textColor = RimeUI.textSecondary
+        let error = NSTextField(labelWithString:
+            "口令不匹配，已清空，请从第 1 组重新输入")
+        error.font = .systemFont(ofSize: 11, weight: .medium)
+        error.textColor = NSColor.systemRed.withAlphaComponent(0.88)
+        error.isHidden = true
+        railErrorLabel = error
+        let statusBar = NSView()
+        statusBar.identifier = NSUserInterfaceItemIdentifier("capsule-passcode-status-bar")
+        statusBar.wantsLayer = true
+        statusBar.layer?.cornerRadius = 7
+        statusBar.layer?.backgroundColor = RimeUI.surface3.cgColor
+        statusBar.layer?.borderWidth = 1
+        statusBar.layer?.borderColor = RimeUI.border.cgColor
+        let restart = RimePointingHandButton(title: "重新输入", target: self,
+                                               action: #selector(restartPressed))
+        restart.identifier = NSUserInterfaceItemIdentifier("capsule-passcode-restart")
+        restart.isBordered = false
+        restart.font = .systemFont(ofSize: 11, weight: .medium)
+        restart.contentTintColor = RimeUI.brandYellow
+        restart.setAccessibilityLabel("重新输入四组口令")
+        for view in [heading, explanation, slots, error, statusBar] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            module.addSubview(view)
         }
-        capture.onChord = { [weak self] chord in self?.accept(chord) }
-        capture.onInvalidChord = { [weak self] in
-            guard let self, !self.completed else { return }
-            self.attempt.reset()
-            self.slots.update(completed: 0, active: false)
-            self.capture.feedback = .failure
-        }
-        capture.onCancel = { [weak self] in self?.reset(); self?.onCancel?() }
-        capture.onFocusLost = { [weak self] in
-            guard let self, !self.completed else { return }
-            self.reset()
-        }
+        capture.translatesAutoresizingMaskIntoConstraints = false
+        restart.translatesAutoresizingMaskIntoConstraints = false
+        statusBar.addSubview(capture)
+        statusBar.addSubview(restart)
+        let preferredWidth = module.widthAnchor.constraint(equalToConstant: 480)
+        preferredWidth.priority = .defaultHigh
+        let preferredSlotsWidth = slots.widthAnchor.constraint(equalToConstant: 360)
+        preferredSlotsWidth.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            module.centerXAnchor.constraint(equalTo: centerXAnchor),
+            module.centerYAnchor.constraint(equalTo: centerYAnchor),
+            module.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -24),
+            preferredWidth,
+
+            heading.leadingAnchor.constraint(equalTo: slots.leadingAnchor),
+            heading.topAnchor.constraint(equalTo: module.topAnchor),
+            heading.heightAnchor.constraint(equalToConstant: 16),
+            explanation.leadingAnchor.constraint(equalTo: heading.trailingAnchor, constant: 10),
+            explanation.trailingAnchor.constraint(lessThanOrEqualTo: module.trailingAnchor),
+            explanation.centerYAnchor.constraint(equalTo: heading.centerYAnchor),
+            slots.centerXAnchor.constraint(equalTo: module.centerXAnchor),
+            slots.topAnchor.constraint(equalTo: heading.bottomAnchor, constant: 6),
+            slots.widthAnchor.constraint(lessThanOrEqualTo: module.widthAnchor),
+            preferredSlotsWidth,
+            error.leadingAnchor.constraint(equalTo: slots.leadingAnchor),
+            error.topAnchor.constraint(equalTo: slots.bottomAnchor, constant: 3),
+            error.heightAnchor.constraint(equalToConstant: 14),
+            statusBar.leadingAnchor.constraint(equalTo: module.leadingAnchor),
+            statusBar.trailingAnchor.constraint(equalTo: module.trailingAnchor),
+            statusBar.topAnchor.constraint(equalTo: error.bottomAnchor, constant: 3),
+            statusBar.heightAnchor.constraint(equalToConstant: 30),
+            capture.leadingAnchor.constraint(equalTo: statusBar.leadingAnchor, constant: 10),
+            capture.trailingAnchor.constraint(equalTo: restart.leadingAnchor, constant: -8),
+            capture.topAnchor.constraint(equalTo: statusBar.topAnchor),
+            capture.bottomAnchor.constraint(equalTo: statusBar.bottomAnchor),
+            restart.trailingAnchor.constraint(equalTo: statusBar.trailingAnchor, constant: -10),
+            restart.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
+            restart.widthAnchor.constraint(equalToConstant: 76),
+            statusBar.bottomAnchor.constraint(equalTo: module.bottomAnchor),
+        ])
+    }
+
+    private func refreshRailPresentation() {
+        guard railPresentation else { return }
+        capture.displayedStep = min(attempt.chords.count + 1,
+                                    CapsuleRevealPasscode.slotCount)
+        railErrorLabel?.isHidden = capture.feedback != .failure
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var intrinsicContentSize: NSSize { NSSize(width: 160, height: 70) }
+    override var intrinsicContentSize: NSSize {
+        railPresentation ? NSSize(width: 480, height: 114)
+            : NSSize(width: 160, height: 70)
+    }
 
     func focus() { window?.makeFirstResponder(capture) }
+
+    @objc private func restartPressed() {
+        reset()
+        focus()
+    }
 
     func reset() {
         completed = false
@@ -497,23 +665,28 @@ final class CapsuleInlinePasscodeView: NSView {
         capture.reset()
         capture.feedback = .idle
         slots.update(completed: 0, active: false)
+        refreshRailPresentation()
     }
 
     private func accept(_ chord: CapsuleRevealChord) {
         guard !completed else { return }
         let passcode = attempt.append(chord)
         slots.update(completed: attempt.chords.count, active: false)
+        refreshRailPresentation()
         guard let passcode else { return }
         attempt.reset()
         guard store.matches(passcode) else {
             slots.update(completed: 0, active: false)
             capture.feedback = .failure
+            refreshRailPresentation()
             return
         }
         completed = true
         capture.feedback = .success
         onVerified?()
     }
+
+    var railErrorVisibleForSmoke: Bool { railErrorLabel?.isHidden == false }
 }
 
 final class CapsuleRevealPasscodeChallengeController: NSObject, NSWindowDelegate {

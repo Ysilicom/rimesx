@@ -94,6 +94,7 @@ enum CaptureScrollMatcher {
 final class CaptureScrollSession {
     private let target: CaptureTarget
     private let content: SCShareableContent
+    private let excludedWindows: () -> Set<CGWindowID>
     private let completed: (CGImage,Bool) -> Void
     private let panel = CapturePanel(size: NSSize(width: 330,height: 300))
     private let axis = NSPopUpButton()
@@ -114,9 +115,12 @@ final class CaptureScrollSession {
     private var sourceApplication: NSRunningApplication?
     private let queue = DispatchQueue(label:"RIMES.Capture.stitch",qos:.userInitiated)
 
-    init(target:CaptureTarget, content:SCShareableContent, sourceApplication: NSRunningApplication?, completed:@escaping(CGImage,Bool)->Void) {
+    init(target:CaptureTarget, content:SCShareableContent, sourceApplication: NSRunningApplication?,
+         excludedWindows:@escaping()->Set<CGWindowID>, completed:@escaping(CGImage,Bool)->Void) {
         self.target = target; self.content = content; self.completed = completed
+        self.excludedWindows = excludedWindows
         self.sourceApplication = sourceApplication
+        panel.excludedFromCapture = true
         axis.addItems(withTitles:["纵向","横向"])
         preview.imageScaling = .scaleProportionallyUpOrDown
         preview.heightAnchor.constraint(equalToConstant:150).isActive = true
@@ -141,11 +145,15 @@ final class CaptureScrollSession {
         do { try CaptureStore.ensureDirectory(dir); folder = dir } catch { CaptureUI.error(error); return }
         // Return focus to the content while this passive control stays visible.
         sourceApplication?.activate(options: [.activateIgnoringOtherApps])
+        // This panel and the result cards appeared after the capture's
+        // content snapshot; re-read it so they can be excluded from frames.
+        let chrome = excludedWindows()
         task = Task { [weak self] in
             guard let self else { return }
+            let content = (try? await CaptureEngine.content()) ?? self.content
             while !Task.isCancelled, self.running {
                 do {
-                    let image = try await CaptureEngine.image(self.target,content:self.content)
+                    let image = try await CaptureEngine.image(self.target,content:content,excluding:chrome)
                     let prior = self.previous, selectedAxis = self.selectedAxis, count = self.tiles.count
                     let result: CaptureScrollMatch = await withCheckedContinuation { continuation in
                         self.queue.async { continuation.resume(returning:prior.map { CaptureScrollMatcher.match($0,image,axis:selectedAxis) } ?? .advance(selectedAxis == .vertical ? image.height : image.width)) }

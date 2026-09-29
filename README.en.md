@@ -25,12 +25,12 @@ Nothing auto-posts, and nothing silently edits the web page. Built for writing, 
 
 ## Highlights
 
-After installation and an Aqua login, a one-shot background job uses `open -g` to start the same RIMES process. Buffer, Clipboard History, Mailbox, and Capsule shortcuts therefore work regardless of the active input source. A development install atomically publishes a per-user job. Before replacing the system payload, the package audits every ordinary local account and fails closed on any same-ID development app/job except a verified current-GUI-user install that postinstall can retire, or when a home cannot be checked safely. Postinstall retires that development install, audits again, and only then updates the system job as a rollback-capable transaction; the login guard's check for development artifacts is only a later defensive stop. Neither job has a `KeepAlive` policy or starts a second UI/IME service. Mailbox and Capsule are ordinary key windows. Under another IME, these companion features never access an IMK client, switch the input source, or read, commit, or cancel that IME's composition. The one keystroke they can inject is the optional single `⌘V` that Capsule activation sends (see the Capsule rail below). Settings remains available only while a RIMES input source is active; its Mailbox and Capsule pages show configuration and status only, while actual conversations and records stay in their standalone windows.
+After installation and an Aqua login, a one-shot background job uses `open -g` to start the same RIMES process. Buffer, Clipboard History, Mailbox, and Capsule shortcuts therefore work regardless of the active input source. A development install atomically publishes a per-user job. Before replacing the system payload, the package audits every ordinary local account and fails closed on any same-ID development app/job except a verified current-GUI-user install that postinstall can retire, or when a home cannot be checked safely. Postinstall retires that development install, audits again, and only then updates the system job as a rollback-capable transaction; the login guard's check for development artifacts is only a later defensive stop. Neither job has a `KeepAlive` policy or starts a second UI/IME service. Mailbox and Capsule are ordinary key windows. Calling up any companion feature by its shortcut (or a Mailbox notification) under another IME first switches the input source to RIMES, so the feature opens with its full behavior. Closing it never switches back, and if you later switch to another IME yourself, RIMES leaves that choice alone and the feature falls back as described below. These features never access another IME's IMK client or read, commit, or cancel its composition. The one keystroke they can inject is the optional single `⌘V` that Capsule activation sends (see the Capsule rail below). The Settings shortcut also works under any input source; its Mailbox and Capsule pages show configuration and status only, while actual conversations and records stay in their standalone windows.
 
 | Capability | Notes |
 |---|---|
 | Input schemes | Rime Ice full Pinyin, Natural Code and Xiaohe double Pinyin, Wubi 86, English; optional Chording extension |
-| Buffer workbench | Toggle with `⌘⇧B`; with a RIMES input source it can capture text and deliver it in chunks, while under another input source it only allows explicit system-pasteboard import and result copying and never accesses IMK delivery |
+| Buffer workbench | Toggle with `⌘⇧B`; opening it under another input source switches to RIMES first. With RIMES it can capture text and deliver it in chunks; if you then switch to another input source yourself, it only allows explicit system-pasteboard import and result copying and never accesses IMK delivery |
 | Capsule rail | Formerly Clipboard History, a peer of Buffer; `⌘⇧V` opens its standalone bottom window across input sources. Header tabs switch between Recent (the clipboard history) and read-only Notes, Images, PDFs, Skills and Passwords; `⌘S` saves the selected Recent cards into Capsule, and the gear and a card's hover brush open the Capsule manager. While capture is enabled and unprotected, it records text, links, images, files, colors, and their lossless representations in a private local database. A single click only selects; double-click, Return, or `⌘1`–`⌘9` activates. Without a precise target, or with another input source active, a record first restores its original system-pasteboard payload, moves to the front of history, and closes silently; RIMES then synthesizes one `⌘V` into the target app. That step needs Accessibility, granted under Settings › Permissions: without it the content only reaches the pasteboard and you press `⌘V` yourself, and Settings can switch activation to pasteboard-only. The paste path itself never raises a permission dialog, opens a context menu, or injects any other keystroke. `⌘C` still only copies the selection |
 | Mailbox | A peer of Buffer; `⌘⇧M` toggles its ordinary key window across input sources and retains conversations and reviews independently. “New Conversation” selects from configured connectors/models: each CLI exposes only its default model, while OpenAI uses the locally configured model. The selection is frozen per conversation without changing the global setting; the process-local draft creates no empty thread, and the first Return creates the conversation and starts generation |
 | Capsule manager | Opened from the rail's gear or a card's brush and drawn as the rail grown upward; the gear or Esc returns to the rail. It manages five local record kinds, and previews or copies images/PDFs/files. Revealing a Password requires four ordered native physical-key chords; the default is `RH / WO / CVN / QU`, four slots show progress, and plaintext is concealed after at most 15 seconds. Changing or resetting the code first requires the current credential; raw custom chords are never stored or synced, only one local salted-digest credential. An optional chosen iCloud Drive folder syncs six portable kinds and media assets while Passwords, Skill paths, the reveal credential, and the master key stay local |
@@ -46,10 +46,16 @@ This table is generated from [`Catalog/buffer-plugins.json`](Catalog/buffer-plug
 
 | Plug-in | ID | Version | Default installation | Default state |
 |---|---|---:|---|---|
-| AI Generation | `builtin.ai-text` | 2.1 | Bundled with RIMES | Enabled |
-| Real-time Translation | `builtin.apple-translation` | 2.1 | Bundled with RIMES | Enabled |
+| ChatGPT | `builtin.codex-cli` | 1.1 | Bundled with RIMES | Enabled |
+| Claude | `builtin.claude-code-cli` | 1.1 | Bundled with RIMES | Enabled |
+| AI API | `builtin.openai-compatible` | 1.0 | Bundled with RIMES | Enabled |
+| Reference | `builtin.scholay` | 0.1 | Bundled with RIMES | Enabled |
+| Polisher | `builtin.polisher` | 0.1 | Bundled with RIMES | Enabled |
+| LaTeX | `builtin.latex` | 0.1 | Bundled with RIMES | Enabled |
+| Real-time Translation | `builtin.apple-translation` | 2.2 | Bundled with RIMES | Enabled |
 | Stream of Consciousness Input | `builtin.stream-input` | 1.4 | Bundled with RIMES | Enabled |
 | Electronic Music | `builtin.music` | 0.2.3 | Bundled with RIMES | Enabled |
+| Morse Code | `builtin.morse` | 0.1.0 | Bundled with RIMES | Enabled |
 
 Every plug-in in the table is bundled with RIMES and enabled on a clean first run.
 <!-- END PRESET BUFFER PLUGINS -->
@@ -239,12 +245,3 @@ RIMES-authored code is released under the [MIT License](LICENSE). Bundled Rime
 schemas, dictionaries, and Lua/OpenCC data retain their GPL/LGPL/CC licenses
 and attribution; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
 `rime-data/licenses/` for the exact boundary.
-
-## Support
-
-If RIMES is useful to you, WeChat users can scan the code below to sponsor its
-continued development:
-
-<p align="center">
-  <img src="images/sponsor-wechat.png" alt="WeChat sponsorship QR code" width="280">
-</p>

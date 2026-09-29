@@ -13,6 +13,7 @@ final class CaptureResultPanel: CapturePanel {
     init(record: CaptureRecord, size: NSSize) {
         self.record = record
         super.init(size: size, key: false)
+        excludedFromCapture = true
     }
 
     func beginPreview() -> UUID {

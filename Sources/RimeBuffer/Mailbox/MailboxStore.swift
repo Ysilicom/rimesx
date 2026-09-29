@@ -119,6 +119,7 @@ final class MailboxStore {
     private static let maximumSourceFieldCharacters = 512
     private static let maximumAuthorCharacters = 128
     private static let maximumFailureCharacters = 2_048
+    private static let maximumImageBytes = 24 * 1_048_576
 
     static let shared: MailboxStore = {
         do {
@@ -627,6 +628,102 @@ final class MailboxStore {
         }
     }
 
+    /// Copies a validated PNG into Mailbox-owned storage before publishing the
+    /// durable response. A provider path is never saved in mailbox.json.
+    @discardableResult
+    func completeImageGeneration(_ handle: MailboxGenerationHandle,
+                                 response: String,
+                                 pngData: Data,
+                                 author: String? = nil) throws -> UUID {
+        let signature: [UInt8] = [137, 80, 78, 71, 13, 10, 26, 10]
+        guard pngData.count >= 24,
+              pngData.count <= Self.maximumImageBytes,
+              Array(pngData.prefix(8)) == signature else {
+            throw MailboxStoreError.invalidMessage
+        }
+        let imageDirectory = storageDirectoryURL.appendingPathComponent(
+            "images", isDirectory: true
+        )
+        try Self.ensureSharedRootDirectory(rootDirectoryURL,
+                                           fileManager: fileManager)
+        try Self.ensurePrivateDirectory(storageDirectoryURL,
+                                        fileManager: fileManager)
+        try Self.ensurePrivateDirectory(imageDirectory,
+                                        fileManager: fileManager)
+        let imageFileName = "\(UUID().uuidString).png"
+        let imageURL = imageDirectory.appendingPathComponent(imageFileName)
+        let descriptor = open(imageURL.path,
+                              O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW,
+                              S_IRUSR | S_IWUSR)
+        guard descriptor >= 0 else { throw MailboxStoreError.unreadable }
+        do {
+            try Self.writeAll(pngData, to: descriptor)
+            guard fchmod(descriptor, S_IRUSR | S_IWUSR) == 0,
+                  fsync(descriptor) == 0 else {
+                throw MailboxStoreError.unreadable
+            }
+            close(descriptor)
+        } catch {
+            close(descriptor)
+            unlink(imageURL.path)
+            throw error
+        }
+        do {
+            let now = dateProvider()
+            return try mutate(change: .completedMessage(threadID: handle.threadID)) { candidate in
+                let index = try Self.currentGenerationIndex(handle, in: candidate)
+                guard Self.messageCapacityAllows(
+                    appending: 1,
+                    to: candidate.threads[index],
+                    limits: limits,
+                    preserveActiveGenerationReservation: false
+                ) else { throw MailboxStoreError.capacityExceeded }
+                let message = MailboxMessage(
+                    role: .inbound,
+                    author: author ?? candidate.threads[index].source.displayName,
+                    body: response,
+                    imageFileName: imageFileName,
+                    createdAt: now
+                )
+                let generation = candidate.threads[index].generation!
+                candidate.threads[index].messages.append(message)
+                candidate.threads[index].generation = generation.succeeding(at: now)
+                candidate.threads[index].unread = true
+                candidate.threads[index].updatedAt = now
+                return message.id
+            }
+        } catch {
+            unlink(imageURL.path)
+            throw error
+        }
+    }
+
+    func imageURL(for message: MailboxMessage) -> URL? {
+        guard let name = message.imageFileName,
+              Self.validImageFileName(name) else { return nil }
+        let directory = storageDirectoryURL.appendingPathComponent(
+            "images", isDirectory: true
+        )
+        guard (try? Self.validatePrivateDirectory(directory)) != nil else {
+            return nil
+        }
+        let url = directory.appendingPathComponent(name)
+        var info = stat()
+        guard lstat(url.path, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFREG,
+              info.st_uid == geteuid(),
+              (info.st_mode & 0o777) == 0o600 else { return nil }
+        return url
+    }
+
+    func imageData(for message: MailboxMessage) -> Data? {
+        guard let url = imageURL(for: message) else { return nil }
+        return try? Self.readPrivateFile(
+            at: url,
+            maximumBytes: Self.maximumImageBytes
+        )
+    }
+
     func failGeneration(_ handle: MailboxGenerationHandle,
                         message: String) throws {
         let now = dateProvider()
@@ -748,6 +845,7 @@ final class MailboxStore {
     }
 
     func deleteThread(id: UUID) throws {
+        let images = thread(id: id)?.messages.compactMap(\.imageFileName) ?? []
         try mutate { candidate in
             guard let index = candidate.threads.firstIndex(
                 where: { $0.id == id }
@@ -756,13 +854,30 @@ final class MailboxStore {
             }
             candidate.threads.remove(at: index)
         }
+        removeImages(named: images)
     }
 
     /// Removes all Mailbox conversations but preserves the monotonic sequence
     /// counter so a deleted #03 is never silently reused as a different thread.
     func deleteAllThreads() throws {
+        let images = snapshot.threads.flatMap {
+            $0.messages.compactMap(\.imageFileName)
+        }
         try mutate { candidate in
             candidate.threads.removeAll(keepingCapacity: false)
+        }
+        removeImages(named: images)
+    }
+
+    private func removeImages(named names: [String]) {
+        let directory = storageDirectoryURL.appendingPathComponent(
+            "images", isDirectory: true
+        )
+        guard (try? Self.validatePrivateDirectory(directory)) != nil else {
+            return
+        }
+        for name in names where Self.validImageFileName(name) {
+            unlink(directory.appendingPathComponent(name).path)
         }
     }
 
@@ -1065,6 +1180,7 @@ final class MailboxStore {
                                 maximum: limits.maximumMessageCharacters),
               validOptionalText(message.author,
                                 maximum: maximumAuthorCharacters),
+              message.imageFileName.map(validImageFileName) ?? true,
               validDate(message.createdAt) else {
             return false
         }
@@ -1076,6 +1192,11 @@ final class MailboxStore {
         case .status:
             return message.role == .system
         }
+    }
+
+    private static func validImageFileName(_ name: String) -> Bool {
+        guard name.hasSuffix(".png") else { return false }
+        return UUID(uuidString: String(name.dropLast(4))) != nil
     }
 
     /// A generating thread owns one future durable assistant slot. Every

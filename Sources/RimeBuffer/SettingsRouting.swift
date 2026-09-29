@@ -65,6 +65,7 @@ enum SettingsCoreRoute: String, CaseIterable, Codable {
 enum PluginManagementSubpage: String, CaseIterable, Codable {
     case all = "all"
     case bufferPlugins = "buffer-plugins"
+    case capsulePlugins = "capsule-plugins"
     case builtInExtensions = "built-in-extensions"
 
     var id: SettingsSubpageID { SettingsSubpageID(rawValue: rawValue) }
@@ -73,6 +74,7 @@ enum PluginManagementSubpage: String, CaseIterable, Codable {
         switch self {
         case .all: return "全部"
         case .bufferPlugins: return "缓冲插件"
+        case .capsulePlugins: return "Capsule 插件"
         case .builtInExtensions: return "内置扩展"
         }
     }

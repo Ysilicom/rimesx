@@ -57,7 +57,14 @@ final class CaptureHistoryView: NSView {
     private var filtered: [CaptureRecord] {
         guard !protected else { return [] }
         let terms = query.split(whereSeparator: \.isWhitespace).map(String.init)
-        return Array(records.filter { r in (mediaFilter == 0 || (mediaFilter == 1 ? r.kind != .video : r.kind == .video)) && terms.allSatisfy { (r.title+" "+r.kind.label+" "+r.source+" "+r.text).localizedCaseInsensitiveContains($0) } }.prefix(200))
+        return Array(records.filter { r in
+            let isVideo = r.kind == .video || r.kind == .gif
+            return (mediaFilter == 0 || (mediaFilter == 1 ? !isVideo : isVideo))
+                && terms.allSatisfy {
+                    (r.title + " " + r.kind.label + " " + r.source + " " + r.text)
+                        .localizedCaseInsensitiveContains($0)
+                }
+        }.prefix(200))
     }
     private func render() {
         stack.arrangedSubviews.forEach { stack.removeArrangedSubview($0); $0.removeFromSuperview() }
@@ -81,7 +88,7 @@ final class CaptureHistoryView: NSView {
                         guard self?.protected == false else { return }
                         CaptureCoordinator.shared.edit(record)
                     }),
-                    (record.collectionID == nil ? "迁移到\(record.kind.capsuleKind.tabLabel)" : "迁移（已在对应分类）",
+                    (record.collectionID == nil ? "收藏到 Capsule" : "已收藏",
                      "arrow.right.square", record.collectionID == nil, { [weak self] in
                         guard self?.protected == false else { return }
                         CaptureCoordinator.shared.collect(record)
@@ -130,7 +137,7 @@ final class CaptureLibraryStrip: NSView, NSSearchFieldDelegate {
     init(store: CaptureStore) {
         super.init(frame: .zero)
         history.storeProvider = { store }; history.enabled = true
-        filter.addItems(withTitles: ["捕获", "图库", "影集"]); filter.target = self; filter.action = #selector(changeFilter)
+        filter.addItems(withTitles: ["全部", "图片", "视频"]); filter.target = self; filter.action = #selector(changeFilter)
         search.placeholderString = "搜索捕获内容…"; search.delegate = self
         let controls = CaptureUI.column([filter, search], spacing: 10); controls.widthAnchor.constraint(equalToConstant: 180).isActive = true
         let row = CaptureUI.row([controls, history], spacing: 14)
@@ -178,7 +185,8 @@ final class CaptureHistoryCard: NSView {
         image.widthAnchor.constraint(equalToConstant:186).isActive = true; image.heightAnchor.constraint(equalToConstant:72).isActive = true
         let title = CaptureUI.label(String(record.title.prefix(25)),size:11)
         let duration = record.kind == .video ? " · " + CaptureDuration.label(record.duration) : ""
-        let detail = CaptureUI.label(record.kind.label + duration + (record.collectionID == nil ? "" : " · 已收藏") + (record.incomplete ? " · 未完成" : ""),size:10)
+        let origin = record.source.contains("导入") ? "导入" : "捕获"
+        let detail = CaptureUI.label(origin + " · " + record.kind.label + duration + (record.collectionID == nil ? "" : " · 已收藏") + (record.incomplete ? " · 未完成" : ""),size:10)
         CaptureUI.fill(CaptureUI.column([image,title,detail],spacing:3),in:self,inset:8)
         layer?.masksToBounds = true
         more.onClick = { [weak self] in self?.showActions() }

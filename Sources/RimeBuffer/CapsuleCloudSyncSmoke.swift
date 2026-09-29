@@ -232,10 +232,16 @@ func runCapsuleCloudSyncSmokeTest() -> Bool {
             title: "Cross-device image",
             content: sourceImage.path
         ))
+        var bibliographic = CapsuleReference()
+        bibliographic.kind = .book
+        bibliographic.authors = "Ada Lovelace"
+        bibliographic.year = "1843"
+        bibliographic.publisher = "Example Press"
         let pdf = try storeA.put(CapsuleContentWriteRequest(
             type: .pdf,
             title: "Cross-device PDF",
-            content: sourcePDF.path
+            content: sourcePDF.path,
+            reference: bibliographic
         ))
         let mediaUpload = try engineA.synchronize()
         let mediaDownload = try engineB.synchronize()
@@ -256,6 +262,7 @@ func runCapsuleCloudSyncSmokeTest() -> Bool {
         ).standardizedFileURL.path + "/"
         guard downloadedImage.summary.type == .image,
               downloadedPDF.summary.type == .pdf,
+              downloadedPDF.reference == bibliographic,
               downloadedImageURL.standardizedFileURL.path
                 .hasPrefix(localBAssets),
               downloadedPDFURL.standardizedFileURL.path

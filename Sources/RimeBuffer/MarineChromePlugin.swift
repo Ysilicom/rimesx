@@ -1043,6 +1043,10 @@ final class MarineChromeWorkspace: DerivedBufferWorkspace,
     private func receive(_ event: AITextProviderEvent, for job: Job) {
         guard accepts(job) else { return }
         switch event {
+        case .imageGenerationStarted, .imageArtifactPath:
+            break
+        case .reasoningSnapshot:
+            break
         case let .activity(activity):
             let normalized = activity.message
                 .replacingOccurrences(of: "\r", with: " ")

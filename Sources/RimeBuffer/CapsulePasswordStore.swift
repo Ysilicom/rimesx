@@ -11,6 +11,10 @@ struct CapsulePasswordSecret: Codable, Equatable {
     let body: String
 }
 
+enum CapsulePasswordCategory: String, Codable, CaseIterable {
+    case login, key, other
+}
+
 /// The pre-v2 field set, retained only so existing records still open. Its
 /// values are folded into a Markdown body on read, and the entry is stored in
 /// the new shape the next time it is saved.
@@ -41,11 +45,17 @@ struct CapsulePasswordWriteRequest: Codable, Equatable {
     let id: UUID?
     let title: String
     let body: String
+    /// Plaintext, shown on the card before verification; never a secret.
+    let summaryText: String?
+    let category: CapsulePasswordCategory
 
-    init(id: UUID? = nil, title: String, body: String) {
+    init(id: UUID? = nil, title: String, body: String, summaryText: String? = nil,
+         category: CapsulePasswordCategory = .other) {
         self.id = id
         self.title = title
         self.body = body
+        self.summaryText = summaryText
+        self.category = category
     }
 
     /// Accepts the retired field set so a stored JSON payload or an older
@@ -54,6 +64,9 @@ struct CapsulePasswordWriteRequest: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(UUID.self, forKey: .id)
         title = try container.decode(String.self, forKey: .title)
+        summaryText = try container.decodeIfPresent(String.self, forKey: .summary)
+        category = try container.decodeIfPresent(CapsulePasswordCategory.self,
+            forKey: .category) ?? .other
         if let body = try container.decodeIfPresent(String.self, forKey: .body) {
             self.body = body
             return
@@ -77,10 +90,12 @@ struct CapsulePasswordWriteRequest: Codable, Equatable {
         try container.encodeIfPresent(id, forKey: .id)
         try container.encode(title, forKey: .title)
         try container.encode(body, forKey: .body)
+        try container.encodeIfPresent(summaryText, forKey: .summary)
+        try container.encode(category, forKey: .category)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, body, url, app, username, password, previousPasswords
+        case id, title, body, summary, category, url, app, username, password, previousPasswords
     }
 }
 
@@ -89,6 +104,8 @@ struct CapsulePasswordSummary: Equatable, Identifiable {
     let title: String
     let updatedAt: Date
     let fileURL: URL
+    var summaryText: String? = nil
+    var category: CapsulePasswordCategory = .other
 
     /// Fixed-width masking deliberately does not reveal password length.
     var maskedPassword: String { "••••••••" }
@@ -397,6 +414,8 @@ final class CapsulePasswordStore {
         let document = Self.markdownDocument(
             id: id,
             title: normalized.title,
+            summaryText: normalized.summaryText,
+            category: normalized.category,
             updatedAt: updatedAt,
             ciphertext: sealed.combined.base64EncodedString()
         )
@@ -417,7 +436,9 @@ final class CapsulePasswordStore {
             id: id,
             title: normalized.title,
             updatedAt: updatedAt,
-            fileURL: destination
+            fileURL: destination,
+            summaryText: normalized.summaryText,
+            category: normalized.category
         )
     }
 
@@ -456,7 +477,9 @@ final class CapsulePasswordStore {
                     id: parsed.id,
                     title: parsed.title,
                     updatedAt: parsed.updatedAt,
-                    fileURL: url
+                    fileURL: url,
+                    summaryText: parsed.summaryText,
+                    category: parsed.category
                 ),
                 secret: CapsulePasswordSecret(body: legacy.markdownBody)
             )
@@ -472,7 +495,9 @@ final class CapsulePasswordStore {
                 id: parsed.id,
                 title: parsed.title,
                 updatedAt: parsed.updatedAt,
-                fileURL: url
+                fileURL: url,
+                summaryText: parsed.summaryText,
+                category: parsed.category
             ),
             secret: secret
         )
@@ -504,6 +529,8 @@ final class CapsulePasswordStore {
         let title: String
         let updatedAt: Date
         let ciphertext: String
+        let summaryText: String?
+        let category: CapsulePasswordCategory
     }
 
     private func summariesWithoutLock() throws -> [CapsulePasswordSummary] {
@@ -543,7 +570,9 @@ final class CapsulePasswordStore {
                 id: parsed.id,
                 title: parsed.title,
                 updatedAt: parsed.updatedAt,
-                fileURL: url
+                fileURL: url,
+                summaryText: parsed.summaryText,
+                category: parsed.category
             )
         }
         .sorted {
@@ -588,33 +617,18 @@ final class CapsulePasswordStore {
         ).map(String.init)
         guard lines.count >= 10,
               lines[0] == "---",
-              let end = lines.dropFirst().firstIndex(of: "---") else {
+              let end = lines.dropFirst().firstIndex(of: "---"),
+              let header = try? CapsuleFrontMatter.parse(lines[1..<end]) else {
             throw CapsulePasswordStoreError.malformedDocument(url.path)
         }
-        var fields: [String: String] = [:]
-        for line in lines[1..<end] {
-            guard let colon = line.firstIndex(of: ":") else {
-                throw CapsulePasswordStoreError.malformedDocument(url.path)
-            }
-            let key = String(line[..<colon])
-                .trimmingCharacters(in: .whitespaces)
-            let value = String(line[line.index(after: colon)...])
-                .trimmingCharacters(in: .whitespaces)
-            guard !key.isEmpty, fields[key] == nil else {
-                throw CapsulePasswordStoreError.malformedDocument(url.path)
-            }
-            fields[key] = value
-        }
-        guard fields["capsule"] == "password",
-              fields["version"] == "1" || fields["version"] == "2",
-              let idRaw = fields["id"],
-              let titleRaw = fields["title"],
-              let updatedRaw = fields["updated_at"],
-              let id = UUID(uuidString: try Self.decodeJSONScalar(idRaw)),
-              let title = try? Self.decodeJSONScalar(titleRaw),
+        guard header.scalar("capsule") == "password",
+              header.scalar("version") == "1" || header.scalar("version") == "2",
+              let idRaw = header.scalar("id"),
+              let id = UUID(uuidString: idRaw),
+              let title = header.scalar("title"),
               !title.isEmpty,
               title.count <= Self.maximumTitleCharacters,
-              let updatedString = try? Self.decodeJSONScalar(updatedRaw),
+              let updatedString = header.scalar("updated_at"),
               let updatedAt = Self.iso8601.date(from: updatedString) else {
             throw CapsulePasswordStoreError.malformedDocument(url.path)
         }
@@ -635,7 +649,9 @@ final class CapsulePasswordStore {
             id: id,
             title: title,
             updatedAt: updatedAt,
-            ciphertext: ciphertext
+            ciphertext: ciphertext,
+            summaryText: CapsuleSummaryRules.normalized(header.scalar("summary")),
+            category: CapsulePasswordCategory(rawValue: header.scalar("category") ?? "") ?? .other
         )
     }
 
@@ -818,23 +834,34 @@ final class CapsulePasswordStore {
               !request.body.contains("\0") else {
             throw CapsulePasswordStoreError.invalidRequest("敏感信息为空或过长")
         }
+        let summaryText = CapsuleSummaryRules.normalized(request.summaryText)
+        if let summaryText,
+           CapsuleSummaryRules.leaksSecret(summary: summaryText, body: request.body) {
+            throw CapsulePasswordStoreError.invalidRequest("摘要不能包含密码等敏感字段的值")
+        }
         return CapsulePasswordWriteRequest(
             id: request.id,
             title: title,
-            body: request.body
+            body: request.body,
+            summaryText: summaryText,
+            category: request.category
         )
     }
 
     private static func markdownDocument(id: UUID,
                                          title: String,
+                                         summaryText: String? = nil,
+                                         category: CapsulePasswordCategory = .other,
                                          updatedAt: Date,
                                          ciphertext: String) -> String {
-        """
+        let summaryLine = summaryText.map { "\nsummary: \(encodeJSONScalar($0))" } ?? ""
+        let categoryLine = "\ncategory: \(encodeJSONScalar(category.rawValue))"
+        return """
         ---
         capsule: password
         version: 2
         id: \(encodeJSONScalar(id.uuidString.lowercased()))
-        title: \(encodeJSONScalar(title))
+        title: \(encodeJSONScalar(title))\(summaryLine)\(categoryLine)
         updated_at: \(encodeJSONScalar(iso8601.string(from: updatedAt)))
         ---
 

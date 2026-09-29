@@ -21,16 +21,22 @@ extension Notification.Name {
     )
 }
 
-/// The workbench exposes one AI action. The provider-specific IDs remain stable
-/// only for preference migration and source compatibility with older builds.
+/// Each AI channel is its own Buffer plug-in that sends the buffer, unchanged,
+/// to that channel alone. `builtin.ai-text` was the single AI Generation
+/// plug-in with a channel picker; it survives only to migrate a Buffer that
+/// selected it.
 enum AITextBuiltInPluginID {
     static let aiText = "builtin.ai-text"
     static let codexCLI = "builtin.codex-cli"
     static let claudeCodeCLI = "builtin.claude-code-cli"
     static let openAICompatible = "builtin.openai-compatible"
 
-    static var key: PluginKey {
+    static var retiredUnifiedKey: PluginKey {
         PluginKey(domain: .builtIn, rawID: aiText)
+    }
+
+    static func isChannelPlugin(_ key: PluginKey?) -> Bool {
+        AITextProviderKind.channelPluginKind(for: key) != nil
     }
 }
 
@@ -55,13 +61,13 @@ enum AITextProviderKind: String, CaseIterable, Codable, Hashable {
 
     var displayName: String {
         switch self {
-        case .codexCLI: return "Codex CLI"
-        case .claudeCodeCLI: return "Claude Code CLI"
+        case .codexCLI: return "ChatGPT"
+        case .claudeCodeCLI: return "Claude"
         case .openAICompatible: return "通用 Open API（OpenAI 兼容）"
         }
     }
 
-    static func legacyKind(for key: PluginKey?) -> AITextProviderKind? {
+    static func channelPluginKind(for key: PluginKey?) -> AITextProviderKind? {
         guard key?.domain == .builtIn else { return nil }
         return allCases.first { $0.pluginRawID == key?.rawID }
     }
@@ -121,6 +127,10 @@ enum AITextProviderOutputContract: Equatable {
     case alternativeGuesses
 }
 
+struct AITextImageInput: Equatable {
+    let pngData: Data
+}
+
 struct AITextProviderRequest: Equatable {
     static let maximumSupportedAlternativeGuessCount = 5
 
@@ -130,11 +140,16 @@ struct AITextProviderRequest: Equatable {
     /// Frozen at the request boundary. Nil means the provider's verified
     /// default; a connector must never re-read the workbench selector later.
     let modelID: String?
+    let reasoningEffort: String?
     /// A non-secret Provider/route snapshot captured together with the
     /// generation plan. Generic API requests must not consult the current
     /// settings selection after this point: an edited endpoint or credential
     /// must either match this revision or fail closed.
     let providerRoute: AIProviderRouteReference?
+    /// Explicit trusted package chosen for this one request. Nil keeps the
+    /// existing text-only sandbox and output path unchanged.
+    let skill: AITextSkillKind?
+    let imageInputs: [AITextImageInput]
     let outputContract: AITextProviderOutputContract
     /// Frozen by the workspace at the request boundary. Ordinary semantic
     /// block requests ignore this value and retain their existing behavior.
@@ -144,14 +159,20 @@ struct AITextProviderRequest: Equatable {
          sourceText: String,
          preparedPrompt: String? = nil,
          modelID: String? = nil,
+         reasoningEffort: String? = nil,
          providerRoute: AIProviderRouteReference? = nil,
+         skill: AITextSkillKind? = nil,
+         imageInputs: [AITextImageInput] = [],
          outputContract: AITextProviderOutputContract = .semanticBlocks,
          maximumAlternativeGuessCount: Int = 3) {
         self.requestID = requestID
         self.sourceText = sourceText
         self.preparedPrompt = preparedPrompt
         self.modelID = modelID
+        self.reasoningEffort = reasoningEffort
         self.providerRoute = providerRoute
+        self.skill = skill
+        self.imageInputs = imageInputs
         self.outputContract = outputContract
         self.maximumAlternativeGuessCount = min(
             max(maximumAlternativeGuessCount, 1),
@@ -185,6 +206,14 @@ struct AITextProviderActivity: Equatable {
 
 enum AITextProviderEvent: Equatable {
     case activity(AITextProviderActivity)
+    /// Emitted only after Codex confirms the image-generation tool has started.
+    case imageGenerationStarted
+    /// A candidate artifact from Codex's image tool. It is not complete until
+    /// the app-server turn succeeds and the host validates the file.
+    case imageArtifactPath(String)
+    /// Provider-approved reasoning summary shown only while waiting for the
+    /// first result block. It is never a deliverable output block.
+    case reasoningSnapshot(String)
     /// A complete snapshot for one logical block. Providers may update the
     /// same index repeatedly; the workspace keeps its UUID stable.
     case blockSnapshot(AITextProviderBlock)
@@ -320,8 +349,10 @@ final class AITextConnectorSelectionStore {
 /// must never launder that target-bound output into an ordinary sendable block.
 /// The existing review flow may explicitly turn it back into plain text.
 enum AITextSourcePolicy {
-    static func accepts(_ blocks: [BufferModel.Block]) -> Bool {
+    static func accepts(_ blocks: [BufferModel.Block],
+                        allowImages: Bool = false) -> Bool {
         blocks.allSatisfy { block in
+            if block.imageAttachment != nil && !allowImages { return false }
             if block.locallyReviewedAsPlainText {
                 return block.pluginMetadata == nil
             }
@@ -1762,13 +1793,14 @@ enum AITextCodexIsolation {
         return encoded
     }
 
-    static func arguments(workspaceURL: URL) -> [String] {
+    static func arguments(workspaceURL: URL,
+                          allowImageGeneration: Bool = false) -> [String] {
         // Codex 0.144 does not recognize the newer symbolic
         // `:project_roots` entry. Use the private per-request directory as the
         // sole explicit readable path so built-ins such as view_image cannot
         // inspect the user's files even if the model is prompt-injected.
         let filesystemProfile = "permissions.rimebuffer.filesystem={\":minimal\"=\"read\",\(tomlString(workspaceURL.path))=\"read\"}"
-        return [
+        var arguments = [
         "--strict-config",
         "--disable", "shell_tool",
         "--disable", "unified_exec",
@@ -1782,9 +1814,7 @@ enum AITextCodexIsolation {
         "--disable", "browser_use_external",
         "--disable", "browser_use_full_cdp_access",
         "--disable", "computer_use",
-        "--disable", "image_generation",
         "--disable", "code_mode",
-        "--disable", "code_mode_host",
         "--disable", "code_mode_only",
         "--disable", "enable_mcp_apps",
         "--disable", "memories",
@@ -1816,6 +1846,13 @@ enum AITextCodexIsolation {
         "-c", "include_collaboration_mode_instructions=false",
         "-c", "include_permissions_instructions=false",
         ]
+        // The built-in image tool runs inside Codex's code-mode host even
+        // though the model-facing code-mode tool remains disabled. Expose
+        // that host only for an explicit imagegen request.
+        arguments += allowImageGeneration
+            ? ["--enable", "code_mode_host", "--enable", "image_generation"]
+            : ["--disable", "code_mode_host", "--disable", "image_generation"]
+        return arguments
     }
 }
 
@@ -2833,9 +2870,13 @@ final class CodexCLITextProvider: AITextProvider {
         }
     }
 
-    static func appServerArguments(workspaceURL: URL) -> [String] {
+    static func appServerArguments(workspaceURL: URL,
+                                   allowImageGeneration: Bool = false) -> [String] {
         ["app-server"]
-            + AITextCodexIsolation.arguments(workspaceURL: workspaceURL)
+            + AITextCodexIsolation.arguments(
+                workspaceURL: workspaceURL,
+                allowImageGeneration: allowImageGeneration
+            )
             + ["--listen", "stdio://"]
     }
 
@@ -2889,6 +2930,37 @@ final class CodexCLITextProvider: AITextProvider {
             completion(.failure(.failed))
             return relay
         }
+        let mountedSkill: AITextMountedSkill?
+        do {
+            mountedSkill = try request.skill.map {
+                try AITextSkillMounting.mount($0,
+                                             for: .codexCLI,
+                                             in: workspaceURL)
+            }
+        } catch {
+            temporary.remove()
+            completion(.failure(.unavailable(error.localizedDescription)))
+            return relay
+        }
+        let imagePaths: [String]
+        do {
+            guard request.imageInputs.count <= 3,
+                  request.imageInputs.allSatisfy({
+                      !$0.pngData.isEmpty && $0.pngData.count <= 4 * 1_048_576
+                  }) else { throw AITextProviderError.resultTooLarge }
+            imagePaths = try request.imageInputs.enumerated().map { index, image in
+                let url = workspaceURL.appendingPathComponent("input-\(index).png")
+                try image.pngData.write(to: url, options: .atomic)
+                guard chmod(url.path, S_IRUSR | S_IWUSR) == 0 else {
+                    throw AITextProviderError.failed
+                }
+                return url.path
+            }
+        } catch {
+            temporary.remove()
+            completion(.failure(.resultTooLarge))
+            return relay
+        }
         var processEnvironment = AITextCLIExecutableLocator.sanitizedEnvironment(
             for: .codexCLI,
             executableURL: verifiedExecutable.url,
@@ -2915,14 +2987,23 @@ final class CodexCLITextProvider: AITextProvider {
         let operation = AITextCodexAppServerOperation(
             executableURL: verifiedExecutable.url,
             verifiedExecutable: verifiedExecutable,
-            arguments: Self.appServerArguments(workspaceURL: workspaceURL),
+            arguments: Self.appServerArguments(
+                workspaceURL: workspaceURL,
+                allowImageGeneration: request.skill == .imagegen
+            ),
             environment: processEnvironment,
             currentDirectoryURL: workspaceURL,
             prompt: prompt,
             outputSchema: outputSchema,
-            inferenceProfile: inferenceProfile,
-            timeout: AITextRuntimeLimits.defaultTimeout,
-            maximumOutputBytes: AITextRuntimeLimits.maximumWireBytes,
+            mountedSkill: mountedSkill,
+            imagePaths: imagePaths,
+            inferenceProfile: inferenceProfile ?? AITextCodexInferenceProfile.channel(
+                model: request.modelID,
+                effort: request.reasoningEffort
+            ),
+            timeout: request.skill == .imagegen ? 600 : AITextRuntimeLimits.defaultTimeout,
+            maximumOutputBytes: request.skill == .imagegen
+                ? 32 * 1_048_576 : AITextRuntimeLimits.maximumWireBytes,
             onEvent: onEvent,
             completion: completion,
             cleanup: { temporary.remove() }
@@ -2930,6 +3011,19 @@ final class CodexCLITextProvider: AITextProvider {
         relay.install(operation)
         operation.start()
         return relay
+    }
+}
+
+enum AITextClaudeInferenceArguments {
+    static func make(model: String?, effort: String?) -> [String] {
+        var arguments: [String] = []
+        if let model, ["claude-opus-5-5", "opus", "sonnet", "haiku"].contains(model) {
+            arguments += ["--model", model]
+        }
+        if let effort, ["low", "medium", "high", "xhigh", "max"].contains(effort) {
+            arguments += ["--effort", effort]
+        }
+        return arguments
     }
 }
 
@@ -3183,7 +3277,36 @@ final class ClaudeCodeCLITextProvider: AITextProvider {
             completion(.failure(.resultTooLarge))
             return relay
         }
-        guard let stdin = prompt.data(using: .utf8) else {
+        let stdin: Data?
+        if request.imageInputs.isEmpty {
+            stdin = prompt.data(using: .utf8)
+        } else {
+            guard request.imageInputs.count <= 3,
+                  request.imageInputs.allSatisfy({
+                      !$0.pngData.isEmpty && $0.pngData.count <= 4 * 1_048_576
+                  }) else {
+                temporary.remove()
+                completion(.failure(.resultTooLarge))
+                return relay
+            }
+            let content: [[String: Any]] = request.imageInputs.map { image in
+                ["type": "image", "source": [
+                    "type": "base64", "media_type": "image/png",
+                    "data": image.pngData.base64EncodedString(),
+                ]]
+            } + [["type": "text", "text": prompt]]
+            let envelope: [String: Any] = [
+                "type": "user",
+                "message": ["role": "user", "content": content],
+                "parent_tool_use_id": NSNull(),
+                "session_id": "default",
+            ]
+            stdin = JSONSerialization.isValidJSONObject(envelope)
+                ? (try? JSONSerialization.data(withJSONObject: envelope))
+                    .map { $0 + Data([0x0A]) }
+                : nil
+        }
+        guard let stdin else {
             completion(.failure(.failed))
             return relay
         }
@@ -3204,6 +3327,8 @@ final class ClaudeCodeCLITextProvider: AITextProvider {
             executableURL: verifiedExecutable.url,
             arguments: [
                 "--print", "--verbose", "--output-format", "stream-json",
+                ] + (request.imageInputs.isEmpty
+                    ? [] : ["--input-format", "stream-json"]) + [
                 // Claude only streams free-form text; `--json-schema` moves the
                 // structured body to the terminal result and suppresses these
                 // partial message deltas. Rime still validates the final JSON.
@@ -3211,7 +3336,10 @@ final class ClaudeCodeCLITextProvider: AITextProvider {
                 "--tools", "", "--disable-slash-commands", "--safe-mode",
                 "--strict-mcp-config", "--no-session-persistence",
                 "--permission-mode", "dontAsk", "--no-chrome",
-            ],
+            ] + AITextClaudeInferenceArguments.make(
+                model: request.modelID,
+                effort: request.reasoningEffort
+            ),
             standardInput: stdin,
             currentDirectoryURL: temporary.directoryURL,
             environment: processEnvironment,
@@ -3277,6 +3405,7 @@ enum AITextOpenAIRequestBuilder {
     static func makeRequest(configuration: OpenAICompatibleConfiguration,
                             sourceText: String,
                             preparedPrompt: String? = nil,
+                            imageInputs: [AITextImageInput] = [],
                             outputContract: AITextProviderOutputContract = .semanticBlocks,
                             maximumAlternativeGuessCount: Int = 3)
         throws -> URLRequest {
@@ -3310,6 +3439,26 @@ enum AITextOpenAIRequestBuilder {
             )
             systemPrompt = "Answer directly in non-thinking mode. Return only JSON in this shape: {\"blocks\":[{\"text\":\"...\",\"title\":null}]}. Return 1 to \(boundedMaximum) complete, mutually exclusive guesses for the entire input, ordered most likely first. Never exceed \(boundedMaximum) blocks. Respect minimumGuessCount in the user payload, capped by this request limit. Otherwise use one guess only when pronunciation and intent are both highly certain, and use additional guesses for any reasonable syllable, homophone, or semantic ambiguity. Each block must stand alone as the full intended text, never one segment of a longer answer. Alternatives must not be stylistic paraphrases. Titles must be null. Never use tools."
         }
+        guard imageInputs.count <= 3,
+              imageInputs.allSatisfy({
+                  !$0.pngData.isEmpty && $0.pngData.count <= 4 * 1_048_576
+              }) else { throw AITextProviderError.resultTooLarge }
+        let messageContent: Any
+        if imageInputs.isEmpty {
+            messageContent = userContent
+        } else {
+            var parts: [[String: Any]] = [
+                ["type": "text", "text": userContent],
+            ]
+            for image in imageInputs {
+                parts.append([
+                    "type": "image_url",
+                    "image_url": ["url": "data:image/png;base64,"
+                        + image.pngData.base64EncodedString()],
+                ])
+            }
+            messageContent = parts
+        }
         var body: [String: Any] = [
             "model": configuration.model,
             "stream": true,
@@ -3318,7 +3467,7 @@ enum AITextOpenAIRequestBuilder {
                     "role": "system",
                     "content": systemPrompt,
                 ],
-                ["role": "user", "content": userContent],
+                ["role": "user", "content": messageContent],
             ],
         ]
         if outputContract == .alternativeGuesses {
@@ -3331,7 +3480,9 @@ enum AITextOpenAIRequestBuilder {
             body["max_tokens"] = 1_024
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        guard (request.httpBody?.count ?? 0) <= AITextRuntimeLimits.maximumWireBytes else {
+        let limit = imageInputs.isEmpty
+            ? AITextRuntimeLimits.maximumWireBytes : 20 * 1_048_576
+        guard (request.httpBody?.count ?? 0) <= limit else {
             throw AITextProviderError.resultTooLarge
         }
         return request
@@ -3892,6 +4043,7 @@ final class OpenAICompatibleTextProvider: AITextProvider {
                 configuration: configuration,
                 sourceText: request.sourceText,
                 preparedPrompt: request.preparedPrompt,
+                imageInputs: request.imageInputs,
                 outputContract: request.outputContract,
                 maximumAlternativeGuessCount:
                     request.maximumAlternativeGuessCount
@@ -4034,7 +4186,6 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
     private let selectionPredicate: () -> Bool
     private let generationSelectionResolver:
         (AITextProviderKind) throws -> AITextGenerationSelection
-    private let followsConnectorSelection: Bool
     private let workspaceIdentifier: String
     private var observers: [NSObjectProtocol] = []
     private var started = false
@@ -4044,6 +4195,8 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
     private var activityTimer: Timer?
     private var activityStartedAt: TimeInterval?
     private var activityMessage: String?
+    private var transientThought: String?
+    private var hasDetailedThought = false
     private var stableIDs: [SemanticBlockKey: UUID] = [:]
     private var streamingLogicalBlocks: [Int: AITextProviderBlock] = [:]
     private var capturedSourceText = ""
@@ -4058,7 +4211,7 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
          pluginKey: PluginKey? = nil,
          generationSelectionResolver: @escaping
             (AITextProviderKind) throws -> AITextGenerationSelection = {
-                try AITextGenerationPreferenceStore.shared.requestSelection(
+                try AITextGenerationPreferenceStore.shared.channelSelection(
                     connectorKind: $0
                 )
             },
@@ -4069,10 +4222,7 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
         self.sourceModel = sourceModel
         self.generationSelectionResolver = generationSelectionResolver
         selectionPredicate = isSelected
-        followsConnectorSelection = resolvedPluginKey == AITextBuiltInPluginID.key
-        workspaceIdentifier = followsConnectorSelection
-            ? "ai-text"
-            : "ai-text-\(provider.kind.rawValue)"
+        workspaceIdentifier = "ai-text-\(provider.kind.rawValue)"
     }
 
     var isSelected: Bool { selectionPredicate() }
@@ -4084,6 +4234,8 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
     var sourceText: String { sourceModel.stagedText }
 
     var canGenerate: Bool {
+        if selectedSkill == .imagegen,
+           CodexImageGenerationCoordinator.shared.isRunning { return false }
         guard isActive,
               !sourceText.isEmpty,
               sourceText.utf8.count <= AITextRuntimeLimits.maximumSourceBytes,
@@ -4093,6 +4245,16 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
     }
 
     var statusText: String {
+        if selectedSkill == .imagegen {
+            switch CodexImageGenerationCoordinator.shared.phase {
+            case .idle: break
+            case .connecting: return "正在提交图片任务"
+            case .generating: return "图片生成中；可以关闭 Buffer"
+            case .saving: return "正在保存图片到 Mailbox"
+            case .ready: return "图片已存入 Mailbox"
+            case let .failed(message): return message
+            }
+        }
         switch phase {
         case let .unavailable(message), let .failed(message): return message
         case .idle:
@@ -4106,6 +4268,7 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
 
     /// Reuses the current workbench's source-over-target rail view contract.
     var railSnapshot: TranslationRailSnapshot {
+        if selectedSkill == .imagegen { return imageRailSnapshot }
         let railPhase: TranslationRailSnapshot.Phase
         let message: String?
         switch phase {
@@ -4131,6 +4294,8 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
             outputBlocks: outputBlocks.map { TranslationOutputBlock(id: $0.id, text: $0.text) },
             phase: railPhase,
             message: message,
+            transientThought: phase == .running && outputBlocks.isEmpty
+                ? transientThought : nil,
             targetRole: "答",
             targetEmptyText: "等待生成",
             waitingText: "等待生成",
@@ -4139,9 +4304,80 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
         )
     }
 
+    private var selectedSkill: AITextSkillKind? {
+        AITextSkillSelectionStore.shared.selected(for: kind)
+    }
+
+    private var imageRailSnapshot: TranslationRailSnapshot {
+        let state = CodexImageGenerationCoordinator.shared.phase
+        let railPhase: TranslationRailSnapshot.Phase
+        let message: String?
+        var blocks: [TranslationOutputBlock] = []
+        var rows: [TranslationOutputRow] = []
+        switch state {
+        case .idle:
+            if case let .failed(error) = phase {
+                railPhase = .failed
+                message = error
+            } else {
+                railPhase = .idle
+                message = nil
+            }
+        case .connecting:
+            railPhase = .translating
+            message = "正在向 ChatGPT 提交图片任务 · \(CodexImageGenerationCoordinator.shared.elapsedSeconds) 秒"
+        case .generating:
+            railPhase = .translating
+            message = "任务已提交 · 生成中 \(CodexImageGenerationCoordinator.shared.elapsedSeconds) 秒。可以关闭 Buffer；完成后 Mailbox 会通知你。"
+        case .saving:
+            railPhase = .translating
+            message = "图片已生成，正在保存到 Mailbox…"
+        case let .ready(threadID):
+            railPhase = .ready
+            message = nil
+            blocks = [TranslationOutputBlock(
+                id: threadID, text: "图片已生成，点击右侧按钮到 Mailbox 查看。"
+            )]
+            rows = [TranslationOutputRow(
+                key: 0, blocks: blocks, title: "生成结果",
+                action: .openMailbox(threadID)
+            )]
+        case let .failed(error):
+            railPhase = .failed
+            message = error
+        }
+        return TranslationRailSnapshot(
+            sourceText: sourceText,
+            sourceSelected: sourceModel.allContentSelected,
+            outputBlocks: blocks,
+            outputRows: rows,
+            outputRowsAreIndependent: true,
+            phase: railPhase,
+            message: message,
+            transientThought: railPhase == .translating ? message : nil,
+            targetRole: "图",
+            targetEmptyText: "等待图片",
+            waitingText: "等待生成",
+            processingText: "正在生成图片",
+            updatingText: "正在更新"
+        )
+    }
+
     func start() {
         guard !started else { return }
         started = true
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .codexImageGenerationDidChange,
+            object: CodexImageGenerationCoordinator.shared,
+            queue: .main
+        ) { [weak self] _ in self?.notifyChange() })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .aiTextSkillSelectionDidChange,
+            object: AITextSkillSelectionStore.shared,
+            queue: .main
+        ) { [weak self] _ in
+            self?.invalidate(clearOutput: true, nextPhase: .idle)
+        })
         observers.append(NotificationCenter.default.addObserver(
             forName: .bufferModelDidChange,
             object: sourceModel,
@@ -4156,7 +4392,9 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
         ) { [weak self] _ in
             self?.selectionDidChange()
         })
-        if followsConnectorSelection {
+        // The backend is fixed per plug-in. Only the API plug-in follows the
+        // account/model chosen in Connectors, which posts a connector change.
+        if kind == .openAICompatible {
             observers.append(NotificationCenter.default.addObserver(
                 forName: .aiTextConnectorDidChange,
                 object: nil,
@@ -4164,30 +4402,43 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
             ) { [weak self] _ in
                 self?.configurationDidChange()
             })
+        }
+        if kind == .codexCLI || kind == .claudeCodeCLI {
             observers.append(NotificationCenter.default.addObserver(
-                forName: .aiTextConnectorAvailabilityDidChange,
+                forName: .pluginConfigurationDidChange,
                 object: nil,
                 queue: .main
-            ) { [weak self] _ in
-                self?.availabilityDidChange()
-            })
-            observers.append(NotificationCenter.default.addObserver(
-                forName: .openAICompatibleConfigurationDidChange,
-                object: OpenAICompatibleConfigurationStore.shared,
-                queue: .main
-            ) { [weak self] _ in
-                guard self?.kind == .openAICompatible else { return }
-                self?.configurationDidChange()
-            })
-            observers.append(NotificationCenter.default.addObserver(
-                forName: .aiProviderProfilesDidChange,
-                object: AIProviderProfileCatalogStore.shared,
-                queue: .main
-            ) { [weak self] _ in
-                guard self?.kind == .openAICompatible else { return }
-                self?.configurationDidChange()
+            ) { [weak self] notification in
+                guard let self,
+                      notification.userInfo?[
+                        PluginConfigurationNotificationKey.pluginID
+                      ] as? String == self.kind.pluginRawID else { return }
+                self.configurationDidChange()
             })
         }
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .aiTextConnectorAvailabilityDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.availabilityDidChange()
+        })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .openAICompatibleConfigurationDidChange,
+            object: OpenAICompatibleConfigurationStore.shared,
+            queue: .main
+        ) { [weak self] _ in
+            guard self?.kind == .openAICompatible else { return }
+            self?.configurationDidChange()
+        })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .aiProviderProfilesDidChange,
+            object: AIProviderProfileCatalogStore.shared,
+            queue: .main
+        ) { [weak self] _ in
+            guard self?.kind == .openAICompatible else { return }
+            self?.configurationDidChange()
+        })
         selectionDidChange()
     }
 
@@ -4246,6 +4497,21 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
             notifyChange()
             return false
         }
+        if selectedSkill == .imagegen {
+            do {
+                let selection = try generationSelectionResolver(kind)
+                _ = try CodexImageGenerationCoordinator.shared.start(
+                    prompt: sourceText,
+                    modelID: selection.modelID,
+                    reasoningEffort: selection.reasoningEffort
+                )
+                return true
+            } catch {
+                phase = .failed(error.localizedDescription)
+                notifyChange()
+                return false
+            }
+        }
         let plan: AITextGenerationPlan
         do {
             let selection = try generationSelectionResolver(kind)
@@ -4277,6 +4543,8 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
         stableIDs.removeAll()
         streamingLogicalBlocks.removeAll()
         outputBlocks.removeAll()
+        transientThought = nil
+        hasDetailedThought = false
         phase = .running
         activityStartedAt = ProcessInfo.processInfo.systemUptime
         activityMessage = "正在启动 \(plan.selection.connectorKind.displayName)"
@@ -4291,6 +4559,7 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
                 sourceText: plan.sourceText,
                 preparedPrompt: plan.preparedPrompt,
                 modelID: plan.selection.modelID,
+                reasoningEffort: plan.selection.reasoningEffort,
                 providerRoute: plan.selection.providerRoute
             ),
             onEvent: { [weak self] event in
@@ -4325,10 +4594,34 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
     private func receive(_ event: AITextProviderEvent, for job: Job) {
         guard accepts(job) else { return }
         switch event {
+        case .imageGenerationStarted, .imageArtifactPath:
+            // The image skill is owned by a process-long Mailbox task, never
+            // by this close-cancelled text workspace.
+            return
         case let .activity(activity):
             let message = Self.normalizedActivityMessage(activity.message)
-            guard !message.isEmpty, activityMessage != message else { return }
-            activityMessage = message
+            var thoughtChanged = false
+            if activity.kind == .reasoning,
+               !hasDetailedThought,
+               outputBlocks.isEmpty,
+               !message.isEmpty,
+               transientThought != message {
+                transientThought = message
+                thoughtChanged = true
+            }
+            if !message.isEmpty, activityMessage != message {
+                activityMessage = message
+                thoughtChanged = true
+            }
+            guard thoughtChanged else { return }
+            notifyChange()
+        case let .reasoningSnapshot(summary):
+            guard outputBlocks.isEmpty else { return }
+            let visible = String(summary.suffix(4_096))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !visible.isEmpty, transientThought != visible else { return }
+            transientThought = visible
+            hasDetailedThought = true
             notifyChange()
         case let .blockSnapshot(block):
             guard job.format == .plain else {
@@ -4354,6 +4647,8 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
             let snapshots = makeOutputBlocks(fragments, incomplete: true)
             guard outputBlocks != snapshots else { return }
             outputBlocks = snapshots
+            transientThought = nil
+            hasDetailedThought = false
             activityMessage = "\(kind.displayName) 正在流式返回"
             notifyChange()
         }
@@ -4365,6 +4660,8 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
         stopActivityClock()
         currentTask = nil
         activeJob = nil
+        transientThought = nil
+        hasDetailedThought = false
         switch result {
         case let .failure(error):
             outputBlocks.removeAll()
@@ -4530,6 +4827,8 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
         capturedSourceBlockIDs.removeAll()
         activityStartedAt = nil
         activityMessage = nil
+        transientThought = nil
+        hasDetailedThought = false
         outputAllowsRemoteMirror = true
         if clearOutput {
             outputBlocks.removeAll()
@@ -4618,10 +4917,12 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
     var deliveryGeneration: UInt64 { generation }
 
     var hasIncompleteDeliveryBlocks: Bool {
-        isSelected && phase == .running
+        if selectedSkill == .imagegen { return false }
+        return isSelected && phase == .running
     }
 
     var deliveryPendingBlocks: [BufferModel.Block] {
+        if selectedSkill == .imagegen { return [] }
         guard isSelected,
               phase == .ready,
               sourceLeaseMatches() else { return [] }
@@ -4636,6 +4937,7 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
     }
 
     func deliveryBlock(id: UUID, generation: UInt64) -> BufferModel.Block? {
+        if selectedSkill == .imagegen { return nil }
         guard self.generation == generation,
               isSelected,
               phase == .ready,
@@ -4698,8 +5000,8 @@ final class AITextPluginWorkspace: BufferDeliveryContentSource {
 final class AITextPluginRuntimeRegistry {
     static let shared = AITextPluginRuntimeRegistry()
 
+    /// One workspace per AI task plug-in, each bound to its own backend.
     let workspaces: [AITextPluginWorkspace]
-    let workspace: AITextPluginWorkspace
     let connectorRegistry: AITextConnectorRegistry
     private let sourceModel: BufferModel
 
@@ -4725,35 +5027,38 @@ final class AITextPluginRuntimeRegistry {
             )
         }
         self.connectorRegistry = resolvedConnectorRegistry
-        workspace = AITextPluginWorkspace(
-            provider: resolvedConnectorRegistry,
-            sourceModel: sourceModel,
-            pluginKey: AITextBuiltInPluginID.key,
-            isSelected: {
-                selectionStore.isSelected(AITextBuiltInPluginID.key)
+        workspaces = AITextProviderKind.allCases.compactMap { kind in
+            guard let provider = resolvedConnectorRegistry.provider(for: kind) else {
+                return nil
             }
-        )
-        workspaces = [workspace]
+            let key = kind.pluginKey
+            return AITextPluginWorkspace(
+                provider: provider,
+                sourceModel: sourceModel,
+                pluginKey: key,
+                isSelected: { selectionStore.isSelected(key) }
+            )
+        }
     }
 
     var selectedWorkspace: AITextPluginWorkspace? {
-        workspace.isSelected ? workspace : nil
+        workspaces.first(where: \.isSelected)
     }
 
     func workspace(for kind: AITextProviderKind) -> AITextPluginWorkspace? {
-        connectorRegistry.provider(for: kind) == nil ? nil : workspace
+        workspaces.first { $0.kind == kind }
     }
 
     func workspace(for key: PluginKey) -> AITextPluginWorkspace? {
-        if key == AITextBuiltInPluginID.key { return workspace }
-        guard let legacyKind = AITextProviderKind.legacyKind(for: key),
-              connectorRegistry.provider(for: legacyKind) != nil else { return nil }
-        return workspace
+        guard let kind = AITextProviderKind.channelPluginKind(for: key) else { return nil }
+        return workspace(for: kind)
     }
 
-    func startAll() { workspace.start() }
-    func stopAll() { workspace.stop() }
-    func setProtected(_ protected: Bool) { workspace.setProtected(protected) }
+    func startAll() { workspaces.forEach { $0.start() } }
+    func stopAll() { workspaces.forEach { $0.stop() } }
+    func setProtected(_ protected: Bool) {
+        workspaces.forEach { $0.setProtected(protected) }
+    }
 
     func currentDeliverySource() -> any BufferDeliveryContentSource {
         selectedWorkspace ?? sourceModel

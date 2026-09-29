@@ -155,6 +155,9 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
     var onMigrateSaved: ((CapsuleRailEntry) -> Void)?
     var onMigrateHistory: ((ClipboardHistoryItem) -> Void)?
     var onRequestPasswordInput: (() -> Bool)?
+    /// Detail rows: insert one row into the target field (notes), or copy it.
+    var onInsertSegment: ((String) -> Bool)?
+    var onCopySegment: ((String) -> Bool)?
     var onManage: (() -> Void)?
     var onCreateSaved: ((CapsuleEntryKind) -> Void)?
     /// Recent cards: ⌘S saves the selection; the menu's Edit action opens one
@@ -168,7 +171,12 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
     var copyPassword: (String) -> Bool = { CapsulePasswordClipboard.write($0) }
     private var passwordCardID: UUID?
     private var passwordCard: CapsuleCardPasswordView?
-    var hasPasswordInteraction: Bool { passwordCard != nil }
+    /// The entry opened by a double-click, drawn over the card band.
+    private var detailView: CapsuleRailDetailView?
+    var hasPasswordInteraction: Bool {
+        passwordCard != nil || detailView?.mode == .password
+    }
+    var openDetailForSmoke: CapsuleRailDetailView? { detailView }
     private let titleLabel = NSTextField(labelWithString: "Capsule")
     private let tabStrip = CapsuleRailTabStrip()
     private let captureButton = ClipboardFirstMouseButton(title: "", target: nil, action: nil)
@@ -196,6 +204,10 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
     private let clearButton = ClipboardFirstMouseButton(title: "清空", target: nil, action: nil)
     private let closeButton = ClipboardFirstMouseButton(title: "", target: nil, action: nil)
     private let scrollView = ClipboardHistoryHorizontalScrollView()
+    /// The current module's filters, stacked on the left of the card band.
+    private let filterColumn = CapsuleRailFilterColumn()
+    private var selectedFilters: [CapsuleRailTab: CapsuleModuleFilter] = [:]
+    private var scrollViewLeading: NSLayoutConstraint!
     private let cardDocumentView = ClipboardHistoryCardDocumentView()
     private let stateContainer = NSView()
     private let stateIcon = NSImageView()
@@ -431,6 +443,9 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
     /// text-field delegate. Keep those shortcuts with the active input method
     /// while its field editor owns marked text.
     func handleStandaloneKeyEquivalent(_ event: NSEvent) -> Bool {
+        if let detailView, detailView.mode == .password, detailView.isUnlocked {
+            return detailView.handleKey(event)
+        }
         if hasPasswordInteraction {
             // Let unmodified physical key events reach the capture responder.
             // Only consume application commands, including Copy/Cut/Paste.
@@ -485,6 +500,15 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
     /// command owned by the visible Clip surface.
     @discardableResult
     func handleKeyDown(_ event: NSEvent) -> Bool {
+        if let detailView {
+            if detailView.mode == .password, !detailView.isUnlocked {
+                // The passcode field owns every key until it verifies; Escape
+                // backs out and Tab still switches tabs (which closes it).
+                if event.keyCode == UInt16(kVK_Escape) { closeDetail(); return true }
+                if event.keyCode != UInt16(kVK_Tab) { return false }
+            }
+            if detailView.handleKey(event) { return true }
+        }
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let intentModifiers = modifiers.intersection([.command, .control, .option, .shift])
         let commandOnly = intentModifiers == [.command]
@@ -532,6 +556,10 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
                 extending: intentModifiers == [.shift]
             )
             return true
+        case UInt16(kVK_UpArrow) where intentModifiers.isEmpty:
+            return cycleFilter(-1)
+        case UInt16(kVK_DownArrow) where intentModifiers.isEmpty:
+            return cycleFilter(1)
         case UInt16(kVK_UpArrow) where intentModifiers == [.shift]:
             moveFilteredSelection(delta: -1, extending: true)
             return true
@@ -588,7 +616,7 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
             guard !model.isContentShielded, model.captureState.windowVisible,
                   let entry = selectedSavedEntry else { return false }
             if CapsuleRailActivationRules.action(for: entry.kind) == .revealInPlace {
-                return revealCardPassword(entry)
+                return openDetail(entry)
             }
             guard let onActivateSaved else { return false }
             return onActivateSaved(entry)
@@ -607,8 +635,10 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
     func copySelectedItems() -> Bool {
         if selectedTab == .captures { return capturesView.copy() }
         if selectedTab != .recent {
-            guard let entry = selectedSavedEntry,
-                  CapsuleRailActivationRules.allowsCopy(entry.kind),
+            guard let entry = selectedSavedEntry else { return false }
+            // A password is copied row by row, after verification.
+            if entry.kind == .password { return detailView == nil ? openDetail(entry) : false }
+            guard CapsuleRailActivationRules.allowsCopy(entry.kind),
                   let onCopySaved else { return false }
             return onCopySaved(entry)
         }
@@ -648,6 +678,7 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
         applyAppearance()
         updateSearchPresentation()
         tabStrip.select(selectedTab)
+        refreshFilterColumn(protectedContent: protectedContent)
         clearButton.isHidden = selectedTab != .recent
         createButton.isHidden = selectedTab.savedKind == nil
         capturesView.isHidden = selectedTab != .captures
@@ -763,6 +794,18 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
 
     func selectTab(_ tab: CapsuleRailTab) {
         setSearchFocused(false)
+        let requested: CapsuleRailTab
+        if CapsuleNavigationPolicy.usesModules {
+            switch tab {
+            case .saved(.pdf), .saved(.skill): requested = .saved(.resource)
+            case .saved(.image), .saved(.video): requested = .captures
+            default: requested = tab
+            }
+        } else {
+            requested = tab
+        }
+        let tab = CapsuleRailTab.ordered.contains(requested)
+            ? requested : CapsuleRailTab.ordered.first ?? .recent
         guard tab != selectedTab else { return }
         concealCardPassword()
         selectedTab = tab
@@ -774,6 +817,15 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
         reloadFromModel()
     }
 
+    func refreshModules() {
+        tabStrip.refreshTabs()
+        if !CapsuleRailTab.ordered.contains(selectedTab) {
+            selectTab(CapsuleRailTab.ordered.first ?? .recent)
+        } else {
+            reloadFromModel()
+        }
+    }
+
     @discardableResult
     func handleSavedCardInteraction(id: UUID, clickCount: Int) -> Bool {
         guard let kind = selectedTab.savedKind,
@@ -782,18 +834,84 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
         defer { pointerDrivenSelectionDepth -= 1 }
         if passwordCardID != id { concealCardPassword() }
         savedSelectedIDs[kind] = id
-        if clickCount >= 2 { return activateSelectedItems() }
+        if clickCount >= 2 {
+            // Notes and passwords open their details; Return and ⌘1–9 still
+            // insert a whole note. Media keeps its paste-on-double-click.
+            if kind == .note || kind == .password,
+               let entry = visibleSavedEntryByID[id] {
+                return openDetail(entry)
+            }
+            return activateSelectedItems()
+        }
         reloadFromModel()
         return true
     }
 
     private var filteredSavedEntries: [CapsuleRailEntry] {
         guard let kind = selectedTab.savedKind else { return [] }
+        let filter = activeFilter
         return Array(CapsuleRailSearchRules.filter(
-            library.entries(for: kind),
+            library.entries(for: kind).filter { filter == .all || $0.classification == filter },
             query: query
         ).prefix(ClipboardHistoryWindowMetrics.maximumRenderedCards))
     }
+
+    // MARK: Filter column
+
+    /// The module behind the selected tab, when modules drive navigation.
+    private var currentModule: CapsuleModuleID? {
+        guard CapsuleNavigationPolicy.usesModules else { return nil }
+        switch selectedTab {
+        case .recent: return .temporary
+        case .captures: return .capture
+        case .saved(.note): return .notes
+        case .saved(.resource): return .resources
+        case .saved(.password): return .passwords
+        case .saved: return nil
+        }
+    }
+
+    private var activeFilter: CapsuleModuleFilter {
+        guard let module = currentModule else { return .all }
+        let filter = selectedFilters[selectedTab] ?? .all
+        return module.filters.contains(filter) ? filter : .all
+    }
+
+    private func refreshFilterColumn(protectedContent: Bool) {
+        let module = currentModule
+        let visible = module != nil && !protectedContent && model.captureState.windowVisible
+        filterColumn.isHidden = !visible
+        scrollViewLeading.constant = ClipboardHistoryWindowMetrics.horizontalInset
+            + (visible ? CapsuleRailFilterColumn.width + 8 : 0)
+        if let module { filterColumn.update(filters: module.filters, selected: activeFilter) }
+        updateHint()
+        capturesView.mediaFilter = selectedTab == .captures
+            ? (activeFilter == .image ? 1 : activeFilter == .video ? 2 : 0)
+            : 0
+    }
+
+    func selectFilter(_ filter: CapsuleModuleFilter) {
+        guard let module = currentModule, module.filters.contains(filter),
+              !model.isContentShielded else { return }
+        setSearchFocused(false)
+        concealCardPassword()
+        selectedFilters[selectedTab] = filter
+        reloadFromModel()
+    }
+
+    /// ↑ / ↓: the previous or next filter of the current module.
+    private func cycleFilter(_ delta: Int) -> Bool {
+        guard let module = currentModule, !filterColumn.isHidden else { return false }
+        let filters = module.filters
+        let index = filters.firstIndex(of: activeFilter) ?? 0
+        selectFilter(filters[(index + delta + filters.count) % filters.count])
+        return true
+    }
+
+    var filterColumnTitlesForSmoke: [String] {
+        filterColumn.isHidden ? [] : filterColumn.buttonTitlesForSmoke
+    }
+    var activeFilterForSmoke: CapsuleModuleFilter { activeFilter }
 
     private var selectedSavedEntry: CapsuleRailEntry? {
         guard let kind = selectedTab.savedKind else { return nil }
@@ -803,6 +921,19 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
 
     private func updateHint() {
         let activation = standaloneSearchEnabled ? "↩ PREPARE CLIPBOARD" : "↩ INSERT"
+        if let detailView {
+            switch detailView.mode {
+            case .note:
+                hintLabel.stringValue = standaloneSearchEnabled
+                    ? "↑ ↓ SELECT   ↩ PREPARE ROW   ⌘C COPY ROW   ESC BACK"
+                    : "↑ ↓ SELECT   ↩ INSERT ROW   ⌘C COPY ROW   DOUBLE-CLICK INSERT   ESC BACK"
+            case .password:
+                hintLabel.stringValue = detailView.isUnlocked
+                    ? "↑ ↓ SELECT   ↩ / ⌘C COPY   SPACE SHOW   ESC BACK"
+                    : ""
+            }
+            return
+        }
         switch selectedTab {
         case .captures:
             hintLabel.stringValue = "← → SELECT   ↩ EDIT   ⌘C COPY   ⌘S SAVE TO CAPSULE   DELETE REMOVE   ESC CLOSE"
@@ -812,8 +943,15 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
                 : "TYPE TO SEARCH   ← → SELECT   ⇧←→ / ⌘CLICK MULTI   ⇥ NEXT TAB   ↩ INSERT   ⌘C COPY   ⌘S SAVE TO CAPSULE   DELETE REMOVE   ESC CLOSE"
         case .saved(.password):
             hintLabel.stringValue = ""
+        case .saved(.note):
+            hintLabel.stringValue = "TYPE TO SEARCH   ← → SELECT   ⇥ NEXT TAB   DOUBLE-CLICK DETAILS   \(activation) NOTE   ⌘C COPY   ESC CLOSE"
         case .saved:
             hintLabel.stringValue = "TYPE TO SEARCH   ← → SELECT   ⇥ NEXT TAB   \(activation)   ⌘C COPY   ESC CLOSE"
+        }
+        if currentModule != nil, !filterColumn.isHidden, !hintLabel.stringValue.isEmpty {
+            hintLabel.stringValue = hintLabel.stringValue.replacingOccurrences(
+                of: "← → SELECT", with: "← → SELECT   ↑ ↓ FILTER"
+            )
         }
     }
 
@@ -829,11 +967,15 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
             return
         }
         let all = library.entries(for: kind)
-        let matches = CapsuleRailSearchRules.filter(all, query: query)
+        let filter = activeFilter
+        let matches = CapsuleRailSearchRules.filter(
+            all.filter { filter == .all || $0.classification == filter },
+            query: query
+        )
         let visible = Array(matches.prefix(
             ClipboardHistoryWindowMetrics.maximumRenderedCards
         ))
-        countLabel.stringValue = query.isEmpty
+        countLabel.stringValue = query.isEmpty && filter == .all
             ? CapsuleRailCountText.items(all.count)
             : "\(matches.count) / \(all.count)"
         guard !visible.isEmpty else {
@@ -850,8 +992,11 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
         if !visible.contains(where: { $0.id == savedSelectedIDs[kind] }) {
             savedSelectedIDs[kind] = visible[0].id
         }
+        if let detailView, !all.contains(where: { $0.id == detailView.entry.id }) {
+            closeDetail()
+        }
         stateContainer.isHidden = true
-        scrollView.isHidden = false
+        scrollView.isHidden = detailView != nil
         reconcileSavedCards(visible, selectedID: savedSelectedIDs[kind])
         needsLayout = true
         layoutSubtreeIfNeeded()
@@ -973,6 +1118,7 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
     }
 
     func concealCardPassword() {
+        closeDetail()
         let card = passwordCard
         passwordCard = nil
         if let id = passwordCardID { savedCardButtons[id]?.passwordContent = nil }
@@ -980,6 +1126,62 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
         card?.onConceal = nil
         card?.conceal()
         card?.removeFromSuperview()
+    }
+
+    /// Opens an entry's detail over the card band. A password asks for the
+    /// passcode first and reads the secret only after it verifies.
+    @discardableResult
+    func openDetail(_ entry: CapsuleRailEntry) -> Bool {
+        guard !model.isContentShielded, model.captureState.windowVisible,
+              entry.kind == .note || entry.kind == .password else { return false }
+        if entry.kind == .password, onRequestPasswordInput?() != true { return false }
+        closeDetail()
+        setSearchFocused(false)
+        let detail = CapsuleRailDetailView(
+            entry: entry,
+            passcodeStore: passcodeStore,
+            readSecret: { [library] in try library.readPassword(entry) },
+            presentationAllowed: { [weak self] in
+                guard let self else { return false }
+                return !self.model.isContentShielded && self.model.captureState.windowVisible
+                    && self.detailView?.entry.id == entry.id
+                    && self.window?.isVisible == true
+            }
+        )
+        detail.onClose = { [weak self, weak detail] in
+            guard let self, let detail, self.detailView === detail else { return }
+            self.closeDetail()
+        }
+        detail.onInsert = { [weak self] text in self?.onInsertSegment?(text) ?? false }
+        detail.onUnlock = { [weak self] in self?.updateHint() }
+        detail.onCopy = { [weak self] text, secret in
+            guard let self else { return false }
+            return secret ? self.copyPassword(text) : (self.onCopySegment?(text) ?? false)
+        }
+        detail.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(detail)
+        NSLayoutConstraint.activate([
+            detail.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            detail.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            detail.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            detail.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+        ])
+        detailView = detail
+        scrollView.isHidden = true
+        updateHint()
+        layoutSubtreeIfNeeded()
+        if entry.kind == .password { detail.focus() }
+        return true
+    }
+
+    func closeDetail() {
+        guard let detail = detailView else { return }
+        detailView = nil
+        detail.onClose = nil
+        detail.close()
+        detail.removeFromSuperview()
+        scrollView.isHidden = selectedTab == .captures || !stateContainer.isHidden
+        updateHint()
     }
 
     private func revealCardPassword(_ entry: CapsuleRailEntry) -> Bool {
@@ -1006,19 +1208,35 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
         guard !model.isContentShielded, model.captureState.windowVisible,
               let entry = visibleSavedEntryByID[id] else { return nil }
         concealCardPassword()
-        return CapsuleCardMenu.make([
+        let menu = CapsuleCardMenu.make([
             ("编辑", "pencil", true, { [weak self] in self?.editSavedEntry(id: id) }),
             (entry.kind == .note ? "迁移为密码…" : "迁移（已在对应分类）", "arrow.right.square", entry.kind == .note,
              { [weak self] in self?.onMigrateSaved?(entry) }),
             ("删除…", "trash", true, { [weak self] in self?.onDeleteSaved?(entry) }),
         ])
+        if entry.kind == .pdf {
+            let styles = ScholayCitationStyle.allCases
+            let submenu = CapsuleCardMenu.make(styles.map { style in
+                (style.title, "textformat", true, {
+                    CapsuleReferencePreferences.style = style
+                })
+            })
+            for (index, style) in styles.enumerated() {
+                submenu.item(at: index)?.state = style == CapsuleReferencePreferences.style ? .on : .off
+            }
+            let item = NSMenuItem(title: "引用格式 · \(CapsuleReferencePreferences.style.title)",
+                                  action: nil, keyEquivalent: "")
+            item.submenu = submenu
+            menu.insertItem(item, at: 1)
+        }
+        return menu
     }
 
     private func historyActionsMenu(id: UUID) -> NSMenu? {
         guard !model.isContentShielded, model.captureState.windowVisible,
               let item = visibleItemByID[id] else { return nil }
         let saveable = CapsuleRailSaveRules.isSaveable(item.kind)
-        let destination = item.kind == .image ? "图库" : (item.kind == .files ? "对应文件分类" : "笔记")
+        let destination = item.kind == .image ? "捕获" : (item.kind == .files ? "对应模块" : "笔记")
         return CapsuleCardMenu.make([
             ("编辑", "pencil", saveable, { [weak self] in self?.editHistoryItem(id: id) }),
             ("迁移到\(destination)", "arrow.right.square", saveable, { [weak self] in self?.onMigrateHistory?(item) }),
@@ -1062,7 +1280,10 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
     }
 
     private var matchingItems: [ClipboardHistoryItem] {
-        ClipboardHistorySearchRules.filter(model.visibleItems, query: query)
+        let matches = ClipboardHistorySearchRules.filter(model.visibleItems, query: query)
+        let filter = activeFilter
+        guard filter != .all else { return matches }
+        return matches.filter { CapsuleModuleClassification.clipboard($0) == filter }
     }
 
     private var filteredItems: [ClipboardHistoryItem] {
@@ -1154,12 +1375,14 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
         manageButton.image = RimeUI.symbol("gearshape", pointSize: Self.headerGlyphPointSize,
                                            weight: Self.headerGlyphWeight)
         manageButton.image?.isTemplate = true
-        manageButton.imagePosition = .imageOnly
+        manageButton.title = "管理"
+        manageButton.font = .systemFont(ofSize: 11, weight: .semibold)
+        manageButton.imagePosition = .imageLeading
         manageButton.isBordered = false
         manageButton.target = self
         manageButton.action = #selector(managePressed)
-        manageButton.toolTip = "Capsule 管理"
-        manageButton.setAccessibilityLabel("打开 Capsule 管理")
+        manageButton.toolTip = "打开 Capsule 模块管理（三栏视图）"
+        manageButton.setAccessibilityLabel("打开 Capsule 模块管理")
 
         captureButton.image = RimeUI.symbol("camera", pointSize: Self.headerGlyphPointSize,
                                             weight: Self.headerGlyphWeight)
@@ -1185,7 +1408,8 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
             button.imageScaling = .scaleProportionallyDown
             button.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                button.widthAnchor.constraint(equalToConstant: Self.headerGlyphBox),
+                button.widthAnchor.constraint(equalToConstant:
+                    button === manageButton ? 54 : Self.headerGlyphBox),
                 button.heightAnchor.constraint(equalToConstant: Self.headerGlyphBox),
             ])
         }
@@ -1249,14 +1473,23 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
 
         addSubview(header)
         addSubview(scrollView)
+        addSubview(filterColumn)
+        filterColumn.onSelect = { [weak self] filter in self?.selectFilter(filter) }
         addSubview(stateContainer)
         addSubview(hintLabel)
+        scrollViewLeading = scrollView.leadingAnchor.constraint(
+            equalTo: leadingAnchor, constant: ClipboardHistoryWindowMetrics.horizontalInset
+        )
+        scrollViewLeading.isActive = true
         NSLayoutConstraint.activate([
             header.leadingAnchor.constraint(equalTo: leadingAnchor, constant: ClipboardHistoryWindowMetrics.horizontalInset),
             header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -ClipboardHistoryWindowMetrics.horizontalInset),
             header.topAnchor.constraint(equalTo: topAnchor, constant: ClipboardHistoryWindowMetrics.verticalInset),
             header.heightAnchor.constraint(equalToConstant: 30),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: ClipboardHistoryWindowMetrics.horizontalInset),
+            filterColumn.leadingAnchor.constraint(equalTo: leadingAnchor, constant: ClipboardHistoryWindowMetrics.horizontalInset),
+            filterColumn.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            filterColumn.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            filterColumn.widthAnchor.constraint(equalToConstant: CapsuleRailFilterColumn.width),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -ClipboardHistoryWindowMetrics.horizontalInset),
             scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 9),
             scrollView.heightAnchor.constraint(equalToConstant: ClipboardHistoryWindowMetrics.cardHeight),
@@ -1389,7 +1622,7 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
     }
 
     private func updateCount(visibleCount: Int) {
-        countLabel.stringValue = query.isEmpty
+        countLabel.stringValue = query.isEmpty && activeFilter == .all
             ? CapsuleRailCountText.items(model.itemCount)
             : "\(visibleCount) / \(model.itemCount)"
     }
@@ -2158,9 +2391,15 @@ private final class ClipboardHistoryCardButton: NSButton {
         setThumbnail(thumbnail)
         let masked = entry.kind == .password ? " · 已脱敏" : ""
         setAccessibilityLabel("\(entry.kind.displayName)：\(entry.title)\(masked)")
-        let help = CapsuleRailActivationRules.action(for: entry.kind) == .revealInPlace
-            ? "双击或回车在卡片内验证口令；查看后可显式复制，不自动发送"
-            : "双击或回车放入目标输入框"
+        let help: String
+        switch entry.kind {
+        case .password: help = "双击或回车验证口令后查看详情，按行复制，不自动发送"
+        case .note: help = "双击查看详情并按行复制；回车放入整条笔记"
+        case .pdf where entry.reference?.missingFields.isEmpty == true:
+            help = "双击或回车插入所选格式的参考文献；更多操作可切换格式或编辑书目信息"
+        case .pdf: help = "书目信息未补齐；双击或回车使用 PDF 文件，编辑卡片后可插入引用"
+        default: help = "双击或回车放入目标输入框"
+        }
         setAccessibilityHelp(selected ? "已选择；\(help)" : "单击选择；\(help)")
         setAccessibilitySelected(selected)
         selectedItem = selected
@@ -2191,6 +2430,7 @@ private final class ClipboardHistoryCardButton: NSButton {
         case .video: name = "video"
         case .pdf: name = "doc.richtext"
         case .skill: name = "wand.and.stars"
+        case .resource: name = "folder"
         case .password: name = "lock"
         }
         let image = RimeUI.symbol(name, pointSize: 12, weight: .regular)
@@ -2336,17 +2576,30 @@ final class CapsuleRailTabStrip: NSView {
         addSubview(tabScroll)
         heightAnchor.constraint(equalToConstant: 28).isActive = true
         widthAnchor.constraint(greaterThanOrEqualToConstant: 170).isActive = true
-        for tab in CapsuleRailTab.ordered {
+        refreshTabs()
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.tabGroup)
+        setAccessibilityLabel("Capsule 模块")
+        applyAppearance()
+    }
+
+    func refreshTabs() {
+        let ordered = CapsuleRailTab.ordered
+        guard buttons.map(\.tab) != ordered else { return }
+        for button in buttons {
+            stack.removeArrangedSubview(button)
+            button.removeFromSuperview()
+        }
+        buttons.removeAll()
+        for tab in ordered {
             let button = CapsuleRailTabButton(tab: tab)
             button.target = self
             button.action = #selector(tabPressed(_:))
             stack.addArrangedSubview(button)
             buttons.append(button)
         }
-        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        setAccessibilityElement(true)
-        setAccessibilityRole(.tabGroup)
-        setAccessibilityLabel("Capsule 类型")
+        if !ordered.contains(selectedTab) { selectedTab = ordered.first ?? .recent }
         applyAppearance()
     }
 

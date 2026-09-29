@@ -3075,6 +3075,10 @@ final class ActionPluginHost {
             ),
             onEvent: { [weak self] event in
                 switch event {
+                case .imageGenerationStarted, .imageArtifactPath:
+                    break
+                case .reasoningSnapshot:
+                    break
                 case let .activity(activity):
                     DispatchQueue.main.async {
                         self?.updateConnectorActivity(activity, nonce: nonce)

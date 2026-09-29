@@ -76,8 +76,9 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptu
     private var audioLevel: Float = 0
     private var lastStatusTime = 0.0
     private var deviceObservers: [NSObjectProtocol] = []
+    private var exclusionGeneration = 0
 
-    func start(target:CaptureTarget, content:SCShareableContent, options:CaptureRecordingOptions, output:URL, completion:@escaping(Result<Void,Error>)->Void) {
+    func start(target:CaptureTarget, content:SCShareableContent, excluding chrome:Set<CGWindowID>, options:CaptureRecordingOptions, output:URL, completion:@escaping(Result<Void,Error>)->Void) {
         queue.async {
             do {
                 self.options = options; self.target = target; self.output = output
@@ -91,13 +92,8 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptu
                 config.sampleRate = 48000; config.channelCount = 2
                 if #available(macOS 14.2, *) { config.includeChildWindows = true }
                 self.size = CGSize(width:config.width,height:config.height)
-                var filter = CaptureEngine.filter(target,content:content)
+                let filter = self.filter(target:target,content:content,chrome:chrome)
                 if options.cleanDesktop, target.window == nil {
-                    let excluded = content.windows.filter {
-                        $0.owningApplication?.processID == ProcessInfo.processInfo.processIdentifier
-                            || $0.windowLayer < 0 || $0.owningApplication?.bundleIdentifier == "com.apple.notificationcenterui"
-                    }
-                    filter = SCContentFilter(display:target.display,excludingWindows:excluded)
                     // Excluded desktop surfaces are replaced in the capture,
                     // without changing Finder or system preferences.
                     config.backgroundColor = CaptureRenderer.color("20252a")
@@ -133,6 +129,38 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptu
                     }
                 }
             } catch { self.writer?.cancelWriting(); self.devices?.stopRunning(); completion(.failure(error)) }
+        }
+    }
+    /// Only the capture tool's chrome leaves the video. A clean desktop also
+    /// drops wallpaper, desktop icons and widgets, and Notification Center,
+    /// but never RIMES windows: those are what the user may be recording.
+    private func filter(target:CaptureTarget, content:SCShareableContent, chrome:Set<CGWindowID>) -> SCContentFilter {
+        guard options.cleanDesktop, target.window == nil else {
+            return CaptureEngine.filter(target, content: content, excluding: chrome)
+        }
+        let excluded = content.windows.filter {
+            chrome.contains($0.windowID)
+                || $0.windowLayer < 0 || $0.owningApplication?.bundleIdentifier == "com.apple.notificationcenterui"
+        }
+        let display = content.displays.first { $0.displayID == target.display.displayID } ?? target.display
+        return SCContentFilter(display:display,excludingWindows:excluded)
+    }
+    /// Re-reads on-screen windows so chrome that appeared after the stream
+    /// started is excluded too. Only the newest request is applied.
+    func updateExcludedWindows(_ chrome:Set<CGWindowID>) {
+        queue.async {
+            self.exclusionGeneration += 1
+            let generation = self.exclusionGeneration
+            Task {
+                guard let content = try? await CaptureEngine.content() else { return }
+                self.queue.async {
+                    guard generation == self.exclusionGeneration, !self.finishing,
+                          let stream = self.stream, let target = self.target, target.window == nil else { return }
+                    stream.updateContentFilter(self.filter(target:target,content:content,chrome:chrome)) { error in
+                        if let error { IMELog.write("capture recording exclusion update failed: \(error.localizedDescription)") }
+                    }
+                }
+            }
         }
     }
     private func startClock() {
@@ -352,6 +380,8 @@ final class CaptureRecorderController {
     private var controls:CapturePanel?
     private let requestTarget:()->Void
     private let completed:(CaptureRecord)->Void
+    private let ended:()->Void
+    private let excludedWindows:()->Set<CGWindowID>
     private var recorder:CaptureRecorder?
     private var monitors:[Any] = []
     private var paused = false
@@ -361,9 +391,22 @@ final class CaptureRecorderController {
     private let label = CaptureUI.label("准备录制",size:15)
     private let pauseButton = CaptureButton("暂停") {}
     private var menuItem: NSStatusItem?
-    private(set) var isRecording = false
+    private(set) var isRecording = false {
+        didSet {
+            guard oldValue, !isRecording else { return }
+            if Thread.isMainThread { ended() } else { DispatchQueue.main.async { self.ended() } }
+        }
+    }
+    /// The menu-bar timer is recording chrome too; the controls panel is
+    /// found through `CapturePanel.excludedFromCapture`.
+    var chromeWindows: [NSWindow] { [menuItem?.button?.window].compactMap { $0 } }
 
-    init(requestTarget:@escaping()->Void,completed:@escaping(CaptureRecord)->Void) { self.requestTarget = requestTarget; self.completed = completed }
+    init(requestTarget:@escaping()->Void, completed:@escaping(CaptureRecord)->Void,
+         ended:@escaping()->Void, excludedWindows:@escaping()->Set<CGWindowID>) {
+        self.requestTarget = requestTarget; self.completed = completed
+        self.ended = ended; self.excludedWindows = excludedWindows
+    }
+    func refreshExclusions(_ chrome:Set<CGWindowID>) { recorder?.updateExcludedWindows(chrome) }
     func showSettings() {
         let panel = CapturePanel(size:NSSize(width:560,height:710)); settings = panel
         panel.closed = { [weak self, weak panel] in self?.settings = nil; panel?.contentView = nil }
@@ -435,6 +478,11 @@ final class CaptureRecorderController {
             do {
                 if options.countdown > 0 { for second in (1...options.countdown).reversed() { guard current == token else { return }; label.stringValue = "\(second) 秒后开始"; try await Task.sleep(nanoseconds:1_000_000_000) } }
                 guard current == token, !IsSecureEventInputEnabled() else { isRecording = false; controls?.close(); return }
+                // Snapshot windows now that the controls and menu-bar timer
+                // are on screen: only listed windows can be excluded.
+                let chrome = await MainActor.run { self.excludedWindows() }
+                let liveContent = (try? await CaptureEngine.content()) ?? content
+                guard current == token else { return }
                 let store = try CaptureStore.shared.get(), pending = store.root.appendingPathComponent("recording-\(UUID().uuidString).mp4")
                 let engine = CaptureRecorder(); recorder = engine
                 engine.status = { [weak self] seconds, level in
@@ -443,7 +491,7 @@ final class CaptureRecorderController {
                     self.label.stringValue = "● \(time)  \(level > 0 ? "音频 ●" : "")"; self.menuItem?.button?.title = "● " + time
                 }
                 engine.failed = { [weak self] error in self?.recordingFailed = true; self?.label.stringValue = error.localizedDescription; self?.stop() }
-                engine.start(target:target,content:content,options:options,output:pending) { result in
+                engine.start(target:target,content:liveContent,excluding:chrome,options:options,output:pending) { result in
                     DispatchQueue.main.async {
                         guard self.token == current, !self.stopping else { return }
                         switch result {
@@ -458,6 +506,7 @@ final class CaptureRecorderController {
     func showControls() {
         if let controls { controls.present(center:false); return }
         let panel = CapturePanel(size:NSSize(width:350,height:65),key:false); controls = panel
+        panel.excludedFromCapture = true
         panel.closed = { [weak self, weak panel] in self?.controls = nil; panel?.contentView = nil }
         pauseButton.perform = { [weak self] in
             guard let self, self.recorder != nil, !IsSecureEventInputEnabled() else { return }

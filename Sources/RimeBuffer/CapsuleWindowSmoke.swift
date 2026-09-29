@@ -303,7 +303,7 @@ func runCapsuleWindowSmokeTest() -> Bool {
             NSSize(width: 620, height: 430),
         ]
         let fixedFormKinds: Set<CapsuleEntryKind> = [
-            .skill, .image, .video, .pdf, .password,
+            .skill, .image, .video, .pdf, .password, .resource,
         ]
         for size in layoutSizes {
             // AppKit does not drive resize passes for an unattached root view.
@@ -332,9 +332,12 @@ func runCapsuleWindowSmokeTest() -> Bool {
                     (10...18).contains(layout.headerToToolbarGap)
                     && (15...17).contains(layout.formTopGap)
                     && abs(layout.toolbarTop - layout.editorTop) <= 1.5
-                    && layout.tabStripFrame.width > 0
-                    && layout.tabStripFrame.height > 0
-                    && layout.listFrame.width >= 199
+                    && (CapsuleNavigationPolicy.usesModules
+                        ? layout.moduleFrame.width >= 110
+                            && layout.moduleFrame.height > 0
+                        : layout.tabStripFrame.width > 0
+                            && layout.tabStripFrame.height > 0)
+                    && layout.listFrame.width >= 169
                     && layout.editorFrame.width > 0
                     && layout.editorFrame.height > 0
                     && layout.horizontalContentFits
@@ -347,7 +350,8 @@ func runCapsuleWindowSmokeTest() -> Bool {
                     && layout.titleRowHeight.map { (35...50).contains($0) }
                         == true
                     && layout.titleToFirstDetailGap.map {
-                        (8...12).contains($0)
+                        kind == .note || kind == .password || kind == .resource
+                            ? (50...60).contains($0) : (8...12).contains($0)
                     } == true
                     && (!fixedFormKinds.contains(kind)
                         || layout.firstDetailRowHeight.map { $0 <= (kind == .password ? 110 : 50) } == true)
@@ -367,6 +371,9 @@ func runCapsuleWindowSmokeTest() -> Bool {
             if size.height >= 1_000 {
                 guard layouts.allSatisfy({ kind, layout in
                     if fixedFormKinds.contains(kind) {
+                        // Literature now has a scrollable bibliography form
+                        // ahead of its PDF preview, even in a tall window.
+                        if kind == .pdf { return layout.bottomSpacerHeight != nil }
                         return layout.bottomSpacerHeight.map { $0 > 100 } == true
                     }
                     return layout.bottomSpacerHeight == nil
@@ -787,9 +794,46 @@ func runCapsuleWindowSmokeTest() -> Bool {
         }
 
         guard imageRow.preview == "Image · fixture-image.png",
-              pdfRow.preview == "PDF · fixture-document.pdf" else {
+              pdfRow.preview == "待补书目信息 · fixture-document.pdf" else {
             return capsuleWindowSmokeFail("safe media list projection")
         }
+        var reference = CapsuleReference()
+        reference.kind = .journalArticle
+        reference.authors = "Ada Lovelace; Alan Turing"
+        reference.year = "2024"
+        reference.container = "Journal of Test Fixtures"
+        reference.volume = "12"
+        reference.pages = "10–20"
+        reference.doi = "10.1000/example"
+        var citedDraft = CapsuleWindowDraft(kind: .pdf, title: "A Test Paper",
+                                             content: pdfURL.path, reference: reference)
+        let citedRow = try repository.save(citedDraft)
+        citedDraft = try repository.draft(for: citedRow)
+        let storedReference = try contentStore.record(id: citedRow.id).reference
+        let searchedIDs = try repository.list(kind: .pdf, query: "Ada").map(\.id)
+        let indexedReference = try CapsuleRailLibrary.load(contentStore: contentStore,
+            passwordStore: passwordStore).content.get().first(where: { $0.id == citedRow.id })
+        let formattedReference = CapsuleReferenceFormatter.bibliography(
+            title: citedDraft.title, reference: reference, style: .apa7)
+        let styleResults = ScholayCitationStyle.allCases.compactMap {
+            CapsuleReferenceFormatter.bibliography(title: citedDraft.title,
+                reference: reference, style: $0)
+        }
+        guard citedDraft.reference == reference,
+              storedReference == reference,
+              searchedIDs == [citedRow.id],
+              indexedReference?.searchText.contains("Journal of Test Fixtures") == true,
+              formattedReference?.contains("Journal of Test Fixtures") == true,
+              styleResults.count == ScholayCitationStyle.allCases.count,
+              Set(styleResults).count == styleResults.count,
+              CapsuleReferenceFormatter.bibliography(title: "Uncatalogued",
+                  reference: CapsuleReference(), style: .apa7) == nil else {
+            return capsuleWindowSmokeFail("structured reference round trip and style "
+                + "draft=\(citedDraft.reference == reference) stored=\(storedReference == reference) "
+                + "search=\(searchedIDs) index=\(indexedReference?.searchText ?? "nil") "
+                + "format=\(formattedReference ?? "nil")")
+        }
+        try repository.remove(citedRow, expectedRevision: citedRow.revision)
         guard case .image = CapsuleMediaPreviewLoader.loadSynchronously(
             kind: .image,
             path: imageURL.path

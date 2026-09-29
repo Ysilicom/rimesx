@@ -11,11 +11,18 @@ enum BuiltInPluginID {
     static let marineChrome = "builtin.marine-chrome"
     static let streamInput = "builtin.stream-input"
     static let music = "builtin.music"
+    /// Retired single AI Generation plug-in; see `AITextBuiltInPluginID`.
     static let aiText = AITextBuiltInPluginID.aiText
-    // Provider-specific IDs are retained for preference/source compatibility.
     static let codexCLI = AITextBuiltInPluginID.codexCLI
     static let claudeCodeCLI = AITextBuiltInPluginID.claudeCodeCLI
     static let openAICompatible = AITextBuiltInPluginID.openAICompatible
+    static let scholay = "builtin.scholay"
+    static let polisher = "builtin.polisher"
+    static let latex = "builtin.latex"
+    static let morse = "builtin.morse"
+    static func capsule(_ module: CapsuleModuleID) -> String {
+        "builtin.capsule.\(module.rawValue)"
+    }
 }
 
 enum BuiltInPlugins {
@@ -27,8 +34,16 @@ enum BuiltInPlugins {
             AppleTranslationInternalPlugin(),
             StreamInputInternalPlugin(),
             BufferMusicInternalPlugin(),
-            AITextInternalPlugin(),
-        ]
+            ScholayInternalPlugin(),
+            ScholayAcademicInternalPlugin(kind: .polisher),
+            ScholayAcademicInternalPlugin(kind: .latex),
+            MorseInternalPlugin(),
+        ] + CapsuleModuleID.allCases.map(CapsuleBuiltInPlugin.init)
+          + AITextProviderKind.allCases.map { kind in
+            kind == .openAICompatible
+                ? AITextChannelInternalPlugin(kind: kind)
+                : AITextConfigurableChannelInternalPlugin(kind: kind)
+        }
     }
 }
 
@@ -385,52 +400,68 @@ private final class MyPromptInternalPlugin:
     }
 }
 
-private final class AITextInternalPlugin:
-    InternalPlugin, PluginConfigurationProviding {
-    private static let catalog = PresetBufferPluginCatalog.entry(
-        id: BuiltInPluginID.aiText
-    )!
-    let descriptor = PluginDescriptor(
-        key: AITextBuiltInPluginID.key,
-        wireID: nil,
-        name: catalog.nameZH,
-        symbolName: "sparkles",
-        version: catalog.version,
-        summary: catalog.summaryZH,
-        source: .builtIn,
-        capabilities: [.bufferAction],
-        settings: nil,
-        canUninstall: false
-    )
+/// One AI channel per Buffer plug-in: Codex, Claude Code, or the
+/// OpenAI-compatible API. The buffer goes to that channel unchanged.
+private class AITextChannelInternalPlugin: InternalPlugin {
+    let kind: AITextProviderKind
+    let descriptor: PluginDescriptor
+
+    init(kind: AITextProviderKind) {
+        self.kind = kind
+        let catalog = PresetBufferPluginCatalog.entry(id: kind.pluginRawID)!
+        descriptor = PluginDescriptor(
+            key: kind.pluginKey,
+            wireID: nil,
+            name: catalog.nameZH,
+            symbolName: Self.symbolName(for: kind),
+            version: catalog.version,
+            summary: catalog.summaryZH,
+            source: .builtIn,
+            capabilities: [.bufferAction],
+            settings: nil,
+            canUninstall: false
+        )
+    }
+
+    private static func symbolName(for kind: AITextProviderKind) -> String {
+        switch kind {
+        case .codexCLI: return PluginVisualIdentity.chatGPTSymbolName
+        case .claudeCodeCLI: return PluginVisualIdentity.claudeSymbolName
+        case .openAICompatible: return "network"
+        }
+    }
 
     func start() {
-        migrateLegacyProviderSelectionIfNeeded()
-        AITextPluginRuntimeRegistry.shared.workspace.start()
+        migrateRetiredUnifiedSelectionIfNeeded()
+        AITextPluginRuntimeRegistry.shared.workspace(for: kind)?.start()
     }
 
     func stop() {
-        AITextPluginRuntimeRegistry.shared.workspace.stop()
+        AITextPluginRuntimeRegistry.shared.workspace(for: kind)?.stop()
     }
 
     func makeSettingsViewController(subpageID: String) -> NSViewController? {
         nil
     }
 
-    func makePluginConfigurationModel() throws
-        -> PluginConfigurationModel {
-        try PluginConfigurationCatalog.makeAITextModel()
-    }
 
-    private func migrateLegacyProviderSelectionIfNeeded() {
+    /// A Buffer that had the retired AI Generation plug-in selected moves to
+    /// the task plug-in for the connector it was using.
+    private func migrateRetiredUnifiedSelectionIfNeeded() {
         let bufferSelection = BufferPluginSelectionStore.shared
-        guard let legacyKind = AITextProviderKind.legacyKind(
-            for: bufferSelection.activeKey
-        ) else { return }
-        AITextConnectorSelectionStore.shared.select(legacyKind)
+        guard bufferSelection.activeKey == AITextBuiltInPluginID.retiredUnifiedKey,
+              AITextConnectorSelectionStore.shared.selectedKind == kind else { return }
         _ = bufferSelection.select(
             descriptor.key,
             among: [RegisteredPlugin(descriptor: descriptor, isEnabled: true)]
         )
+    }
+}
+
+private final class AITextConfigurableChannelInternalPlugin:
+    AITextChannelInternalPlugin, PluginConfigurationProviding {
+    func makePluginConfigurationModel() throws -> PluginConfigurationModel {
+        try PluginConfigurationCatalog.makeAIChannelModel(kind: kind)
     }
 }
 

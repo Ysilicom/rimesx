@@ -671,10 +671,80 @@ if CommandLine.arguments.contains("plugin-configuration-smoke") {
     exit(runPluginConfigurationSmokeTest() ? 0 : 1)
 }
 if CommandLine.arguments.contains("translation-smoke") {
-    exit(runTranslationPluginSmokeTest() && runTranslationLifecycleSmokeTest() ? 0 : 1)
+    exit(runTranslationPluginSmokeTest()
+        && runTranslationLifecycleSmokeTest()
+        && runBufferSpeechSmokeTest() ? 0 : 1)
 }
 if CommandLine.arguments.contains("ai-text-smoke") {
     exit(runAITextPluginSmokeTest() ? 0 : 1)
+}
+if CommandLine.arguments.contains("codex-image-live-smoke") {
+    let passed: Bool = {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    app.finishLaunching()
+    let registry = AITextConnectorRegistry.shared
+    let availabilityDeadline = Date().addingTimeInterval(45)
+    while Date() < availabilityDeadline,
+          registry.availability(for: .codexCLI) != .ready {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+    }
+    guard registry.availability(for: .codexCLI) == .ready else {
+        fputs("codex image live smoke: connector unavailable\n", stderr)
+        return false
+    }
+    let smokeRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("rimes-codex-image-live-\(UUID().uuidString)",
+                                isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: smokeRoot) }
+    let smokeStore: MailboxStore
+    do {
+        smokeStore = try MailboxStore(storageRoot: smokeRoot)
+    } catch {
+        fputs("codex image live smoke: Mailbox unavailable\n", stderr)
+        return false
+    }
+    let coordinator = CodexImageGenerationCoordinator(store: smokeStore)
+    let threadID: UUID
+    do {
+        threadID = try coordinator.start(
+            prompt: "一颗简单的红色圆点，纯白背景，极简测试图。",
+            modelID: "gpt-6-sol", reasoningEffort: "medium"
+        )
+    } catch {
+        fputs("codex image live smoke: could not start \(error)\n", stderr)
+        return false
+    }
+    let generationDeadline = Date().addingTimeInterval(660)
+    while Date() < generationDeadline {
+        switch coordinator.phase {
+        case let .ready(completedID):
+            guard completedID == threadID,
+                  let message = smokeStore.thread(id: threadID)?
+                    .messages.last,
+                  smokeStore.imageData(for: message) != nil else {
+                fputs("codex image live smoke: missing Mailbox image\n", stderr)
+                return false
+            }
+            print("codex image live smoke: OK mailbox-thread=\(threadID)")
+            return true
+        case let .failed(message):
+            fputs("codex image live smoke: \(message)\n", stderr)
+            return false
+        case .idle, .connecting, .generating, .saving:
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        }
+    }
+    fputs("codex image live smoke: timeout\n", stderr)
+    return false
+    }()
+    exit(passed ? 0 : 1)
+}
+if CommandLine.arguments.contains("scholay-plugin-smoke") {
+    exit(runScholayPluginSmokeTest() ? 0 : 1)
+}
+if CommandLine.arguments.contains("scholay-academic-smoke") {
+    exit(runScholayAcademicSmokeTest() ? 0 : 1)
 }
 if CommandLine.arguments.contains("provider-profiles-smoke") {
     exit(runAIProviderProfilesSmokeTest() ? 0 : 1)
@@ -758,6 +828,10 @@ if let index = CommandLine.arguments.firstIndex(of: "capture-live-smoke") {
 }
 if CommandLine.arguments.contains("capsule-window-smoke") {
     exit(runCapsuleWindowSmokeTest() ? 0 : 1)
+}
+if CommandLine.arguments.contains("capsule-module-smoke") {
+    _ = NSApplication.shared
+    exit(runCapsuleModuleSmokeTest() ? 0 : 1)
 }
 if let previewIndex = CommandLine.arguments.firstIndex(of: "capsule-manager-preview"),
    CommandLine.arguments.indices.contains(previewIndex + 1) {
@@ -952,6 +1026,16 @@ if CommandLine.arguments.contains("aggregator-smoke") {
 }
 if CommandLine.arguments.contains("my-prompt-smoke") {
     exit(runMyPromptPluginSmokeTest() ? 0 : 1)
+}
+if let index = CommandLine.arguments.firstIndex(of: "morse-smoke") {
+    _ = NSApplication.shared
+    let output = CommandLine.arguments.indices.contains(index + 1)
+        ? URL(fileURLWithPath: CommandLine.arguments[index + 1]) : nil
+    exit(MainActor.assumeIsolated { runMorseCodeSmokeTest(output: output) } ? 0 : 1)
+}
+if CommandLine.arguments.contains("capsule-structure-smoke") {
+    _ = NSApplication.shared
+    exit(runCapsuleStructureSmokeTest() ? 0 : 1)
 }
 if CommandLine.arguments.contains("capsule-smoke")
     || CommandLine.arguments.contains("capsule-password-smoke") {
@@ -1547,6 +1631,7 @@ let inputSourceChangedObserver = DistributedNotificationCenter.default().addObse
         IMELog.write("TIS source changed: previous=\(previousID) current=unavailable deltaMs=\(elapsed) controlDown=\(controlDown) modifiers=\(modifierFlags.rawValue)")
         lastObservedInputSourceID = nil
         lastObservedInputSourceUptime = now
+        RIMESRecoveryStatusItem.shared.refresh(isSelected: false)
         // TIS can briefly return no current source during a handoff. Retire IMK
         // authority immediately; registration reconciliation keeps the four
         // standalone utility shortcuts and removes only RIMES-owned actions.
@@ -1563,14 +1648,22 @@ let inputSourceChangedObserver = DistributedNotificationCenter.default().addObse
     lastObservedInputSourceID = currentID
     lastObservedInputSourceUptime = now
     if currentIsOwn {
+        RIMESRecoveryStatusItem.shared.refresh(isSelected: true)
         _ = globalHotKeyController.setRuntimeEnabledForInputSource(true)
         // A detached Buffer can remain visible while no IMK client is active.
         // Refresh directly from the authoritative TIS transition so its
         // copy/send affordances do not keep the previous input source state.
         BufferWindowController.shared.refresh()
     } else {
+        RIMESRecoveryStatusItem.shared.refresh(isSelected: false)
         retireRimeInputSourceAuthority(observedSourceID: currentID)
     }
+}
+
+MainActor.assumeIsolated {
+    RIMESRecoveryStatusItem.shared.refresh(
+        isSelected: RimeInputSourceAuthority.currentSourceIsOwn()
+    )
 }
 
 let privacyOwnBundleID = Bundle.main.bundleIdentifier ?? RimesIdentity.bundleIdentifier
@@ -7155,20 +7248,33 @@ func runBufferWindowSmokeTest() -> Bool {
         return false
     }
 
-    let externalUtilityActions = GlobalHotKeyRouting.registeredActions(
-        currentSourceIsOwn: false
-    )
-    let rimeUtilityActions = GlobalHotKeyRouting.registeredActions(
-        currentSourceIsOwn: true
-    )
-    guard externalUtilityActions == [
-            .toggleWorkbench,
-            .toggleClipboardHistory,
-            .openMailbox,
-          ],
-          !externalUtilityActions.contains(.openSettings),
-          rimeUtilityActions == Set(GlobalHotKeyAction.allCases) else {
+    // Every component shortcut works under any input source: calling one up
+    // under another input method selects RIMES before the component opens.
+    guard GlobalHotKeyRouting.registeredActions() == Set(GlobalHotKeyAction.allCases),
+          GlobalHotKeyRouting.registeredActions().contains(.openSettings) else {
         print("FAILED: global utility registration scope")
+        return false
+    }
+    // A component waits for RIMES to own input, and for a field-bound one
+    // (Buffer, Capsule rail) to take the focused field, unless time runs out.
+    guard !RimeInputSourceSelectionRules.mayOpen(
+            sourceIsOwn: false, hasFocusTarget: false, awaitsFocus: false, timedOut: false
+          ),
+          !RimeInputSourceSelectionRules.mayOpen(
+            sourceIsOwn: true, hasFocusTarget: false, awaitsFocus: true, timedOut: false
+          ),
+          RimeInputSourceSelectionRules.mayOpen(
+            sourceIsOwn: true, hasFocusTarget: true, awaitsFocus: true, timedOut: false
+          ),
+          RimeInputSourceSelectionRules.mayOpen(
+            sourceIsOwn: true, hasFocusTarget: false, awaitsFocus: false, timedOut: false
+          ),
+          RimeInputSourceSelectionRules.mayOpen(
+            sourceIsOwn: false, hasFocusTarget: false, awaitsFocus: true, timedOut: true
+          ),
+          RimeInputSourceSelection.handoffTimeout > 0,
+          RimeInputSourceSelection.handoffTimeout <= 0.5 else {
+        print("FAILED: component opening must wait for the RIMES input handoff")
         return false
     }
 
@@ -7607,15 +7713,19 @@ func runBufferWindowSmokeTest() -> Bool {
             snapshot: statusFailedSnapshot,
             text: "生成失败"
           ) == .danger,
+          AITextProviderKind.allCases.allSatisfy({
+            BufferDerivedPresentationRules.style(for: $0.pluginKey) == .singleExchange
+          }),
           BufferDerivedPresentationRules.style(
-            for: AITextBuiltInPluginID.key
-          ) == .singleExchange,
+            for: AITextBuiltInPluginID.retiredUnifiedKey
+          ) == .liveExpand,
           BufferDerivedPresentationRules.style(
             for: MarineChromeWorkspace.pluginKey
           ) == .singleExchange,
-          BufferDerivedPresentationRules.nativeContract(
-            for: AITextBuiltInPluginID.key
-          ) == .derived(.singleExchange),
+          AITextProviderKind.allCases.allSatisfy({
+            BufferDerivedPresentationRules.nativeContract(for: $0.pluginKey)
+                == .derived(.singleExchange)
+          }),
           BufferDerivedPresentationRules.nativeContract(
             for: MarineChromeWorkspace.pluginKey
           ) == .derived(.singleExchange),
@@ -7674,19 +7784,21 @@ func runBufferWindowSmokeTest() -> Bool {
           BufferWorkbenchShelfLayout.flexiblePriority.rawValue == 1,
           BufferWorkbenchShelfLayout.statusWidthPriority.rawValue == 749,
           runWorkbenchShelfAlignmentProbe(),
-          BufferInlineMetrics.blockSpacing == 3,
+          BufferInlineMetrics.blockSpacing == 5,
           BufferInlineMetrics.railHorizontalInset == 5,
-          BufferInlineMetrics.chipHorizontalInset == 4,
-          BufferInlineMetrics.chipVerticalInset == 1,
-          BufferInlineMetrics.chipHeight == 20,
-          BufferInlineMetrics.chipCornerRadius == 5,
+          BufferInlineMetrics.itemHeight == 20,
+          BufferInlineMetrics.blockUnderlineWidth == 1,
+          BufferInlineMetrics.selectedBlockUnderlineWidth == 2,
+          BufferInlineMetrics.messageCornerRadius == 5,
           BufferInlineMetrics.contentSpacing == 3,
           BufferInlineMetrics.originBadgeSize == 5,
           BufferInlineMetrics.messageHorizontalInset == 5,
+          // Underlined blocks need no padding: three blocks, two badged,
+          // spend 26pt on chrome where bubbles spent 46pt.
           BufferInlineMetrics.packedBlockChromeWidth(
             blockCount: 3,
             badgedBlockCount: 2
-          ) == 46,
+          ) == 26,
           standardSourceOffset == 0,
           standardTargetOffset == 0,
           compactDerivedTargetOffset == 0,
@@ -10192,8 +10304,30 @@ func runBufferWindowSmokeTest() -> Bool {
         && compactMarineProbe.rails.count == 1
         && !translationRail.renderedInputPlaceholderVisible
         && !translationRail.renderedInputCaretVisible
-        && translationRail.renderedTextFragments.contains("等待网页上下文")
+        && translationRail.renderedTargetStatusDescriptions.contains("等待网页上下文")
+        && !translationRail.renderedTextFragments.contains("等待网页上下文")
         && !translationRail.renderedTextFragments.contains("等待原文")
+
+    let thoughtPreview = TranslationRailSnapshot(
+        sourceText: "请分析",
+        outputBlocks: [],
+        phase: .translating,
+        transientThought: "正在分析上下文",
+        targetRole: "答"
+    )
+    _ = translationRail.renderTranslationForPreview(thoughtPreview)
+    let showedTransientThought = translationRail.renderedTextFragments
+        .contains("正在分析上下文")
+    let answeredPreview = TranslationRailSnapshot(
+        sourceText: "请分析",
+        outputBlocks: [TranslationOutputBlock(id: UUID(), text: "正式回答")],
+        phase: .ready,
+        targetRole: "答"
+    )
+    _ = translationRail.renderTranslationForPreview(answeredPreview)
+    let clearedTransientThought = translationRail.renderedTextFragments
+        .contains("正式回答")
+        && !translationRail.renderedTextFragments.contains("正在分析上下文")
 
     let emptyLivePreview = TranslationRailSnapshot(
         sourceText: "",
@@ -10255,7 +10389,8 @@ func runBufferWindowSmokeTest() -> Bool {
         && translationRail.preferredHeight == BufferInlineView.standardPreferredHeight
         && !translationRail.renderedInputPlaceholderVisible
         && !translationRail.renderedInputCaretVisible
-        && translationRail.renderedTextFragments.contains("处理失败")
+        && translationRail.renderedTargetStatusDescriptions.contains("处理失败")
+        && !translationRail.renderedTextFragments.contains("处理失败")
         && !translationRail.renderedTextFragments.contains("输入内容")
 
     translationRail.setFrameSize(NSSize(
@@ -10435,7 +10570,8 @@ func runBufferWindowSmokeTest() -> Bool {
         && translationRail.preferredHeight == BufferInlineView.standardPreferredHeight
         && !translationRail.renderedInputPlaceholderVisible
         && !translationRail.renderedInputCaretVisible
-        && translationRail.renderedTextFragments.contains("正在生成")
+        && translationRail.renderedTargetStatusDescriptions.contains("正在生成")
+        && !translationRail.renderedTextFragments.contains("正在生成")
         && !translationRail.renderedTextFragments.contains(exchangeIdlePreview.sourceText)
     let exchangeResultID = UUID()
     let exchangeReadyPreview = TranslationRailSnapshot(
@@ -10488,6 +10624,8 @@ func runBufferWindowSmokeTest() -> Bool {
           TranslationRailRoleSymbolRules.resolve("答", target: true)
             == .init(name: "sparkles", accessibilityLabel: "AI 回答"),
           renderedCompactMarine,
+          showedTransientThought,
+          clearedTransientThought,
           reusedTargetViews,
           renderedFiveAlternativePager,
           renderedPagerGeometry,
@@ -10503,6 +10641,7 @@ func runBufferWindowSmokeTest() -> Bool {
               "live=\(renderedLiveExpand)",
               "empty=\(renderedPassiveEmptyLive)/\(renderedActiveEmptyLive)/\(renderedCompactEmptyWaiting)/\(renderedStandaloneMessage)",
               "compact=\(renderedCompactMarine)",
+              "thinking=\(showedTransientThought)/\(clearedTransientThought)",
               "reused=\(reusedTargetViews)",
               "pager=\(renderedFiveAlternativePager)",
               "pagerGeometry=\(renderedPagerGeometry)",
@@ -10627,11 +10766,22 @@ func runBufferWindowSmokeTest() -> Bool {
         .derivedInlineCompositionSnapshotForSmoke()
     let bufferCandidateSnapshot = CandidateWindow.bufferCaretSnapshotForSmoke()
     let candidateActionSurface = CandidateWindow.actionSurfaceSnapshotForSmoke()
+    // Blocks are marked by an underline below the text, never a bubble; the
+    // selected ordinary block and the selected result get the thick accent.
+    let blockUnderlines = BufferInlineView.blockUnderlineSnapshotForSmoke()
+    guard blockUnderlines.bubbleFree == [true, true, true, true],
+          blockUnderlines.underlineAlongBottom == [true, true, true, true],
+          blockUnderlines.textClearsUnderline == [true, true, true, true],
+          blockUnderlines.thickness == [1, 2, 1, 2],
+          blockUnderlines.accent == [false, true, false, true] else {
+        print("FAILED: buffer blocks must be underlined, not bubbled: \(blockUnderlines)")
+        return false
+    }
     guard inlineComposition.renderedText == "wai'mian",
           inlineComposition.renderedPrefix == "wai",
           inlineComposition.renderedSuffix == "'mian",
           inlineComposition.caretBetweenRuns,
-          inlineComposition.height == BufferInlineMetrics.chipHeight,
+          inlineComposition.height == BufferInlineMetrics.itemHeight,
           multibyteInlineComposition.renderedPrefix == "中",
           multibyteInlineComposition.renderedSuffix == "a",
           invalidBoundaryInlineComposition.renderedPrefix.isEmpty,
@@ -11255,7 +11405,7 @@ func runBufferWindowSmokeTest() -> Bool {
                 "passThrough=\(overlay.fadeAreaPassesThrough)",
                 "surface=\(overlay.interactiveSurfaceVisibleAtIdle)",
                 "a11y=\(overlay.interactiveAccessibilityLabelsAreReadable)",
-                "functionIcon=\(overlay.functionMenuOwnsOnlyPluginIcon)",
+                "functionAndSelectorIcons=\(overlay.functionMenuAndSelectorHavePluginIcons)",
                 "appIcon=\(overlay.targetApplicationIconIsReal)",
                 "passive=\(overlay.targetApplicationIndicatorIsPassive)",
                 "beforeClose=\(overlay.targetApplicationIconPrecedesClose)",
@@ -11320,6 +11470,30 @@ func runBufferWindowSmokeTest() -> Bool {
               "toolbar=\(toolbarTransition.collapsed) -> "
                 + "\(toolbarTransition.expanded) -> "
                 + "\(toolbarTransition.collapsedAgain)")
+        return false
+    }
+
+    guard BufferWindowController.shared.aiChannelControlsAreSelectableForSmoke(
+        outputPath: transitionRoot
+            .appendingPathComponent("07-ai-model-and-effort.png").path
+    ) else {
+        print("FAILED: AI channel model/effort toolbar controls")
+        return false
+    }
+
+    guard BufferWindowController.shared.scholayControlsAndResultForSmoke(
+        outputPath: transitionRoot
+            .appendingPathComponent("08-scholay-two-boxes.png").path
+    ) else {
+        print("FAILED: Scholay toolbar and two copyable result boxes")
+        return false
+    }
+
+    guard BufferWindowController.shared.imageResultMailboxButtonForSmoke(
+        outputPath: transitionRoot
+            .appendingPathComponent("09-image-mailbox-button.png").path
+    ) else {
+        print("FAILED: image result Mailbox button")
         return false
     }
 

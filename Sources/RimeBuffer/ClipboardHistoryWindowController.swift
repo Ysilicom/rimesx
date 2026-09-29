@@ -816,6 +816,13 @@ final class ClipboardHistoryWindowController: NSObject, NSWindowDelegate {
             }
             pane.onCreateSaved = { [weak self] kind in
                 guard let self, self.isVisible, self.captureState().allowsContentPresentation else { return }
+                let module: CapsuleModuleID = switch kind {
+                case .note: .notes
+                case .image, .video: .capture
+                case .pdf, .skill, .resource: .resources
+                case .password: .passwords
+                }
+                guard PluginRegistry.shared.isEnabled(module.pluginKey) else { return }
                 self.hide()
                 CapsuleWindowController.shared.show(draftKind: kind, title: "", content: "")
             }
@@ -826,6 +833,12 @@ final class ClipboardHistoryWindowController: NSObject, NSWindowDelegate {
                 self?.openHistoryDraft(item)
             }
             pane.onRequestPasswordInput = { [weak self] in self?.beginCardNativeInput() ?? false }
+            pane.onInsertSegment = { [weak self] text in
+                self?.writeSavedText(text, closesAfterWrite: true) ?? false
+            }
+            pane.onCopySegment = { [weak self] text in
+                self?.writeSavedText(text, closesAfterWrite: false) ?? false
+            }
             pane.onDeleteSaved = { [weak self] in self?.confirmSavedCardAction($0, migrate: false) }
             pane.onMigrateSaved = { [weak self] in self?.confirmSavedCardAction($0, migrate: true) }
             pane.onMigrateHistory = { [weak self] item in
@@ -870,7 +883,8 @@ final class ClipboardHistoryWindowController: NSObject, NSWindowDelegate {
     ) -> ClipboardHistoryCaptureState {
         ClipboardHistoryWindowLifecycleRules.captureState(
             windowVisibleOnActiveSpace: isVisible && !hiddenForSession,
-            captureEnabled: captureEnabled,
+            captureEnabled: captureEnabled
+                && PluginRegistry.shared.isEnabled(CapsuleModuleID.temporary.pluginKey),
             secureInput: secureInputEnabled ?? IsSecureEventInputEnabled(),
             screenLocked: screenLocked,
             sessionInactive: sessionInactive,
@@ -1157,6 +1171,13 @@ final class ClipboardHistoryWindowController: NSObject, NSWindowDelegate {
             NSSound.beep()
             return false
         }
+        if entry.kind == .pdf, let reference = entry.reference,
+           let citation = CapsuleReferenceFormatter.bibliography(
+                title: entry.title, reference: reference,
+                style: CapsuleReferencePreferences.style
+           ) {
+            return writeSavedText(citation, closesAfterWrite: closesAfterWrite)
+        }
         switch CapsuleRailActivationRules.action(for: entry.kind) {
         case .revealInPlace:
             // The pane verifies this in place. Never let a password enter
@@ -1166,24 +1187,7 @@ final class ClipboardHistoryWindowController: NSObject, NSWindowDelegate {
             return false
         case .insertText:
             guard let text = entry.payload, !text.isEmpty else { return false }
-            if closesAfterWrite, deliverSavedTextThroughFocusToken(text) {
-                IMELog.write("capsule rail inserted \(entry.kind.rawValue) through focus token")
-                hide()
-                return true
-            }
-            return writeSavedToPasteboard(
-                expectedChangeCount: NSPasteboard.general.changeCount,
-                closesAfterWrite: closesAfterWrite
-            ) { pasteboard, expectedChangeCount in
-                guard pasteboard.changeCount == expectedChangeCount else {
-                    throw CapsuleFilePasteboardError.pasteboardChanged
-                }
-                pasteboard.clearContents()
-                guard pasteboard.setString(text, forType: .string) else {
-                    throw CapsuleFilePasteboardError.pasteboardWriteFailed
-                }
-                return pasteboard.changeCount
-            }
+            return writeSavedText(text, closesAfterWrite: closesAfterWrite)
         case .pasteFile:
             guard let path = entry.payload, !richActivationInFlight else { return false }
             richActivationGeneration &+= 1
@@ -1213,6 +1217,35 @@ final class ClipboardHistoryWindowController: NSObject, NSWindowDelegate {
                 }
             }
             return true
+        }
+    }
+
+    /// Plain text from Capsule — a whole note or one row of its detail. With
+    /// `closesAfterWrite` it goes straight into the target box when the focus
+    /// token is live, otherwise through the pasteboard and auto-paste; without
+    /// it, it is only copied and the rail stays open.
+    private func writeSavedText(_ text: String, closesAfterWrite: Bool) -> Bool {
+        guard isVisible, captureState().allowsContentPresentation, !text.isEmpty else {
+            NSSound.beep()
+            return false
+        }
+        if closesAfterWrite, deliverSavedTextThroughFocusToken(text) {
+            IMELog.write("capsule rail inserted text through focus token chars=\(text.count)")
+            hide()
+            return true
+        }
+        return writeSavedToPasteboard(
+            expectedChangeCount: NSPasteboard.general.changeCount,
+            closesAfterWrite: closesAfterWrite
+        ) { pasteboard, expectedChangeCount in
+            guard pasteboard.changeCount == expectedChangeCount else {
+                throw CapsuleFilePasteboardError.pasteboardChanged
+            }
+            pasteboard.clearContents()
+            guard pasteboard.setString(text, forType: .string) else {
+                throw CapsuleFilePasteboardError.pasteboardWriteFailed
+            }
+            return pasteboard.changeCount
         }
     }
 
@@ -1307,6 +1340,7 @@ final class ClipboardHistoryWindowController: NSObject, NSWindowDelegate {
             return false
         }
         capsuleSaveInFlight = true
+        let enabledModules = Set(CapsuleModuleAvailability.enabled)
         let sources = saveable.map(HistorySaveSource.init)
         MainActor.assumeIsolated {
             historyModel.loadArchives(ids: sources.map(\.id)) { [weak self] archives in
@@ -1325,7 +1359,19 @@ final class ClipboardHistoryWindowController: NSObject, NSWindowDelegate {
                             completeText: source.completeText,
                             capturedAt: source.capturedAt,
                             archive: archive
-                        )
+                        ).map { plan -> CapsuleRailSavePlan in
+                            let module: CapsuleModuleID?
+                            switch plan {
+                            case .note: module = .notes
+                            case .imageData: module = .capture
+                            case let .file(kind, _, _):
+                                module = kind == .image || kind == .video
+                                    ? .capture : .resources
+                            case .unsupported: module = nil
+                            }
+                            return module.map { enabledModules.contains($0) } == false
+                                ? .unsupported(.kind) : plan
+                        }
                         for outcome in saver.save(plans) {
                             results.append((source.id, outcome))
                         }
@@ -1502,6 +1548,16 @@ final class ClipboardHistoryWindowController: NSObject, NSWindowDelegate {
     private func installObservers() {
         let center = NotificationCenter.default
         observers.append(center.addObserver(
+            forName: .pluginRegistryDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.explicitCaptureGeneration &+= 1
+            self.syncCaptureState()
+            MainActor.assumeIsolated { self.pane.refreshModules() }
+        })
+        observers.append(center.addObserver(
             forName: .rimeAppearanceDidChange,
             object: nil,
             queue: .main
@@ -1610,7 +1666,8 @@ final class ClipboardHistoryWindowController: NSObject, NSWindowDelegate {
         MainActor.assumeIsolated {
             historyModel.update(
                 windowVisible: false,
-                captureEnabled: captureEnabled,
+                captureEnabled: captureEnabled
+                    && PluginRegistry.shared.isEnabled(CapsuleModuleID.temporary.pluginKey),
                 protection: captureState().protection
             )
             pane.reloadFromModel()

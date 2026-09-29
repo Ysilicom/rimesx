@@ -39,17 +39,18 @@ private final class TranslationLifecycleHarness {
     let provider = TranslationLifecycleProvider()
     let selection = TranslationLifecycleSelection()
     let workspace: AppleTranslationWorkspace
+    /// Text the workspace reported as delivered, for read-aloud.
+    var delivered: [String] = []
 
     init() {
         defaults = UserDefaults(suiteName: suite)!
-        defaults.set(RealtimeTranslationProviderKind.aiConnector.rawValue,
-                     forKey: RealtimeTranslationConfigurationKey.provider)
         let selection = selection
         workspace = AppleTranslationWorkspace(
-            defaults: defaults, sourceModel: model, aiProvider: provider,
+            defaults: defaults, sourceModel: model, smokeTranslator: provider,
             isSelected: { selection.selected }
         )
         workspace.start(loadSupportedLanguages: false)
+        workspace.deliveredTextHandler = { [unowned self] in self.delivered.append($0) }
     }
 
     deinit {
@@ -100,7 +101,9 @@ func runTranslationLifecycleSmokeTest() -> Bool {
             return fail("stable earlier completion while tail changes")
         }
         let sourceID = h.model.blocks[0].id
+        guard h.delivered.isEmpty else { return fail("nothing reported before a send") }
         guard h.send() == nil,
+              h.delivered == [ready[0].text],
               h.model.stagedText == "第二句正在编",
               h.model.blocks[0].id == sourceID,
               h.workspace.deliveryPendingBlocks.map(\.id) == ready.dropFirst().map(\.id)

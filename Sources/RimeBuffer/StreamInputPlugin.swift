@@ -2280,6 +2280,10 @@ final class StreamInputWorkspace: DerivedBufferWorkspace {
         let isCurrentRequest = job.inputRevision == inputRevision
             && rawInput == job.sourceText
         switch event {
+        case .imageGenerationStarted, .imageArtifactPath:
+            break
+        case .reasoningSnapshot:
+            break
         case let .activity(activity):
             let compact = activity.message
                 .replacingOccurrences(of: "\r", with: " ")

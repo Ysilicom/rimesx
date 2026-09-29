@@ -49,8 +49,14 @@ func runPluginPlatformSmokeTest() -> Bool {
     guard shippedBufferPluginIDs == Set([
         BuiltInPluginID.appleTranslation,
         BuiltInPluginID.streamInput,
-        BuiltInPluginID.aiText,
+        BuiltInPluginID.codexCLI,
+        BuiltInPluginID.claudeCodeCLI,
+        BuiltInPluginID.openAICompatible,
+        BuiltInPluginID.scholay,
+        BuiltInPluginID.polisher,
+        BuiltInPluginID.latex,
         BuiltInPluginID.music,
+        BuiltInPluginID.morse,
     ]) else {
         return fail("shipped buffer plugin registry")
     }
@@ -64,6 +70,25 @@ func runPluginPlatformSmokeTest() -> Bool {
         PluginVisualIdentity.resolvedSymbolName($0.symbolName) == $0.symbolName
     }) else {
         return fail("shipped plugin visual identity")
+    }
+    guard AITextProviderKind.codexCLI.displayName == "ChatGPT",
+          AITextProviderKind.claudeCodeCLI.displayName == "Claude",
+          PluginVisualIdentity.image(
+            symbolName: PluginVisualIdentity.chatGPTSymbolName,
+            accessibilityDescription: "ChatGPT",
+            pointSize: 18
+          )?.isTemplate == true,
+          PluginVisualIdentity.image(
+            symbolName: PluginVisualIdentity.claudeSymbolName,
+            accessibilityDescription: "Claude",
+            pointSize: 18
+          )?.isTemplate == false,
+          PluginVisualIdentity.image(
+            symbolName: PluginVisualIdentity.scholaySymbolName,
+            accessibilityDescription: "Scholay",
+            pointSize: 18
+          )?.isTemplate == true else {
+        return fail("provider names and bundled icons")
     }
     let fallbackSymbol = PluginVisualIdentity.resolvedSymbolName(nil)
     guard fallbackSymbol == PluginVisualIdentity.fallbackSymbolName,
@@ -85,12 +110,18 @@ func runPluginPlatformSmokeTest() -> Bool {
           defaultImage.isTemplate else {
         return fail("plugin symbol fallback")
     }
+    // One Buffer plug-in per AI backend, each with its own task; the retired
+    // single AI Generation plug-in is gone.
     let shippedAIPlugins = BuiltInPlugins.makeAll().filter {
-        $0.descriptor.key.rawID == BuiltInPluginID.aiText
+        AITextBuiltInPluginID.isChannelPlugin($0.descriptor.key)
     }
-    guard shippedAIPlugins.count == 1,
-          shippedAIPlugins[0].descriptor.capabilities == [.bufferAction] else {
-        return fail("unified AI buffer plugin")
+    guard shippedAIPlugins.map(\.descriptor.key)
+            == AITextProviderKind.allCases.map(\.pluginKey),
+          shippedAIPlugins.allSatisfy({ $0.descriptor.capabilities == [.bufferAction] }),
+          !BuiltInPlugins.makeAll().contains(where: {
+              $0.descriptor.key.rawID == BuiltInPluginID.aiText
+          }) else {
+        return fail("AI task buffer plugins")
     }
     let streamInputPlugins = BuiltInPlugins.makeAll().filter {
         $0.descriptor.key.rawID == BuiltInPluginID.streamInput

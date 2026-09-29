@@ -258,11 +258,21 @@ enum CaptureUI {
     }
 }
 
+extension Notification.Name {
+    /// Posted when a capture-tool window appears, so a running recording can
+    /// keep it out of the video too.
+    static let captureChromeDidPresent = Notification.Name("RIMES.captureChromeDidPresent")
+}
+
 /// Shared chrome for new Capsule windows. Only key-capable surfaces acquire
 /// standalone focus; passive overlays never claim an input-method target.
 class CapturePanel: NSPanel, NSWindowDelegate {
     enum Surface { case rounded, transparent }
     var captureChrome = false { didSet { updateTheme() } }
+    /// The capture tool's own transient UI: launcher, selection masks,
+    /// countdown, result cards, recording and scrolling controls. It never
+    /// appears in a screenshot or recording; every other RIMES window does.
+    var excludedFromCapture = false
     var closed: (() -> Void)?
     var escapeCloses = true
     var escapeAction: (() -> Void)?
@@ -320,6 +330,9 @@ class CapturePanel: NSPanel, NSWindowDelegate {
             NSApp.activate(ignoringOtherApps: true)
             makeKeyAndOrderFront(nil)
         } else { orderFrontRegardless() }
+        if excludedFromCapture {
+            NotificationCenter.default.post(name: .captureChromeDidPresent, object: self)
+        }
     }
     override func cancelOperation(_ sender: Any?) {
         if let escapeAction { escapeAction() } else if escapeCloses { close() }

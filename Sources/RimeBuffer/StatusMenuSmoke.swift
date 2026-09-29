@@ -174,6 +174,16 @@ func runStatusMenuSmokeTest() -> Bool {
     sourceMenu.cancelTracking()
     guard spy.invocations.count == completedCount else { return fail("cancellation replayed a prior command") }
 
+    let recoveryCyclePassed = MainActor.assumeIsolated { () -> Bool in
+        let recovery = RIMESRecoveryStatusItem.shared
+        recovery.refresh(isSelected: false)
+        guard recovery.isVisibleForSmoke else { return false }
+        recovery.refresh(isSelected: false)
+        recovery.refresh(isSelected: true)
+        return !recovery.isVisibleForSmoke
+    }
+    guard recoveryCyclePassed else { return fail("recovery status item lifecycle") }
+
     print("status-menu-smoke: PASS compact main menu, health and dynamic titles, five maintenance commands, 11 isolated AppKit actions, inert construction/cancellation")
     return true
 }
