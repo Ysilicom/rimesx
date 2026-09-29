@@ -300,6 +300,8 @@ export function SettingsSurface({
     defaultSubpages,
   );
   const [selectedPlugin, setSelectedPlugin] = useState<PluginRecord | null>(null);
+  const [themeDetails, setThemeDetails] = useState<ThemeID | null>(null);
+  const [pluginDetails, setPluginDetails] = useState<string | null>(null);
   const [status, setStatus] = useState("所有设置仅作用于当前设计场景");
 
   const [selectedSchemeID, setSelectedSchemeID] = useState("rime_ice");
@@ -410,34 +412,35 @@ export function SettingsSurface({
     });
 
     return (
-      <SettingsSection
-        title="插件"
-        description="下载只安装插件；新下载的插件保持停用，启用后才会进入工作台或扩展导航。"
-      >
-        <div className="plugin-management-list">
+      <SettingsSection title="插件">
+        <div className="plugin-management-grid">
           {visiblePlugins.map((plugin) => {
             const available = plugin.installState === "bundled" || plugin.installState === "installed";
             return (
               <article className="plugin-management-card" key={plugin.id}>
-                <span className="plugin-management-card__icon">
-                  <Icon name={plugin.icon} size={22} weight="duotone" />
-                </span>
-                <span className="plugin-management-card__copy">
-                  <span className="plugin-management-card__title">
-                    <strong>{plugin.name}</strong>
-                    <small>v{plugin.version}</small>
-                    <Badge tone={available ? "neutral" : "warning"}>
-                      {pluginInstallLabel(plugin)}
-                    </Badge>
+                <span className="plugin-management-card__top">
+                  <span className="plugin-management-card__icon">
+                    <Icon name={plugin.icon} size={19} weight="duotone" />
                   </span>
-                  <small>{plugin.summary}</small>
+                  <span className="plugin-management-card__actions">
+                    <IconButton
+                      aria-expanded={pluginDetails === plugin.id}
+                      icon="info"
+                      label={`查看${plugin.name}详情`}
+                      onClick={() => setPluginDetails((current) => current === plugin.id ? null : plugin.id)}
+                    />
+                    {available && plugin.configurable ? (
+                      <IconButton
+                        icon="gear"
+                        label={`配置${plugin.name}`}
+                        onClick={() => setSelectedPlugin(plugin)}
+                      />
+                    ) : null}
+                  </span>
                 </span>
-                <span className="plugin-management-card__actions">
-                  {available && plugin.configurable ? (
-                    <Button icon="gear" kind="ghost" onClick={() => setSelectedPlugin(plugin)}>
-                      设置…
-                    </Button>
-                  ) : null}
+                <strong className="plugin-management-card__name" title={plugin.summary}>{plugin.name}</strong>
+                <span className="plugin-management-card__bottom">
+                  <small>{!available ? "未下载" : plugin.enabled ? "已启用" : "已停用"}</small>
                   {available ? (
                     <Switch
                       checked={plugin.enabled}
@@ -448,16 +451,21 @@ export function SettingsSurface({
                       }}
                     />
                   ) : (
-                    <Button
+                    <IconButton
                       icon="cloudDownload"
-                      kind="secondary"
+                      label={`下载并安装${plugin.name}`}
                       disabled={plugin.installState === "downloading"}
                       onClick={() => downloadPlugin(plugin)}
-                    >
-                      {plugin.installState === "downloading" ? "等待…" : "下载"}
-                    </Button>
+                    />
                   )}
                 </span>
+                {pluginDetails === plugin.id ? (
+                  <aside className="settings-card-details" role="status">
+                    <strong>{plugin.name}</strong>
+                    <small>v{plugin.version} · {pluginInstallLabel(plugin)}</small>
+                    <p>{plugin.summary}</p>
+                  </aside>
+                ) : null}
               </article>
             );
           })}
@@ -727,50 +735,53 @@ export function SettingsSurface({
     if (currentRoute.id === "core.appearance") {
       if (currentSubpage === "theme") {
         return (
-          <SettingsSection title="主题" description="主题与配色分开管理：经典包含三种既有配色，拉斯塔是一套独立视觉架构。">
-            <div className="theme-family-list">
-              {themeFamilyOrder.map((familyID) => {
+          <SettingsSection title="主题">
+            <div className="theme-choice-list">
+              {themeFamilyOrder.flatMap((familyID) => themeFamilies[familyID].colorways.map((id) => {
                 const family = themeFamilies[familyID];
+                const theme = themes[id];
                 return (
-                  <section className="theme-family" key={familyID}>
-                    <header className="theme-family__header">
-                      <span>
-                        <strong>{family.title}</strong>
-                        <small>{family.description}</small>
+                  <article
+                    className={`theme-choice theme-choice--${familyID}${activeThemeID === id ? " is-selected" : ""}`}
+                    key={id}
+                    style={themeCSSVariables(theme)}
+                  >
+                    <button
+                      aria-pressed={activeThemeID === id}
+                      className="theme-choice__select"
+                      onClick={() => {
+                        setActiveThemeID(id);
+                        onThemeChange?.(id);
+                        setStatus(`已切换到${family.title}${familyID === "classic" ? ` · ${theme.title}` : ""}主题`);
+                      }}
+                      type="button"
+                    >
+                      <span aria-hidden="true" className="theme-choice__palette">
+                        <i style={{ background: familyID === "rasta" ? theme.brandRed : theme.surfaceSecondary }} />
+                        <i style={{ background: familyID === "rasta" ? theme.brandYellow : theme.selection }} />
+                        <i style={{ background: familyID === "rasta" ? theme.brandGreen : theme.accent }} />
                       </span>
-                      <Badge>{family.colorways.length > 1 ? `${family.colorways.length} 配色` : "独立主题"}</Badge>
-                    </header>
-                    <div className="theme-choice-list">
-                      {family.colorways.map((id) => {
-                        const theme = themes[id];
-                        return (
-                          <button
-                            aria-pressed={activeThemeID === id}
-                            className={`theme-choice theme-choice--${familyID}${activeThemeID === id ? " is-selected" : ""}`}
-                            key={id}
-                            onClick={() => {
-                              setActiveThemeID(id);
-                              onThemeChange?.(id);
-                              setStatus(`已切换到${family.title}${familyID === "classic" ? ` · ${theme.title}` : ""}主题`);
-                            }}
-                            style={themeCSSVariables(theme)}
-                            type="button"
-                          >
-                            <span className="theme-choice__icon"><Icon name="appearance" size={21} weight="duotone" /></span>
-                            <span className="theme-choice__copy"><strong>{theme.title}</strong><small>{theme.description}</small></span>
-                            <span aria-hidden="true" className="theme-choice__palette">
-                              <i style={{ background: theme.brandRed }} />
-                              <i style={{ background: theme.brandYellow }} />
-                              <i style={{ background: theme.brandGreen }} />
-                            </span>
-                            {activeThemeID === id ? <Badge tone="accent">正在使用</Badge> : <Badge>可用</Badge>}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </section>
+                      <span className="theme-choice__footer">
+                        <strong>{theme.title}</strong><small>{family.title}</small>
+                        {activeThemeID === id ? <Icon name="check" size={15} weight="bold" /> : null}
+                      </span>
+                    </button>
+                    <IconButton
+                      aria-expanded={themeDetails === id}
+                      className="theme-choice__details-button"
+                      icon="info"
+                      label={`查看${theme.title}主题详情`}
+                      onClick={() => setThemeDetails((current) => current === id ? null : id)}
+                    />
+                    {themeDetails === id ? (
+                      <aside className="settings-card-details" role="status">
+                        <strong>{theme.title}</strong><small>{family.title}</small>
+                        <p>{theme.description}</p>
+                      </aside>
+                    ) : null}
+                  </article>
                 );
-              })}
+              }))}
             </div>
           </SettingsSection>
         );

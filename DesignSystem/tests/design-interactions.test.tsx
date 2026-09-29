@@ -253,15 +253,17 @@ describe("Input scheme and chord-extension information architecture", () => {
 });
 
 describe("Current Buffer plugin catalog", () => {
-  it("exposes only the three current plugins, versions, and modes", () => {
+  it("exposes one plug-in per AI backend plus the other current plug-ins", () => {
     const bufferPlugins = initialPlugins.filter((plugin) => plugin.category === "buffer");
     expect(bufferPlugins.map((plugin) => ({
       id: plugin.id,
       version: plugin.version,
       enabled: plugin.enabled,
     }))).toEqual([
-      { id: "builtin.ai-text", version: "2.1", enabled: true },
-      { id: "builtin.apple-translation", version: "2.1", enabled: true },
+      { id: "builtin.codex-cli", version: "1.1", enabled: true },
+      { id: "builtin.claude-code-cli", version: "1.1", enabled: true },
+      { id: "builtin.openai-compatible", version: "1.0", enabled: true },
+      { id: "builtin.apple-translation", version: "2.2", enabled: true },
       { id: "builtin.stream-input", version: "1.3", enabled: true },
     ]);
 
@@ -276,7 +278,9 @@ describe("Current Buffer plugin catalog", () => {
     const modeSelect = within(popover).getByRole("combobox", { name: "工作台插件" });
     expect(within(modeSelect).getAllByRole("option").map((option) => option.textContent)).toEqual([
       "Default",
-      "AI 生成",
+      "Codex",
+      "Claude Code",
+      "AI API",
       "实时翻译",
       "意识流输入",
     ]);
@@ -298,13 +302,15 @@ describe("Theme architecture", () => {
     ]).toEqual(["#E95043", "#F2C94C", "#39C96B"]);
   });
 
-  it("presents themes as families and applies the Rasta colorway", () => {
+  it("presents compact theme cards with on-demand details and applies Rasta", () => {
     const onThemeChange = vi.fn();
     const view = render(<ThemeSettingsHarness onThemeChange={onThemeChange} />);
 
-    expect(screen.getByText("经典")).toBeTruthy();
-    expect(view.container.querySelectorAll(".theme-family")).toHaveLength(2);
+    expect(screen.getAllByText("经典")).toHaveLength(3);
+    expect(view.container.querySelectorAll(".theme-choice-list")).toHaveLength(1);
     expect(view.container.querySelectorAll(".theme-choice")).toHaveLength(4);
+    fireEvent.click(screen.getByRole("button", { name: "查看拉斯塔主题详情" }));
+    expect(screen.getByText(themes.rasta.description)).toBeTruthy();
     const rasta = screen.getByRole("button", { name: /^拉斯塔/ });
     expect(rasta.querySelectorAll(".theme-choice__palette i")).toHaveLength(3);
     fireEvent.click(rasta);
@@ -522,39 +528,64 @@ describe("Buffer generation and delivery", () => {
 
   it("opens plugin selection and each plugin configuration from the input icon", () => {
     const onConfigurationChange = vi.fn();
+    const onAIInferenceChange = vi.fn();
     const onOpenPluginSettings = vi.fn();
     const view = render(
       <BufferSurface
         defaultMode="normal"
         defaultSourceText="source"
         onOpenPluginSettings={onOpenPluginSettings}
+        onAIInferenceChange={onAIInferenceChange}
         onPluginConfigurationChange={onConfigurationChange}
       />,
     );
     const popover = openBufferToolbar();
     const modeSelect = within(popover).getByRole("combobox", { name: "工作台插件" });
 
-    fireEvent.change(modeSelect, { target: { value: "ai" } });
+    // Each AI backend is its own plug-in with a fixed task and no connector picker.
+    fireEvent.change(modeSelect, { target: { value: "ai:claude" } });
     expect(screen.getByRole("region", { name: "缓冲工作台" }).getAttribute("data-mode"))
       .toBe("ai");
-    fireEvent.change(within(popover).getByRole("combobox", { name: "AI 生成连接器" }), {
-      target: { value: "claude" },
-    });
-    expect(onConfigurationChange).toHaveBeenLastCalledWith({
+    expect(onConfigurationChange).toHaveBeenCalledWith({
       mode: "ai",
       connector: "claude",
     });
+    expect(within(popover).queryByRole("combobox", { name: "AI 生成连接器" })).toBeNull();
+    const claudeModel = within(popover).getByRole("combobox", { name: "Claude Code 模型" });
+    const claudeEffort = within(popover).getByRole("combobox", { name: "Claude Code 推理深度" });
+    expect(claudeModel).not.toHaveProperty("disabled", true);
+    expect(claudeModel).toHaveProperty("value", "claude-opus-5-5");
+    expect(claudeEffort).toHaveProperty("value", "medium");
+    expect(within(claudeModel).queryByRole("option", { name: /默认|跟随/ })).toBeNull();
+    expect(within(claudeEffort).queryByRole("option", { name: /默认|跟随/ })).toBeNull();
+    expect(within(claudeModel).getByRole("option", { name: "sonnet" })).toBeTruthy();
+    fireEvent.change(claudeModel, { target: { value: "sonnet" } });
+    fireEvent.change(claudeEffort, { target: { value: "high" } });
+    expect(onAIInferenceChange).toHaveBeenLastCalledWith("claude", {
+      model: "sonnet", effort: "high",
+    });
     fireEvent.click(within(popover).getByRole("button", { name: "在设置中打开完整配置" }));
-    expect(onOpenPluginSettings).toHaveBeenCalledWith("builtin.ai-text");
+    expect(onOpenPluginSettings).toHaveBeenCalledWith("builtin.claude-code-cli");
+
+    fireEvent.change(modeSelect, { target: { value: "ai:codex" } });
+    const codexModel = within(popover).getByRole("combobox", { name: "Codex 模型" });
+    const codexEffort = within(popover).getByRole("combobox", { name: "Codex 推理深度" });
+    expect(codexModel).toHaveProperty("value", "gpt-6-sol");
+    expect(codexEffort).toHaveProperty("value", "medium");
+    expect(within(codexModel).queryByRole("option", { name: /默认|跟随/ })).toBeNull();
+    expect(within(codexEffort).queryByRole("option", { name: /默认|跟随/ })).toBeNull();
 
     fireEvent.change(modeSelect, { target: { value: "translation" } });
-    fireEvent.change(within(popover).getByRole("combobox", { name: "翻译通道" }), {
-      target: { value: "ai" },
+    // Translation is Apple-only: no channel picker, and none in its payload.
+    expect(within(popover).queryByRole("combobox", { name: "翻译通道" })).toBeNull();
+    fireEvent.change(within(popover).getByRole("combobox", { name: "目标语言" }), {
+      target: { value: "ja" },
     });
     expect(onConfigurationChange).toHaveBeenLastCalledWith(expect.objectContaining({
       mode: "translation",
-      provider: "ai",
+      targetLanguage: "ja",
     }));
+    expect(onConfigurationChange.mock.lastCall?.[0]).not.toHaveProperty("provider");
 
     fireEvent.change(modeSelect, { target: { value: "stream" } });
     fireEvent.change(within(popover).getByRole("combobox", { name: "意识流候选数量" }), {
@@ -647,13 +678,17 @@ describe("Buffer generation and delivery", () => {
       />,
     );
     const status = view.container.querySelector(".buffer-track__status");
-    expect(status?.textContent).toBe("正在发送");
+    expect(status?.textContent).toBe("");
+    expect(status?.getAttribute("aria-label")).toBe("正在发送");
+    expect(status?.querySelector("svg")).toBeTruthy();
     const busyButton = screen.getByRole("button", { name: "发送中…" });
     expect(busyButton.textContent).toBe("");
     expect(busyButton.getAttribute("title")).toBe("发送中…");
     expect(busyButton.getAttribute("aria-busy")).toBe("true");
     expect(busyButton.querySelector("svg")).toBeTruthy();
-    expect(busyButton.querySelector("svg")?.innerHTML).not.toBe(sendIconMarkup);
+    expect(busyButton.querySelector("svg")?.innerHTML).toBe(sendIconMarkup);
+    expect(busyButton.querySelector(".is-spinning")).toBeNull();
+    expect(status?.querySelector(".is-spinning")).toBeTruthy();
   });
 
   it("renders plugin loading status in the visible result rail instead of the toolbar", () => {
@@ -666,32 +701,46 @@ describe("Buffer generation and delivery", () => {
     );
 
     expect(screen.getByRole("toolbar", { name: "Buffer 工具栏" })).toBeTruthy();
-    expect(view.container.querySelector(".buffer-track__loading")?.textContent)
-      .toBe("插件正在生成");
+    expect(view.container.querySelector(".buffer-track--target .buffer-track__status")
+      ?.getAttribute("aria-label")).toBe("插件正在生成");
+    expect(view.container.querySelector(".buffer-track--target .buffer-track__status")
+      ?.textContent).toBe("");
 
     view.rerender(
       <BufferSurface
         mode="translation"
         phase="loading"
         sourceText="source"
-        translationProvider="ai"
       />,
     );
     expect(screen.getByRole("toolbar", { name: "Buffer 工具栏" })).toBeTruthy();
-    expect(view.container.querySelector(".buffer-track__loading")?.textContent)
-      .toBe("正在通过 AI 通道翻译");
+    expect(view.container.querySelector(".buffer-track--target .buffer-track__status")
+      ?.getAttribute("aria-label")).toBe("正在使用 Apple 本地翻译");
 
     view.rerender(
       <BufferSurface
         mode="translation"
         phase="loading"
         sourceText=""
-        translationProvider="ai"
       />,
     );
-    expect(view.container.querySelector(".buffer-track__loading")).toBeNull();
-    expect(view.container.querySelector(".buffer-track__status")?.textContent)
-      .toBe("正在通过 AI 通道翻译");
+    expect(view.container.querySelector(".buffer-track--target")).toBeNull();
+    expect(view.container.querySelector(".buffer-track__status")
+      ?.getAttribute("aria-label")).toBe("正在使用 Apple 本地翻译");
+  });
+
+  it("replaces transient thinking with the actual AI result", () => {
+    const view = render(<BufferSurface mode="ai" phase="loading"
+      sourceText="source" thinkingText="先检查输入，再组织回答" />);
+    const target = view.container.querySelector(".buffer-track--target");
+    expect(target?.querySelector(".buffer-track__thinking")?.textContent)
+      .toBe("先检查输入，再组织回答");
+    expect(target?.querySelector(".buffer-track__status")?.getAttribute("aria-label"))
+      .toBe("插件正在生成");
+    view.rerender(<BufferSurface mode="ai" phase="ready" sourceText="source"
+      targets={["正式回答"]} thinkingText="先检查输入，再组织回答" />);
+    expect(view.container.querySelector(".buffer-track__thinking")).toBeNull();
+    expect(screen.getByText("正式回答")).toBeTruthy();
   });
 
   it("debounces live generation and ignores parent-only callback identity changes", async () => {
@@ -843,7 +892,7 @@ describe("Buffer generation and delivery", () => {
     const view = render(
       <BufferSurface mode="ai" phase="ready" sourceText="source" onGenerate={onGenerate} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    fireEvent.click(screen.getByRole("button", { name: "请求" }));
     const request = onGenerate.mock.calls[0]?.[2];
 
     view.rerender(
@@ -892,7 +941,7 @@ describe("Buffer generation and delivery", () => {
     const view = render(
       <BufferSurface mode="ai" phase="ready" sourceText="first" onGenerate={onGenerate} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    fireEvent.click(screen.getByRole("button", { name: "请求" }));
     const sourceRequest = onGenerate.mock.calls[0]?.[2];
 
     view.rerender(
@@ -900,7 +949,7 @@ describe("Buffer generation and delivery", () => {
     );
     expect(sourceRequest.signal.aborted).toBe(true);
 
-    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    fireEvent.click(screen.getByRole("button", { name: "请求" }));
     const modeRequest = onGenerate.mock.calls[1]?.[2];
     view.rerender(
       <BufferSurface
@@ -977,7 +1026,8 @@ describe("Buffer generation and delivery", () => {
       await Promise.resolve();
     });
     expect(failedSend.mock.calls[0]?.slice(0, 2)).toEqual(["generated result", "ai"]);
-    expect(screen.getAllByText("发送失败，请重试")).toHaveLength(2);
+    expect(screen.getAllByText("发送失败，请重试")).toHaveLength(1);
+    expect(screen.getByRole("img", { name: "发送失败，请重试" })).toBeTruthy();
     expect(screen.getByText("generated result")).toBeTruthy();
     failedView.unmount();
 
@@ -1015,7 +1065,8 @@ describe("Buffer generation and delivery", () => {
       fireEvent.click(screen.getByRole("button", { name: "发送" }));
       await Promise.resolve();
     });
-    expect(screen.getAllByText("发送失败，请重试")).toHaveLength(2);
+    expect(screen.getAllByText("发送失败，请重试")).toHaveLength(1);
+    expect(screen.getByRole("img", { name: "发送失败，请重试" })).toBeTruthy();
     expect(screen.getByText("generated result")).toBeTruthy();
   });
 
@@ -1036,7 +1087,7 @@ describe("Buffer generation and delivery", () => {
     render(<RetryFailureHarness />);
     openBufferToolbar();
     fireEvent.click(screen.getByRole("button", { name: "重新生成" }));
-    expect(screen.getAllByText("处理失败")).toHaveLength(1);
+    expect(screen.getByRole("img", { name: "处理失败" })).toBeTruthy();
     expect(screen.getByText(
       "处理失败，已保留上次结果。候选 1 / 1：prior result",
     )).toBeTruthy();
@@ -1091,7 +1142,7 @@ describe("Buffer generation and delivery", () => {
         targetContext={{
           requestID: "request-1",
           contextKey: bufferInputContextKey(
-            "ai", "first source", "zh-Hans", "en", "apple", 5, "balanced",
+            "ai", "first source", "zh-Hans", "en", 5, "balanced",
           ),
         }}
         targets={["first result"]}
@@ -1109,7 +1160,7 @@ describe("Buffer generation and delivery", () => {
         targetContext={{
           requestID: "request-1",
           contextKey: bufferInputContextKey(
-            "ai", "first source", "zh-Hans", "en", "apple", 5, "balanced",
+            "ai", "first source", "zh-Hans", "en", 5, "balanced",
           ),
         }}
         targets={["first result"]}
@@ -1120,9 +1171,94 @@ describe("Buffer generation and delivery", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it("invalidates a controlled translation result when its provider context changes", () => {
+  it("reads a translated block only when the switch is on and the block is clicked or sent", async () => {
+    const utterances: { text: string; lang: string }[] = [];
+    const speak = vi.fn((utterance: { text: string; lang: string }) => {
+      utterances.push(utterance);
+    });
+    const cancel = vi.fn();
+    vi.stubGlobal("speechSynthesis", { speak, cancel });
+    vi.stubGlobal("SpeechSynthesisUtterance", class {
+      lang = "";
+      onend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(public text: string) {}
+    });
+    try {
+      const context = bufferInputContextKey(
+        "translation", "hello", "auto", "zh-Hans", 5, "balanced",
+      );
+      const onSend = vi.fn().mockResolvedValue(true);
+      const onReadAloudChange = vi.fn();
+      render(
+        <BufferSurface
+          activeRequestID="request-1"
+          mode="translation"
+          onReadAloudChange={onReadAloudChange}
+          onSend={onSend}
+          phase="ready"
+          sourceLanguage="auto"
+          sourceText="hello"
+          targetContext={{ requestID: "request-1", contextKey: context }}
+          targetLanguage="zh-Hans"
+          targets={["你好"]}
+          translationContinuously={false}
+        />,
+      );
+      // Off by default: the block is plain text and nothing is read.
+      expect(screen.queryByRole("button", { name: /朗读此块/ })).toBeNull();
+      const popover = openBufferToolbar();
+      const toggle = within(popover).getByRole("button", { name: "朗读译文" });
+      expect(toggle.getAttribute("aria-pressed")).toBe("false");
+
+      fireEvent.click(toggle);
+      expect(toggle.getAttribute("aria-pressed")).toBe("true");
+      expect(onReadAloudChange).toHaveBeenLastCalledWith(true);
+      expect(speak).not.toHaveBeenCalled();
+
+      // Clicking a block reads that block, in the target language.
+      fireEvent.click(screen.getByRole("button", { name: "朗读此块：你好" }));
+      expect(utterances).toEqual([expect.objectContaining({ text: "你好", lang: "zh-CN" })]);
+      // A second block read replaces the one playing.
+      const cancelsBefore = cancel.mock.calls.length;
+      fireEvent.click(screen.getByRole("button", { name: "朗读此块：你好" }));
+      expect(cancel.mock.calls.length).toBeGreaterThan(cancelsBefore);
+      expect(speak).toHaveBeenCalledTimes(2);
+
+      // Sending a block reads the block that was sent.
+      fireEvent.click(screen.getByRole("button", { name: "发送" }));
+      await waitFor(() => expect(onSend).toHaveBeenCalled());
+      await waitFor(() => expect(speak).toHaveBeenCalledTimes(3));
+      expect(utterances[2]).toMatchObject({ text: "你好" });
+
+      // Turning it off stops reading and makes blocks plain text again.
+      const cancelsBeforeOff = cancel.mock.calls.length;
+      fireEvent.click(toggle);
+      expect(cancel.mock.calls.length).toBeGreaterThan(cancelsBeforeOff);
+      expect(screen.queryByRole("button", { name: /朗读此块/ })).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("offers read-aloud only for translation", () => {
+    render(
+      <BufferSurface
+        defaultReadAloud
+        mode="ai"
+        phase="ready"
+        sourceText="source"
+        targets={["reply"]}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /朗读/ })).toBeNull();
+    const popover = openBufferToolbar();
+    expect(within(popover).queryByRole("button", { name: "朗读译文" })).toBeNull();
+  });
+
+  it("invalidates a controlled translation result when its language context changes", () => {
     const appleContext = bufferInputContextKey(
-      "translation", "hello", "auto", "zh-Hans", "apple", 5, "balanced",
+      "translation", "hello", "auto", "zh-Hans", 5, "balanced",
     );
     const view = render(
       <BufferSurface
@@ -1135,7 +1271,6 @@ describe("Buffer generation and delivery", () => {
         targetLanguage="zh-Hans"
         targets={["apple result"]}
         translationContinuously={false}
-        translationProvider="apple"
       />,
     );
     expect(screen.getByRole("button", { name: "发送" }).hasAttribute("disabled")).toBe(false);
@@ -1148,10 +1283,9 @@ describe("Buffer generation and delivery", () => {
         sourceLanguage="auto"
         sourceText="hello"
         targetContext={{ requestID: "request-1", contextKey: appleContext }}
-        targetLanguage="zh-Hans"
+        targetLanguage="ja"
         targets={["apple result"]}
         translationContinuously={false}
-        translationProvider="ai"
       />,
     );
     expect(screen.getByRole("button", { name: "翻译" }).hasAttribute("disabled")).toBe(false);
@@ -1169,7 +1303,7 @@ describe("Buffer generation and delivery", () => {
         sourceText="source"
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    fireEvent.click(screen.getByRole("button", { name: "请求" }));
     const firstRequest = onGenerate.mock.calls[0]?.[2];
 
     view.rerender(
@@ -1280,13 +1414,15 @@ describe("Buffer generation and delivery", () => {
       "处理失败，已保留上次结果。候选 2 / 2：second result",
     )).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
-    expect(screen.getAllByText("正在发送")).toHaveLength(2);
+    expect(screen.getAllByText("正在发送")).toHaveLength(1);
+    expect(screen.getByRole("img", { name: "正在发送" })).toBeTruthy();
     expect(screen.queryByText("处理失败")).toBeNull();
     await act(async () => {
       resolveSend?.(false);
       await Promise.resolve();
     });
-    expect(screen.getAllByText("发送失败，请重试")).toHaveLength(2);
+    expect(screen.getAllByText("发送失败，请重试")).toHaveLength(1);
+    expect(screen.getByRole("img", { name: "发送失败，请重试" })).toBeTruthy();
 
     const successfulSend = vi.fn().mockResolvedValue(true);
     view.rerender(
@@ -1302,7 +1438,8 @@ describe("Buffer generation and delivery", () => {
       fireEvent.click(screen.getByRole("button", { name: "发送" }));
       await Promise.resolve();
     });
-    expect(screen.getAllByText("已发送")).toHaveLength(2);
+    expect(screen.getAllByText("已发送")).toHaveLength(1);
+    expect(screen.getByRole("img", { name: "已发送" })).toBeTruthy();
     expect(screen.getByText("second result")).toBeTruthy();
   });
 
@@ -1379,7 +1516,7 @@ describe("Buffer generation and delivery", () => {
         targetContext={{
           requestID: "request-1",
           contextKey: bufferInputContextKey(
-            "ai", "source", "zh-Hans", "en", "apple", 5, "balanced",
+            "ai", "source", "zh-Hans", "en", 5, "balanced",
           ),
         }}
         targets={["only result"]}

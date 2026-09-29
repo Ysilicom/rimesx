@@ -23,7 +23,6 @@ import type { PluginRecord } from "../design-system/data";
 export type PluginSetter = Dispatch<SetStateAction<PluginRecord[]>>;
 
 type TranslationLanguage = "auto" | "zh-Hans" | "zh-Hant" | "en" | "ja" | "ko";
-type TranslationProvider = "apple" | "ai";
 
 const sourceLanguages: readonly { value: TranslationLanguage; label: string }[] = [
   { value: "auto", label: "自动检测" },
@@ -99,11 +98,11 @@ export function PluginConfigurationDialog({
 }) {
   const [sourceLanguage, setSourceLanguage] = useState<TranslationLanguage>("auto");
   const [targetLanguage, setTargetLanguage] = useState<TranslationLanguage>("zh-Hans");
-  const [translationProvider, setTranslationProvider] = useState<TranslationProvider>("apple");
   const [translateContinuously, setTranslateContinuously] = useState(true);
-  const [connector, setConnector] = useState("codex");
   const [streamCandidates, setStreamCandidates] = useState("5");
   const [streamLatency, setStreamLatency] = useState("balanced");
+  const [aiModel, setAIModel] = useState("gpt-6-sol");
+  const [aiEffort, setAIEffort] = useState("medium");
   const [saved, setSaved] = useState(false);
   const dialogRef = useRef<HTMLElement | null>(null);
 
@@ -112,7 +111,6 @@ export function PluginConfigurationDialog({
     const configuration = initialConfiguration ?? {};
     const source = configuration.sourceLanguage;
     const target = configuration.targetLanguage;
-    const provider = configuration.provider;
     setSourceLanguage(
       typeof source === "string" && sourceLanguages.some((item) => item.value === source)
         ? source as TranslationLanguage
@@ -123,13 +121,11 @@ export function PluginConfigurationDialog({
         ? target as TranslationLanguage
         : "zh-Hans",
     );
-    setTranslationProvider(provider === "ai" ? "ai" : "apple");
     setTranslateContinuously(
       typeof configuration.translateContinuously === "boolean"
         ? configuration.translateContinuously
         : true,
     );
-    setConnector(typeof configuration.connector === "string" ? configuration.connector : "codex");
     setStreamCandidates(
       typeof configuration.candidateCount === "number"
         && configuration.candidateCount >= 1
@@ -140,6 +136,12 @@ export function PluginConfigurationDialog({
     setStreamLatency(
       typeof configuration.latency === "string" ? configuration.latency : "balanced",
     );
+    const defaultModel = plugin?.id === "builtin.claude-code-cli"
+      ? "claude-opus-5-5" : "gpt-6-sol";
+    setAIModel(typeof configuration.model === "string" && configuration.model !== "default"
+      ? configuration.model : defaultModel);
+    setAIEffort(typeof configuration.effort === "string" && configuration.effort !== "default"
+      ? configuration.effort : "medium");
   }, [initialConfiguration, plugin?.id]);
 
   useEffect(() => {
@@ -174,16 +176,16 @@ export function PluginConfigurationDialog({
         return {
           sourceLanguage,
           targetLanguage,
-          provider: translationProvider,
           translateContinuously,
         };
-      case "builtin.ai-text":
-        return { connector };
       case "builtin.stream-input":
         return {
           candidateCount: Number(streamCandidates),
           latency: streamLatency,
         };
+      case "builtin.codex-cli":
+      case "builtin.claude-code-cli":
+        return { model: aiModel, effort: aiEffort };
       default:
         return { enabled: plugin.enabled };
     }
@@ -263,7 +265,7 @@ export function PluginConfigurationDialog({
                   onClick={swapTranslationLanguages}
                 />
 
-                <Field label="目标语言" hint="目标语言必须明确指定。">
+                <Field label="目标语言" hint="目标语言必须明确指定。使用 Apple 本地翻译（macOS 15 或更高版本），原文不离开本机。">
                   <select
                     aria-label="实时翻译目标语言"
                     className="r-native-select"
@@ -282,21 +284,6 @@ export function PluginConfigurationDialog({
                 </Field>
               </div>
 
-              <Field label="翻译通道" hint="Apple 本地翻译需要 macOS 15 或更高版本。">
-                <Segmented
-                  ariaLabel="翻译通道"
-                  onChange={(value) => {
-                    setTranslationProvider(value);
-                    setSaved(false);
-                  }}
-                  options={[
-                    { value: "apple", label: "Apple 本地" },
-                    { value: "ai", label: "当前 AI 连接器" },
-                  ]}
-                  value={translationProvider}
-                />
-              </Field>
-
               <div className="settings-control-row">
                 <span>
                   <strong>连续翻译</strong>
@@ -312,23 +299,6 @@ export function PluginConfigurationDialog({
                 />
               </div>
             </>
-          ) : null}
-
-          {plugin.id === "builtin.ai-text" ? (
-            <Field label="默认连接器" hint="只在用户明确触发生成时发送当前缓冲正文。">
-              <select
-                className="r-native-select"
-                onChange={(event) => {
-                  setConnector(event.target.value);
-                  setSaved(false);
-                }}
-                value={connector}
-              >
-                <option value="codex">Codex CLI</option>
-                <option value="claude">Claude Code CLI</option>
-                <option value="openai">OpenAI 兼容 API</option>
-              </select>
-            </Field>
           ) : null}
 
           {plugin.id === "builtin.stream-input" ? (
@@ -376,10 +346,34 @@ export function PluginConfigurationDialog({
             </>
           ) : null}
 
+          {["builtin.codex-cli", "builtin.claude-code-cli"].includes(plugin.id) ? (
+            <>
+              <Field label="模型">
+                <select aria-label={`${plugin.name} 模型`} className="r-native-select"
+                  value={aiModel} onChange={(event) => { setAIModel(event.target.value); setSaved(false); }}>
+                  {(plugin.id === "builtin.codex-cli"
+                    ? ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
+                    : ["claude-opus-5-5", "opus", "sonnet", "haiku"]
+                  ).map((model) => <option key={model} value={model}>{model === "claude-opus-5-5" ? "Claude Opus 5.5" : model}</option>)}
+                </select>
+              </Field>
+              <Field label="推理深度">
+                <select aria-label={`${plugin.name} 推理深度`} className="r-native-select"
+                  value={aiEffort} onChange={(event) => { setAIEffort(event.target.value); setSaved(false); }}>
+                  {(plugin.id === "builtin.codex-cli"
+                    ? ["low", "medium", "high", "xhigh", "max", "ultra"]
+                    : ["low", "medium", "high", "xhigh", "max"]
+                  ).map((effort) => <option key={effort} value={effort}>{effort}</option>)}
+                </select>
+              </Field>
+            </>
+          ) : null}
+
           {![
             "builtin.apple-translation",
-            "builtin.ai-text",
             "builtin.stream-input",
+            "builtin.codex-cli",
+            "builtin.claude-code-cli",
           ].includes(plugin.id) ? (
             <div className="plugin-dialog__notice">
               <Icon name="info" size={18} weight="duotone" />
