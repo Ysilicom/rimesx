@@ -13,20 +13,26 @@ public struct ProviderConfiguration: Codable, Identifiable, Equatable {
     }
     public var consentIdentity: String { (try? endpoint("chat/completions").absoluteString) ?? "" }
 }
-public enum AIAction: String, CaseIterable, Identifiable {
-    case polish, rewrite, translate
-    public var id: String { rawValue }
-    public var title: String { switch self { case .polish: return "润色 · Polish"; case .rewrite: return "改写 · Rewrite"; case .translate: return "翻译 · Translate" } }
-    public func instruction(language: String) -> String {
-        switch self {
-        case .polish: return "Polish the supplied text without changing its meaning. Return only the polished text."
-        case .rewrite: return "Rewrite the supplied text clearly and naturally without adding facts. Return only the rewritten text."
-        case .translate: return "Translate the supplied text into \(language). Return only the translation."
-        }
-    }
+/// Each AI plugin is its own Buffer plugin with its own instruction; none runs until
+/// the user explicitly taps Run.
+public enum AIPrompt {
+    public static let polish = "Polish the supplied text without changing its meaning or language. Return only the polished text."
+    /// Quick Q&A: a short, everyday answer, like a friend replying in chat.
+    public static let ask = """
+    像朋友聊天一样，用口语在 2 到 4 句话里回答：先给结论，再补一句关键原因或例子。
+    不用术语、标题、列表或 Markdown，不客套。
+    不要提自己是 AI 或模型，也不说"无法联网""无法获取最新信息"之类的话；问到排名、价格、新闻等会变的内容时，直接按已知情况回答，最后轻提一句"可能已有变化"。
+    用提问的语言回答。
+    """
+}
+/// Keyboard requests ask for the least thinking. Not every model accepts the parameter,
+/// so callers step down this list when the service rejects a request (HTTP 400/422).
+public enum AIReasoningEffort: String, CaseIterable {
+    case minimal, low, unspecified
 }
 public enum AIRequest {
-    public static func make(provider: ProviderConfiguration, key: String, source: String, action: AIAction, language: String, consent: String) throws -> URLRequest {
+    public static func make(provider: ProviderConfiguration, key: String, source: String, instruction: String, consent: String,
+                            reasoning: AIReasoningEffort = .minimal) throws -> URLRequest {
         guard !provider.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CoreError.invalidEndpoint }
         let url = try provider.endpoint("chat/completions")
         guard consent == provider.consentIdentity else { throw CoreError.noConsent }
@@ -36,7 +42,9 @@ public enum AIRequest {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["model": provider.model, "stream": true, "messages": [["role": "system", "content": action.instruction(language: language)], ["role": "user", "content": source]]])
+        var body: [String: Any] = ["model": provider.model, "stream": true, "messages": [["role": "system", "content": instruction], ["role": "user", "content": source]]]
+        if reasoning != .unspecified { body["reasoning_effort"] = reasoning.rawValue }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }
 }
@@ -44,7 +52,11 @@ public struct SSETextDecoder {
     private var pending = Data()
     private var eventData = [String]()
     private var eventBytes = 0
+    /// Answer text, with any leading `<think>` block removed.
     public private(set) var text = ""
+    /// Thinking so far (up to 16 KB), from `reasoning_content`/`reasoning` deltas or a `<think>` block; display only.
+    public private(set) var reasoning = ""
+    private var content = ""
     public private(set) var finished = false
     private var successfulFinish = false
     public init() {}
@@ -75,8 +87,25 @@ public struct SSETextDecoder {
         if let reason = first["finish_reason"] as? String {
             guard reason == "stop" else { throw CoreError.incomplete }; successfulFinish = true
         }
-        if let delta = first["delta"] as? [String: Any], let value = delta["content"] as? String { text += value }
-        guard text.utf8.count <= 256 * 1024 else { throw CoreError.tooLarge }
+        if let delta = first["delta"] as? [String: Any] {
+            for key in ["reasoning_content", "reasoning"] { if let value = delta[key] as? String { noteReasoning(value) } }
+            if let value = delta["content"] as? String { content += value; splitThinking() }
+        }
+        guard content.utf8.count <= 256 * 1024 else { throw CoreError.tooLarge }
+    }
+    private mutating func noteReasoning(_ value: String) {
+        guard reasoning.utf8.count < 16 * 1024 else { return } // enough to show; never trimmed, so it only grows
+        reasoning += value
+    }
+    /// Some models stream their thinking inline as `<think>…</think>` before the answer.
+    private mutating func splitThinking() {
+        let lead = content.drop { $0.isWhitespace }
+        guard lead.hasPrefix("<think>") else { text = content; return }
+        let inner = lead.dropFirst("<think>".count)
+        if let close = inner.range(of: "</think>") {
+            reasoning = String(String(inner[..<close.lowerBound]).prefix(8000))
+            text = String(inner[close.upperBound...].drop { $0.isWhitespace })
+        } else { reasoning = String(String(inner).prefix(8000)); text = "" }
     }
     public mutating func complete() throws -> String {
         if !pending.isEmpty { try append(Data("\n\n".utf8)) }
@@ -91,7 +120,8 @@ public final class NoRedirectSessionDelegate: NSObject, URLSessionTaskDelegate, 
 public final class AIClient: @unchecked Sendable {
     private let makeConfiguration: @Sendable () -> URLSessionConfiguration
     public init(configuration: @escaping @Sendable () -> URLSessionConfiguration = { .ephemeral }) { makeConfiguration = configuration }
-    public func generate(_ request: URLRequest, progress: @escaping @Sendable (String) async -> Void) async throws -> String {
+    /// `progress` receives the answer so far and the recent thinking.
+    public func generate(_ request: URLRequest, progress: @escaping @Sendable (_ text: String, _ reasoning: String) async -> Void) async throws -> String {
         let config = makeConfiguration()
         config.urlCache = nil; config.httpCookieStorage = nil; config.httpShouldSetCookies = false
         config.timeoutIntervalForResource = 90
@@ -99,12 +129,14 @@ public final class AIClient: @unchecked Sendable {
         defer { session.invalidateAndCancel() }
         let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw CoreError.response((response as? HTTPURLResponse)?.statusCode ?? 0) }
-        var decoder = SSETextDecoder(), packet = Data(), previous = ""
+        var decoder = SSETextDecoder(), packet = Data(), previous = "", previousReasoning = ""
         for try await byte in bytes {
             try Task.checkCancellation(); packet.append(byte)
             if byte == 10 || packet.count >= 4096 {
                 try decoder.append(packet); packet.removeAll(keepingCapacity: true)
-                if decoder.text != previous { previous = decoder.text; await progress(previous) }
+                if decoder.text != previous || decoder.reasoning != previousReasoning {
+                    previous = decoder.text; previousReasoning = decoder.reasoning; await progress(previous, previousReasoning)
+                }
                 if decoder.finished { break }
             }
         }

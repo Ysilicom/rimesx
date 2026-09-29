@@ -671,6 +671,7 @@ chord_composer:
     - 'xform/^dvoj$/nei/'     # nei - 内
     - 'xform/^dvil$/nie/'     # nie - 捏、聂、啮
     - 'xform/^dvlm$/niao/'    # niao - 鸟、尿
+    - 'xform/^dvuo$/niang/'   # niang - 娘、酿
     - 'xform/^dvkl$/nou/'     # nou - 耨
     - 'xform/^dv,\.$/nv/'     # nv - 女、女、女
 

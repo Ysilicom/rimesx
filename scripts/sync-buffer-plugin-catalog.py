@@ -30,10 +30,16 @@ README_END = "<!-- END PRESET BUFFER PLUGINS -->"
 RELEASE_ASSET_PREFIX = "preset-plugin-"
 
 EXPECTED_IDS = [
-    "builtin.ai-text",
+    "builtin.codex-cli",
+    "builtin.claude-code-cli",
+    "builtin.openai-compatible",
+    "builtin.scholay",
+    "builtin.polisher",
+    "builtin.latex",
     "builtin.apple-translation",
     "builtin.stream-input",
     "builtin.music",
+    "builtin.morse",
 ]
 DEFAULT_INSTALLED_IDS = set(EXPECTED_IDS)
 DEFAULT_ENABLED_IDS = set(EXPECTED_IDS)
@@ -46,6 +52,7 @@ ENTRY_KEYS = {
     "version",
     "summaryZH",
     "summaryEN",
+    "producerID",
     "defaultInstalled",
     "defaultEnabled",
     "downloadAssetName",
@@ -118,6 +125,16 @@ def validate_catalog(catalog: dict[str, Any]) -> list[dict[str, Any]]:
         ids.append(plugin_id)
         for key in ("nameZH", "nameEN", "summaryZH", "summaryEN"):
             require_nonempty_string(value, key)
+        producer_id = require_nonempty_string(value, "producerID")
+        expected_producer = {
+            "builtin.codex-cli": "openai",
+            "builtin.claude-code-cli": "anthropic",
+            "builtin.scholay": "scholay",
+            "builtin.polisher": "scholay",
+            "builtin.latex": "scholay",
+        }.get(plugin_id, "official")
+        if producer_id != expected_producer:
+            raise CatalogError(f"{plugin_id}: unexpected producerID")
         version = require_nonempty_string(value, "version")
         if not VERSION_PATTERN.fullmatch(version):
             raise CatalogError(f"{plugin_id}: version must be numeric dotted notation")
@@ -257,6 +274,7 @@ def render_swift(entries: list[dict[str, Any]]) -> str:
                 f"            version: {swift_string(entry['version'])},",
                 f"            summaryZH: {swift_string(entry['summaryZH'])},",
                 f"            summaryEN: {swift_string(entry['summaryEN'])},",
+                f"            producerID: {swift_string(entry['producerID'])},",
                 "            defaultInstalled: "
                 + str(entry["defaultInstalled"]).lower()
                 + ",",

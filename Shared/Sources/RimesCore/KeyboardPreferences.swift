@@ -16,10 +16,20 @@ public struct KeyboardPreferences: Codable {
     public var englishInput = false
     public var sourceLanguage = "zh-Hans"
     public var targetLanguage = "en"
+    public var poem = PoemOptions()
+    /// Read finished translation blocks aloud. Off by default.
+    public var speakTranslation = false
+    /// Look of the Buffer status light ("light" or "crab"); unknown values fall back.
+    public var statusSkin = "light"
+    public var art = TextArtOptions()
+    /// Status-light looks a tap rotates through; empty means all.
+    public var statusSkinRotation: [String] = []
+    /// Last app edit of the rotation already applied here.
+    public var appliedSkinRevision: UUID?
     public init() {}
     private enum CodingKeys: String, CodingKey {
         case scheme, appliedAppSelection, initialized, haptics, traditional, sourceLanguage, targetLanguage
-        case chordLayout, hapticStrength, lastChineseScheme, englishInput
+        case chordLayout, hapticStrength, lastChineseScheme, englishInput, poem, speakTranslation, statusSkin, art, statusSkinRotation, appliedSkinRevision
     }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -35,6 +45,12 @@ public struct KeyboardPreferences: Codable {
         englishInput = try values.decodeIfPresent(Bool.self, forKey: .englishInput) ?? false
         sourceLanguage = try values.decodeIfPresent(String.self, forKey: .sourceLanguage) ?? "zh-Hans"
         targetLanguage = try values.decodeIfPresent(String.self, forKey: .targetLanguage) ?? "en"
+        poem = (try? values.decode(PoemOptions.self, forKey: .poem)) ?? PoemOptions()
+        speakTranslation = (try? values.decode(Bool.self, forKey: .speakTranslation)) ?? false
+        statusSkin = (try? values.decode(String.self, forKey: .statusSkin)) ?? "light"
+        art = (try? values.decode(TextArtOptions.self, forKey: .art)) ?? TextArtOptions()
+        statusSkinRotation = (try? values.decode([String].self, forKey: .statusSkinRotation)) ?? []
+        appliedSkinRevision = try? values.decode(UUID.self, forKey: .appliedSkinRevision)
     }
     public mutating func reconcile(scheme appScheme: InputScheme, revision: UUID?) {
         if !initialized || (revision != nil && revision != appliedAppSelection) {

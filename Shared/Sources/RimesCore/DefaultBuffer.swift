@@ -76,6 +76,44 @@ public struct BufferLiveTypingMetrics: Equatable {
         rollIfIdle(at: timestamp)
         committedCharacterCount += characterCount
     }
+    /// Speed as of `now`, so the figure keeps moving after typing stops: a pause
+    /// counts against the burst until the burst itself ends, then it holds.
+    public func charactersPerMinute(at now: TimeInterval) -> Double? {
+        guard let firstEventAt, let lastEventAt, committedCharacterCount > 0 else { return nil }
+        let end = max(lastEventAt, min(now, lastEventAt + Self.burstIdleTimeout))
+        let elapsed = end - firstEventAt
+        guard elapsed >= 1 else { return nil }
+        return Double(committedCharacterCount) * 60 / elapsed
+    }
+    /// Seconds since the last key or commit.
+    public func idleSeconds(at now: TimeInterval) -> TimeInterval? { lastEventAt.map { max(0, now - $0) } }
+}
+
+/// Totals for a whole keyboard session, across bursts, for the typing signature.
+public struct TypingSessionTotals: Equatable {
+    public private(set) var characters = 0
+    public private(set) var keys = 0
+    /// Time spent typing: gaps longer than a burst's idle timeout do not count.
+    public private(set) var activeSeconds: TimeInterval = 0
+    public private(set) var peakCharactersPerMinute: Double = 0
+    private var lastEventAt: TimeInterval?
+    public init() {}
+    public var isEmpty: Bool { characters == 0 }
+    public var charactersPerMinute: Double? { activeSeconds >= 1 && characters > 0 ? Double(characters) * 60 / activeSeconds : nil }
+    public var codeLength: Double? { characters > 0 ? Double(keys) / Double(characters) : nil }
+    public var keysPerSecond: Double? { activeSeconds >= 1 && keys > 0 ? Double(keys) / activeSeconds : nil }
+    private mutating func advance(to time: TimeInterval) {
+        if let lastEventAt, time - lastEventAt <= BufferLiveTypingMetrics.burstIdleTimeout { activeSeconds += max(0, time - lastEventAt) }
+        lastEventAt = max(time, lastEventAt ?? time)
+    }
+    public mutating func noteKey(at time: TimeInterval) { advance(to: time); keys += 1 }
+    /// `burst` is the live burst after this commit, whose speed may set a new peak.
+    public mutating func noteCommit(characterCount: Int, at time: TimeInterval, burst: BufferLiveTypingMetrics) {
+        guard characterCount > 0 else { return }
+        advance(to: time); characters += characterCount
+        if burst.elapsedSeconds >= 3, let cpm = burst.charactersPerMinute { peakCharactersPerMinute = max(peakCharactersPerMinute, cpm) }
+    }
+    public mutating func reset() { self = .init() }
 }
 
 /// Renders the second line. Every figure is omitted until it can be stated

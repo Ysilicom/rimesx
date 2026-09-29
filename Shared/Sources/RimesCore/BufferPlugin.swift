@@ -18,7 +18,9 @@ public struct BufferPluginRequest {
 public struct BufferPluginResult {
     public let text: String
     public let revision: UUID
-    public init(text: String, revision: UUID) { self.text = text; self.revision = revision }
+    /// Output already divided into blocks (e.g. one per source block); nil splits `text` by sentence.
+    public let blocks: [String]?
+    public init(text: String, revision: UUID, blocks: [String]? = nil) { self.text = text; self.revision = revision; self.blocks = blocks }
 }
 @MainActor public protocol BufferPlugin: AnyObject {
     var descriptor: BufferPluginDescriptor { get }
