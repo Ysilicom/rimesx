@@ -1,4 +1,6 @@
 #include <arpa/inet.h>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
@@ -9,6 +11,8 @@
 #include <unistd.h>
 
 #include "buffer_protocol.hpp"
+#include "capsule_clipboard.hpp"
+#include "capsule_protocol.hpp"
 
 namespace {
 
@@ -37,6 +41,42 @@ std::string SocketPath(int argc, char** argv) {
         }
     }
     return {};
+}
+
+bool EnvFlag(const char* name) {
+    const char* value = std::getenv(name);
+    return value != nullptr && value[0] != '\0' && std::strcmp(value, "0") != 0;
+}
+
+void AppendLog(const char* path, std::string_view text) {
+    if (path == nullptr || path[0] == '\0') {
+        return;
+    }
+    FILE* log = std::fopen(path, "a");
+    if (log == nullptr) {
+        return;
+    }
+    std::fwrite(text.data(), 1, text.size(), log);
+    std::fputc('\n', log);
+    std::fclose(log);
+}
+
+void HandleCopiedNote(const rimes::capsule::Snapshot& snapshot,
+                      rimes::capsule::ClipboardApplyState* state) {
+    const bool wayland = EnvFlag("RIMES_CAPSULE_WAYLAND_CLIPBOARD");
+    const bool have_wl_copy = wayland && !rimes::capsule::FindOnPath("wl-copy").empty();
+    const auto decision = rimes::capsule::ApplyCopiedNote(
+        state, snapshot.copy_seq, snapshot.last_copied, wayland, have_wl_copy);
+    if (decision.path == rimes::capsule::ClipboardWritePath::Skip) {
+        return;
+    }
+    if (decision.path == rimes::capsule::ClipboardWritePath::WlCopy) {
+        rimes::capsule::SpawnWlCopy(snapshot.last_copied);
+    }
+    if (decision.status_override != nullptr) {
+        AppendLog(std::getenv("RIMES_CAPSULE_COPY_HINT_LOG"), decision.status_override);
+    }
+    AppendLog(std::getenv("RIMES_CAPSULE_CLIPBOARD_LOG"), snapshot.last_copied);
 }
 
 }  // namespace
@@ -69,8 +109,32 @@ int main(int argc, char** argv) {
         close(fd);
         return EXIT_FAILURE;
     }
-    char sink[256];
-    while (read(fd, sink, sizeof(sink)) > 0) {
+    rimes::capsule::ClipboardApplyState copy_state;
+    std::string incoming;
+    char chunk[4096];
+    while (true) {
+        const auto got = read(fd, chunk, sizeof(chunk));
+        if (got <= 0) {
+            break;
+        }
+        incoming.append(chunk, static_cast<std::size_t>(got));
+        while (incoming.size() >= 4) {
+            std::uint32_t length = 0;
+            if (!rimes::buffer::DecodeFrameHeader(incoming.data(), &length)) {
+                close(fd);
+                return EXIT_FAILURE;
+            }
+            if (incoming.size() < 4 + length) {
+                break;
+            }
+            const std::string payload = incoming.substr(4, length);
+            incoming.erase(0, 4 + length);
+            rimes::capsule::Snapshot snapshot;
+            if (!rimes::capsule::DecodeSnapshot(payload, &snapshot)) {
+                continue;
+            }
+            HandleCopiedNote(snapshot, &copy_state);
+        }
     }
     close(fd);
     return EXIT_SUCCESS;

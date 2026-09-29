@@ -89,6 +89,8 @@ Linux rail (GTK 3):
   `libgtk-layer-shell0` are Debian 13 and Ubuntu 24.04 packages, and
   layer-shell is the only stock way to stay overlay / non-activating on
   wlroots. A second UI stack would duplicate process, packaging, and e2e.
+  `wl-clipboard` is a package `Recommends` so Wayland `Ctrl+C` can write
+  the clipboard without a UI serial.
 
 ## States
 
@@ -120,7 +122,7 @@ Return / Escape / typing stay with Buffer until capture pauses.
 | Left / Right | Move selection |
 | Return | Activate the selected **note** (insert body) and close |
 | `Ctrl+1`–`Ctrl+9` | Activate visible card 0–8 |
-| `Ctrl+C` | Copy the selected note body (clipboard only; no paste) |
+| `Ctrl+C` | Copy the selected note body once (clipboard only; no paste). Writes are edge-triggered on `copy_seq`; later snapshots, search, close/reopen, and a respawned UI must not rewrite the clipboard. On Wayland the rail is layer-shell with keyboard mode none, so `gtk_clipboard_set_text` often reaches `wl_data_device.set_selection` with a stale pointer serial unless the bar was clicked. The UI therefore prefers `wl-copy` from `wl-clipboard` (PATH lookup, text on stdin, no shell). Without `wl-copy` it falls back to GTK and the hint says copy may need a click on the bar first. X11 stays on GTK. |
 | Printable ASCII / Backspace | Edit the in-rail search query |
 | Host typing while disarmed | Reaches the host / Rime; not search |
 
@@ -229,12 +231,27 @@ Commands: `hello`, `status`, `toggle`, `show`, `close`, `next`, `prev`,
 
 `status` reloads the note store before publishing, so `rimes-capsule-ctl
 status` is not a stale closed-rail count. Connecting publishes the
-current snapshot immediately.
+current snapshot immediately. `copy_seq` increments on each
+`CopySelected`. The UI copies `last_copied` only when `copy_seq`
+increases after the first snapshot it has already handled. `Hide` /
+`Close` clear `last_copied` and leave `copy_seq` unchanged. Buffer only
+*reads* the clipboard on demand; it does not write on every snapshot.
+
+On X11 the UI writes with `gtk_clipboard_set_text`. On Wayland it looks
+up `wl-copy` on `PATH` and, when found, spawns it with the note on stdin
+and no shell (`wlr-data-control` does not need a surface serial). If
+`wl-copy` is missing or the spawn fails, it falls back to GTK and sets
+the rail hint to `Copy may need a click on the bar first — install
+wl-clipboard for reliable Ctrl+C`. A click on the bar refreshes the
+pointer serial so the GTK fallback can succeed; the rail still does not
+take keyboard focus.
 
 Environment for tests: `RIMES_CAPSULE_HEADLESS=1`,
 `RIMES_CAPSULE_UI=/path`, `RIMES_CAPSULE_CONNECT_DELAY_MS`,
 `RIMES_CAPSULE_DUMP=/path.json`, `RIMES_CAPSULE_ROOT`,
-`RIMES_CAPSULE_FOCUS_GRACE_MS` (default 5000).
+`RIMES_CAPSULE_FOCUS_GRACE_MS` (default 5000),
+`RIMES_CAPSULE_WAYLAND_CLIPBOARD=1` (stub uses the `wl-copy` path),
+`RIMES_CAPSULE_CLIPBOARD_LOG`, `RIMES_CAPSULE_COPY_HINT_LOG`.
 
 ## Why a separate process (not `rimes-buffer`)
 
@@ -263,7 +280,7 @@ respawn helpers, and `rimes-buffer-ctl` pattern are reused. Capsule does
 | Password vault + physical chords | Empty tab | CryptoKit / Carbon keycodes / 15 s canvas; later port |
 | iCloud Drive mirror | Not ported | No ubiquitous folder / security-scoped bookmarks |
 | Manager 940 × 660 + compact 460 × 400 | ctl + Markdown files | Rail is the interactive surface |
-| `org.nspasteboard.ConcealedType` | GTK clipboard text only | No equivalent on X11/Wayland |
+| `org.nspasteboard.ConcealedType` | X11 GTK clipboard; Wayland `wl-copy` + GTK fallback | No concealed-type mark on either clipboard |
 | Themes / rounded AppKit chrome | One Classic-like GTK theme | Visual port, not a theme engine |
 
 ## Out of scope

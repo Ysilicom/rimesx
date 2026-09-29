@@ -41,7 +41,7 @@ platforms/linux/ime/tests/e2e/e2e.sh --build-dir platforms/linux/ime/build
 | Close | same hotkey while armed, Escape on the armed field, close button, or a successful insert |
 | Insert selected note | Return, `Ctrl+1`–`Ctrl+9`, or double-click (second press on the same card within 400 ms). The rail closes. |
 | `ctl status` | Reloads the note store, even while the rail is closed |
-| Copy selected note | `Ctrl+C` (clipboard only) |
+| Copy selected note | `Ctrl+C` once per press (`copy_seq`). Search, hide, and UI respawn do not rewrite the clipboard. Wayland prefers `wl-copy`; install `wl-clipboard`. |
 | Socket | `$XDG_RUNTIME_DIR/rimes-capsule.sock` |
 | Store | `$XDG_DATA_HOME/rimes/capsule` |
 | UI binary | `/usr/libexec/rimes/rimes-capsule` and `/usr/bin/rimes-capsule` |

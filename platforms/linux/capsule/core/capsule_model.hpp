@@ -50,6 +50,7 @@ public:
 
     void set_last_copied(std::string text);
     const std::string& last_copied() const { return last_copied_; }
+    std::uint64_t copy_seq() const { return copy_seq_; }
 
     void set_hint(std::string hint);
     const std::string& hint() const { return hint_; }
@@ -74,6 +75,7 @@ private:
     std::vector<Card> cards_;
     int selected_ = 0;
     std::string last_copied_;
+    std::uint64_t copy_seq_ = 0;
     std::string hint_;
     std::uint64_t generation_ = 0;
 };

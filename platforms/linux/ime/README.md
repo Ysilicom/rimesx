@@ -79,6 +79,8 @@ platforms/linux/ime/scripts/package-deb.sh /tmp/rimes-deb
 
 writes `fcitx5-rimes_<version>_<arch>.deb` (addon + `rimes-buffer` +
 `rimes-buffer-ctl` + `rimes-capsule` + `rimes-capsule-ctl` + reviewed data).
+The package `Recommends: libgtk-layer-shell0, wl-clipboard` so a wlroots
+session can keep the rail overlay and copy notes without a GTK serial.
 Flatpak notes are in
 `packaging/flatpak/README.md`. The data preview tarball is a separate artifact
 and stays data-only.

@@ -39,6 +39,7 @@ struct Snapshot {
     std::string query;
     std::string hint;
     std::string last_copied;
+    std::uint64_t copy_seq = 0;
     std::string selected_id;
     std::string selected_title;
     std::string selected_preview;

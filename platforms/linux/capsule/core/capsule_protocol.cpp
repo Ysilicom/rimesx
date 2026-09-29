@@ -95,6 +95,7 @@ Snapshot MakeSnapshot(const CapsuleModel& model) {
     snapshot.query = model.query();
     snapshot.hint = model.hint();
     snapshot.last_copied = model.last_copied();
+    snapshot.copy_seq = model.copy_seq();
     snapshot.selected = model.selected();
     snapshot.cards = model.cards();
     snapshot.count = static_cast<int>(snapshot.cards.size());
@@ -117,6 +118,7 @@ std::string EncodeSnapshot(const Snapshot& snapshot) {
         << ",\"query\":" << rimes::buffer::JsonEscape(snapshot.query)
         << ",\"hint\":" << rimes::buffer::JsonEscape(snapshot.hint)
         << ",\"last_copied\":" << rimes::buffer::JsonEscape(snapshot.last_copied)
+        << ",\"copy_seq\":" << snapshot.copy_seq
         << ",\"selected_id\":" << rimes::buffer::JsonEscape(snapshot.selected_id)
         << ",\"selected_title\":" << rimes::buffer::JsonEscape(snapshot.selected_title)
         << ",\"selected_preview\":" << rimes::buffer::JsonEscape(snapshot.selected_preview)
@@ -158,6 +160,7 @@ bool DecodeSnapshot(std::string_view json, Snapshot* snapshot) {
     snapshot->query = ReadString(json, "query");
     snapshot->hint = ReadString(json, "hint");
     snapshot->last_copied = ReadString(json, "last_copied");
+    snapshot->copy_seq = static_cast<std::uint64_t>(ReadInt(json, "copy_seq", 0));
     snapshot->selected_id = ReadString(json, "selected_id");
     snapshot->selected_title = ReadString(json, "selected_title");
     snapshot->selected_preview = ReadString(json, "selected_preview");
