@@ -2,7 +2,7 @@
 
 ## 原则
 
-- 一个仓库、一条应用集成主线 `main`；macOS、iOS、Windows、Linux 不维持长期分叉的产品主线。
+- 一个仓库、一条应用集成主线 `main`；macOS、iOS、Windows、Android、Linux 不维持长期分叉的产品主线。
 - 新工作从最新主线开短分支，一件事一个可审查提交/PR；合入后不再沿旧分支叠加功能。
 - 每个平台独立构建、独立版本号、独立验收和发布节奏。合入主线不等于该平台已可用或已发布。
 - 本地维护可以领先 `origin/main`。未获授权时，不 push、不创建发布 tag、不触发远端 workflow，
@@ -13,17 +13,21 @@
 
 ## 代码边界
 
+2026-09-29 起按 [平台路线图](PLATFORM-ROADMAP.md) 开发：Windows 对标 macOS、Android 对标
+iOS，Linux 收敛到现有功能维护。构建与实机验收分别记录。
+
 | 范围 | 维护入口 | 验证责任 |
 |---|---|---|
 | macOS | `Sources/`、`Package.swift` | IMK 焦点/投递/保护态、原生 UI、升级安装 |
 | iOS | `platforms/ios/` | App 与键盘扩展、Full Access、设备与 App Store |
 | 共享 Swift 逻辑 | `Shared/` | 共享单测 + macOS/iOS 受影响路径 |
 | Windows | `platforms/windows/native/` | TSF/Broker、x64/x86、真实 Windows 宿主 |
+| Android | `platforms/android/` | App/IME、InputConnection、JVM 测试、APK 与真机 |
 | Linux | `platforms/linux/` | Fcitx5、Buffer/Capsule、X11/Wayland 真实桌面 |
 | 共享词库/配置 | `rime-data/`、`chord-keymaps/`、`Catalog/` | 目录生成检查、数据闭包及受影响平台 |
 | 设计与宣传 | `DesignSystem/`、`platforms/ios/AppStore/promo-video/` | 单独提交；界面原型/宣传画面不冒充产品验收 |
 
-Windows/Linux 的 C++ 适配层不直接共享 Swift 实现；用行为规范、数据格式和测试样例对齐。
+Windows/Linux 的 C++ 与 Android 的 Java 适配层不直接共享 Swift 实现；用行为规范、数据格式和测试样例对齐。
 平台安全边界仍由各自宿主负责；macOS 的 `Delivery.insert`、用户词库隔离等约束不因整合改变。
 
 ## 版本与构建
@@ -33,10 +37,11 @@ Windows/Linux 的 C++ 适配层不直接共享 Swift 实现；用行为规范、
 | macOS | `vX.Y.Z[-preview.N]`；本地开发版附提交身份 | `CI` / `Release macOS`，`scripts/release.sh` | 正式包需签名、公证、同包真机验收与批准 |
 | iOS | 公开版 `ios-vX.Y.Z`；本地默认 `project.yml`，CI 独立 build number | `iOS checks` / `ios-release.yml` | tag 必须位于 main 历史；上传、审核、上架分开记录 |
 | Windows 原生 | `native/CMakeLists.txt` 的项目版本；Artifact 加架构和 commit SHA | `Windows IME` / `Windows Native Foundation` | 工程预览，不是完整签名安装包 |
+| Android 原生 | `platforms/android/app/build.gradle.kts` 的独立版本 | `Android checks` / Gradle wrapper | 开发 APK；中文引擎与真机验收仍在进行 |
 | Linux 原生 | `ime/VERSION` 的包版本及 CMake 项目版本；Artifact 加 commit SHA | `Linux IME` / `ime/scripts/package-deb.sh` | 实验性 Artifact / `.deb`，需真实桌面验证 |
 | 旧 Windows/Linux 数据预览 | `platform-preview-vX.Y.Z` | `platform-preview-release.yml` | 词库与脚本数据包，不是原生 IME 产品版本 |
 
-四个平台版本不必同号，也不因其他平台发布而递增。当前 Windows/Linux 原生通道未接入 tag 自动
+各平台版本不必同号，也不因其他平台发布而递增。当前 Windows/Linux 原生通道未接入 tag 自动
 公开发布；不要创建一个看似正式的 tag 来冒充分发能力。未来接通时使用各自的 `windows-v*` /
 `linux-v*` 命名空间，并先补打包、验收和发布授权门禁，不复用 macOS 的 `v*` 或数据预览标签。
 

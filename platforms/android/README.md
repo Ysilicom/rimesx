@@ -3,6 +3,7 @@
 Native Android application and input method, targeting the behavior of the iOS
 keyboard. This is the first development foundation, **0.1.0-dev.1**, not an iOS
 feature-complete port. Minimum Android version: 8.0 / API 26.
+See [VALIDATION.md](VALIDATION.md) for the dated build and device evidence.
 
 ## Current behavior
 

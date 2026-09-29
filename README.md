@@ -164,7 +164,9 @@ Windows 与 Linux 目前提供独立的 **Data / Input-Schemes Preview**，作�
 仓库内另有一套正在开发的 [Windows 原生基础层](platforms/windows/native/README.md)
 和一套 [Linux Fcitx5 输入法](platforms/linux/ime/README.md)：后者是 C++ addon，
 链接 librime，用 Fcitx5 UI 做 preedit/候选/上屏，并部署审核后的 RIMES 数据。
-它还不是 macOS 对等产品（没有 Buffer/Capsule/Mailbox），也不阻断 macOS 发布。
+Linux 还包含 Default Buffer 和 Markdown Note Capsule，尚无完整 macOS 对等功能，
+目前收敛到维护，也不阻断 macOS 发布。新开发重点是 Windows 对标 macOS，以及
+[Android 对标 iOS](platforms/android/README.md)，具体范围与验收见 [平台路线图](PLATFORM-ROADMAP.md)。
 
 公开的数据预览包不包含 macOS 版的缓冲工作台、AI/翻译/OCR、原生设置窗口。
 并击中的跨批分离击键配对是当前 macOS 前端能力，不能由数据包单独提供。请从 Releases
@@ -181,7 +183,9 @@ Windows 与 Linux 目前提供独立的 **Data / Input-Schemes Preview**，作�
 | [PLUGIN-CONFIGURATION.md](PLUGIN-CONFIGURATION.md) | 插件声明式配置 |
 | [UNSIGNED-PREVIEW.md](UNSIGNED-PREVIEW.md) | 未签名预览版的下载、校验与安全安装步骤 |
 | [CROSS-PLATFORM-PREVIEW.md](CROSS-PLATFORM-PREVIEW.md) | Windows / Linux 输入方案预览边界与验证 |
-| [platforms/linux/ime/README.md](platforms/linux/ime/README.md) | Linux Fcitx5 RIMES 输入法（第一步，仅 IME） |
+| [PLATFORM-ROADMAP.md](PLATFORM-ROADMAP.md) | Windows / Android 对齐路线与当前验收边界 |
+| [platforms/android/README.md](platforms/android/README.md) | Android 原生工程、开发 APK 与验收 |
+| [platforms/linux/ime/README.md](platforms/linux/ime/README.md) | Linux Fcitx5 IME、Buffer 与 Note Capsule（维护） |
 | [RELEASE.md](RELEASE.md) | 发布流程：渠道、一条命令发布、节奏与版本号规则 |
 | [RELEASE-REFERENCE.md](RELEASE-REFERENCE.md) | 发布技术参考：签名、安装器、应用内更新、CI |
 | [RELEASE-HISTORY.md](RELEASE-HISTORY.md) | 已关闭的发布通道、旧仓库迁移与改名记录 |

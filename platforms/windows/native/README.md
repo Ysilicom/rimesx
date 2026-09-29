@@ -2,6 +2,7 @@
 
 This directory contains the native Windows implementation of RIMES. It is
 separate from the Weasel data preview in the parent directory.
+See [VALIDATION.md](VALIDATION.md) for dated native builds and their limits.
 
 The in-process TSF DLL stays small:
 
@@ -145,8 +146,8 @@ alone does not prove Windows librime, TSF or a signed installer works.
 
 ## Later-step blockers
 
-- Product data can now be staged with the tool above. The complete product
-  schemas still need to be exercised on Windows with the pinned MSVC DLL.
+- Product data can now be staged with the tool above. The default scheme passed
+  engine smoke on x64/x86; all schemes and real hosts still need full acceptance.
 - Display-attribute underline depends on the host querying
   `ITfDisplayAttributeProvider`. The registrar does not add a new TSF
   category, so some hosts may skip the dotted underline.

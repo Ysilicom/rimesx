@@ -1,0 +1,68 @@
+{
+  "native": {
+    "sourceCommit": "1b2a86a0ddb87d6e0743874df6f797eccc31d364",
+    "status": "passed",
+    "checks": [
+      "native-data inventory and hashes",
+      "Release build and CTest x64",
+      "Full product data engine smoke x64",
+      "Release build and CTest x86",
+      "Full product data engine smoke x86"
+    ],
+    "artifacts": [
+      {
+        "architecture": "x64",
+        "name": "RimesTsf.dll",
+        "sha256": "f9977ea76bba2c93774c83a0679deaf96bbf0690ae2dc2a1a70adb4e17e993a4"
+      },
+      {
+        "architecture": "x64",
+        "name": "RimesBroker.exe",
+        "sha256": "92e36c6665e65e1f7676003fbb22d5b6374b56318ac205675037d5322478966c"
+      },
+      {
+        "architecture": "x64",
+        "name": "RimesRegistrar.exe",
+        "sha256": "3122ac738d1834df96de15610b313e3d7628401bad80ecedbb41556ad92c3680"
+      },
+      {
+        "architecture": "x64",
+        "name": "RimesEngineSmoke.exe",
+        "sha256": "00d546535d1ae0e45cad88fda347bb693588bc4ec44c19975ff13e47308c93d7"
+      },
+      {
+        "architecture": "x86",
+        "name": "RimesTsf.dll",
+        "sha256": "2ededa0c75dbfd0da7251c46eb929021af70c957fa591897da17eebbc365f8ec"
+      },
+      {
+        "architecture": "x86",
+        "name": "RimesBroker.exe",
+        "sha256": "170ff30cfb22a802f5f4cca46111cfa2ea4cbc53e2aa77356f0d778df8f64f68"
+      },
+      {
+        "architecture": "x86",
+        "name": "RimesRegistrar.exe",
+        "sha256": "8fe9458bde8be448011a8915aa81bd6e9e1362707109e0351c30c83ff3b12e77"
+      },
+      {
+        "architecture": "x86",
+        "name": "RimesEngineSmoke.exe",
+        "sha256": "3fd662cc682e4648732067b335b1ddbdaa6a5cbae4d912d98ea5c2b98b8b91dd"
+      }
+    ],
+    "started_at": "2026-09-29T22:40:26.5643450+08:00",
+    "exit_code": 0,
+    "finished_at": "2026-09-29T22:41:40.9206396+08:00"
+  },
+  "inProcessTsf": {
+    "sourceCommit": "1b2a86a0ddb87d6e0743874df6f797eccc31d364",
+    "kind": "in-process-fake-TSF-real-broker",
+    "checks": [
+      "x64 preedit, candidates, nihao/Space, number selection, paging, Escape",
+      "x86 preedit, candidates, nihao/Space, number selection, paging, Escape"
+    ],
+    "exit_code": 0,
+    "finished_at": "2026-09-29T22:41:46.1794949+08:00"
+  }
+}
