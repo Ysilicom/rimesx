@@ -14,6 +14,7 @@
 #include <fcitx/instance.h>
 
 #include "buffer/buffer_service.hpp"
+#include "capsule/capsule_service.hpp"
 #include "engine/rime_engine.hpp"
 
 namespace fcitx {
@@ -35,6 +36,7 @@ public:
     rimes::linuxime::RimeEngine& engine() { return engine_; }
     FactoryFor<RimesState>& factory() { return factory_; }
     BufferService& buffer() { return *buffer_; }
+    CapsuleService& capsule() { return *capsule_; }
 
     // Single commit path. Buffer intercepts here the way macOS intercepts
     // before Delivery.insert (see rime_hooks.hpp).
@@ -52,7 +54,9 @@ private:
     EventDispatcher dispatcher_;
     std::shared_ptr<std::atomic<bool>> alive_;
     std::unique_ptr<BufferService> buffer_;
+    std::unique_ptr<CapsuleService> capsule_;
     std::unique_ptr<HandlerTableEntry<EventHandler>> destroy_watch_;
+    std::unique_ptr<HandlerTableEntry<EventHandler>> capability_watch_;
     bool deploy_announced_ = false;
 };
 
