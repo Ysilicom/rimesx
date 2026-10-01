@@ -33,6 +33,7 @@ public final class RimesInputMethodService extends InputMethodService {
     private final ArrayDeque<Integer> expectedSelections=new ArrayDeque<>();
     private InputConnection target;
     private SharedPreferences preferences;
+    private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener=this::preferenceChanged;
     private LinearLayout keyboard, keys, bufferRow, candidateRow;
     private TextView preedit, preview;
     private HorizontalScrollView candidateScroll;
@@ -55,6 +56,7 @@ public final class RimesInputMethodService extends InputMethodService {
     @Override public void onCreate() {
         super.onCreate();
         preferences=getSharedPreferences("keyboard",MODE_PRIVATE);
+        preferences.registerOnSharedPreferenceChangeListener(preferenceListener);
         schema=preferences.getString("schema","rimes_pinyin");
         if(!java.util.Arrays.asList(SCHEMAS).contains(schema)) schema=SCHEMAS[0];
         initialize();
@@ -110,7 +112,21 @@ public final class RimesInputMethodService extends InputMethodService {
     @Override public void onFinishInputView(boolean finishingInput) { endTarget(); super.onFinishInputView(finishingInput); }
     @Override public void onFinishInput() { endTarget(); super.onFinishInput(); }
     @Override public void onUnbindInput() { endTarget(); super.onUnbindInput(); }
-    @Override public void onDestroy() { endTarget(); destroyed=true; super.onDestroy(); }
+    @Override public void onDestroy() {
+        preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener);
+        endTarget(); destroyed=true; super.onDestroy();
+    }
+    private void preferenceChanged(SharedPreferences changed,String key) {
+        if(!"learning".equals(key) || destroyed || !ready || !ownsTarget() || privateField) return;
+        final String selected=effectiveSchema();
+        // Serialize policy changes before subsequent keys. Existing confirmed blocks stay intact;
+        // unfinished code settles exactly like a schema switch, without selecting/learning a word.
+        dispatch(() -> {
+            Result settled=literal("");
+            if(session!=0 && !engine.selectSchema(session,selected)) throw new IllegalStateException("Cannot change learning mode");
+            return settled;
+        },true);
+    }
     private void endTarget() {
         // Clear the old composition before revoking its connection, never through the new target.
         if(target!=null && target==getCurrentInputConnection() && hostComposing) { target.setComposingText("",1); target.finishComposingText(); }
@@ -140,8 +156,11 @@ public final class RimesInputMethodService extends InputMethodService {
         static Result state(RimeEngine.Snapshot state) { return new Result(state,state.commit,true,0); }
     }
     private void dispatch(Operation operation) {
+        dispatch(operation,false);
+    }
+    private void dispatch(Operation operation,boolean policyChange) {
         if(!ownsTarget()) { endTarget(); return; }
-        if(!retained.isEmpty()) { notice(R.string.delivery_pending); return; }
+        if(!policyChange && !retained.isEmpty()) { notice(R.string.delivery_pending); return; }
         InputEpoch.Ticket ticket=epoch.issue(); InputConnection connection=target;
         pending++; render();
         EngineWorker.QUEUE.execute(() -> {
