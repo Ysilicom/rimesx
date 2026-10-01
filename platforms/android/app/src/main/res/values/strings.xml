@@ -1,8 +1,8 @@
 <resources>
     <string name="app_name">RIMES Dev</string>
-    <string name="english_keyboard">English</string>
+    <string name="english_keyboard">Chinese / English</string>
     <string name="welcome">RIMES for Android</string>
-    <string name="scope">Development preview: English, numbers, symbols and an in-memory Buffer. Chinese input and AI are still being developed.</string>
+    <string name="scope">Development preview: offline Pinyin, natural-code Shuangpin, Wubi, English and Buffer.</string>
     <string name="privacy">Typing stays on this device. Buffer drafts clear when the keyboard closes or the input field changes. Buffer is disabled in password and private fields.</string>
     <string name="enable_keyboard">Enable keyboard</string>
     <string name="choose_keyboard">Choose keyboard</string>
@@ -20,5 +20,12 @@
     <string name="enter">Enter</string>
     <string name="switch_keyboard">Switch keyboard</string>
     <string name="buffer_limit">Buffer is full. Insert or clear it first.</string>
+    <string name="learning">Learn words on this device</string>
+    <string name="learning_detail">Candidate selections improve your local dictionary. Turning this off preserves existing learning. Private fields never learn. No full typing history is stored.</string>
+    <string name="private_field">Private field — no learning or Buffer</string>
+    <string name="engine_loading">Preparing Chinese… English is available</string>
+    <string name="engine_failed">Chinese unavailable. Tap Retry; English is available.</string>
+    <string name="delivery_pending">Text is retained. Free Buffer space or retry insertion.</string>
+    <string name="retry">Retry</string>
 </resources>
 
