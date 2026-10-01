@@ -51,7 +51,8 @@ class Model {
   bool Backspace();
   std::string SourceText() const;
   std::string ResultText() const;
-  Generation Generate(std::uint64_t settings_revision, bool translation);
+  Generation Generate(std::uint64_t settings_revision, bool translation,
+                      bool complete_sentence_only = false);
   bool Accepts(const Generation& job, std::uint64_t settings_revision) const;
   bool Stream(const Generation& job, std::uint64_t settings_revision,
               std::string text);

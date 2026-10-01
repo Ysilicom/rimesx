@@ -1,6 +1,7 @@
 #include "model.hpp"
 
 #include <algorithm>
+#include <string_view>
 
 namespace rimes::windows::workbench {
 namespace {
@@ -8,6 +9,14 @@ std::string Join(const std::deque<Block>& blocks) {
   std::string text;
   for (const auto& block : blocks) text += block.text;
   return text;
+}
+bool EndsSentence(std::string_view text) {
+  while (!text.empty() && (text.back() == ' ' || text.back() == '\t' ||
+                           text.back() == '\r'))
+    text.remove_suffix(1);
+  return text.ends_with("。") || text.ends_with("！") ||
+         text.ends_with("？") || text.ends_with(".") || text.ends_with("!") ||
+         text.ends_with("?") || text.ends_with("\n");
 }
 }  // namespace
 std::vector<std::string> Sentences(const std::string& text) {
@@ -87,10 +96,7 @@ bool Model::Append(std::string text) {
   if (!source.empty() &&
       (!pending_ || pending_->block.id != source.back().id)) {
     const auto& tail = source.back().text;
-    const bool complete = tail.ends_with("。") || tail.ends_with("！") ||
-                          tail.ends_with("？") || tail.ends_with(".") ||
-                          tail.ends_with("!") || tail.ends_with("?") ||
-                          tail.ends_with("\n");
+    const bool complete = EndsSentence(tail);
     if (!complete) {
       text = std::move(source.back().text) + text;
       source.pop_back();
@@ -116,7 +122,8 @@ bool Model::Backspace() {
   ++revision;
   return true;
 }
-Generation Model::Generate(std::uint64_t settings_revision, bool translation) {
+Generation Model::Generate(std::uint64_t settings_revision, bool translation,
+                            bool complete_sentence_only) {
   Cancel();
   Generation job{
       generation_, revision, settings_revision, SourceText(), translation,
@@ -128,6 +135,7 @@ Generation Model::Generate(std::uint64_t settings_revision, bool translation) {
     job.source.erase(0, job.source_offset);
     const auto parts = Sentences(job.source);
     if (!parts.empty()) job.source = parts.front();
+    if (complete_sentence_only && !EndsSentence(job.source)) job.source.clear();
   }
   busy = !job.source.empty() && !pending_ && (translation || result.empty());
   if (busy) {

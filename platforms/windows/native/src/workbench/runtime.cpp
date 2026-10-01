@@ -268,11 +268,12 @@ void Runtime::Send(bool all) {
   Queue(model_.Send(all));
   Changed();
 }
-void Runtime::StartGeneration(bool translation) {
+void Runtime::StartGeneration(bool translation, bool complete_sentence_only) {
   if (!settings_valid_ || stopping_ || model_.busy || model_.Pending() ||
       (!translation && !model_.result.empty()))
     return;
-  auto job = model_.Generate(settings_.revision, translation);
+  auto job = model_.Generate(settings_.revision, translation,
+                             complete_sentence_only);
   if (!model_.busy) return;
   api_job_ = std::make_pair(settings_, std::move(job));
   api_event_.notify_one();
@@ -306,7 +307,7 @@ void Runtime::Tick() {
   if (model_.visible && model_.translate && !model_.busy &&
       !model_.source.empty() && model_.preedit.empty() &&
       now - edited_at_ >= 800)
-    StartGeneration(true);
+    StartGeneration(true, true);
 }
 void Runtime::Stop() {
   std::lock_guard lock(mutex_);
@@ -340,7 +341,8 @@ void Runtime::RunAPI() {
         &error);
     lock.lock();
     if (model_.Accepts(job, settings_.revision)) {
-      model_.Finish(job, settings_.revision, ok);
+      const bool finished = model_.Finish(job, settings_.revision, ok);
+      if (!finished) model_.translate = false;
       if (!ok) {
         model_.status = error;
         model_.translate = false;

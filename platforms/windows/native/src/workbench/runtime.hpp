@@ -59,7 +59,7 @@ class Runtime {
   void Changed();
   void Queue(const std::optional<Delivery>& delivery);
   void CaptureChanged();
-  void StartGeneration(bool translation);
+  void StartGeneration(bool translation, bool complete_sentence_only = false);
   void RunAPI();
 };
 }  // namespace rimes::windows::workbench

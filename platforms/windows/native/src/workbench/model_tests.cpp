@@ -82,5 +82,23 @@ int main() {
   incremental.Acknowledge(next->request, a, true);
   Check(incremental.source.empty() && incremental.result.empty(),
         "translated output drains exactly once");
+  Model stable;
+  stable.translate = true;
+  stable.Append("半句");
+  auto waiting = stable.Generate(1, true, true);
+  Check(!stable.busy && waiting.source.empty(),
+        "automatic translation waits for a sentence boundary");
+  stable.Append("结束。  ");
+  auto complete = stable.Generate(1, true, true);
+  Check(stable.busy && complete.source == "半句结束。  ",
+        "automatic translation freezes a complete sentence including spaces");
+  stable.Append("下一句尚未完成");
+  Check(stable.Stream(complete, 1, "Completed.") &&
+            stable.Finish(complete, 1, true),
+        "appending a new sentence preserves the completed prefix");
+  Check(stable.Generate(1, true, true).source.empty() && !stable.busy,
+        "unfinished suffix is not automatically sent");
+  Check(!stable.Generate(1, true).source.empty() && stable.busy,
+        "explicit translation can send an unfinished suffix");
   std::cout << "Workbench model tests passed\n";
 }
