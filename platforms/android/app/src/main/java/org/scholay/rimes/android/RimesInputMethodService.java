@@ -35,6 +35,9 @@ public final class RimesInputMethodService extends InputMethodService {
     private SharedPreferences preferences;
     private LinearLayout keyboard, keys, bufferRow, candidateRow;
     private TextView preedit, preview;
+    private HorizontalScrollView candidateScroll;
+    private String renderedRaw="";
+    private int renderedPage=-1;
     private Button modeButton, schemeButton, bufferButton, retryButton, previous, next, insertNext, insertAll;
     private final List<Button> candidates=new ArrayList<>();
     private boolean uppercase, numeric, directOnly, privateField, english, ready, failed, destroyed;
@@ -326,10 +329,16 @@ public final class RimesInputMethodService extends InputMethodService {
         candidateRow=row(keyboard,40); previous=button(candidateRow,"‹",() -> page(false),0.6f);
         previous.setContentDescription("上一页候选");
         HorizontalScrollView scroll=new HorizontalScrollView(this); scroll.setFillViewport(true);
-        LinearLayout strip=new LinearLayout(this); scroll.addView(strip,new HorizontalScrollView.LayoutParams(-1,-1));
+        candidateScroll=scroll;
+        LinearLayout strip=new LinearLayout(this); scroll.addView(strip,new HorizontalScrollView.LayoutParams(-2,-1));
         candidateRow.addView(scroll,new LinearLayout.LayoutParams(0,-1,8));
         candidates.clear();
-        for(int i=0;i<9;i++) { final int index=i; candidates.add(button(strip,"",() -> select(index),1)); }
+        for(int i=0;i<9;i++) {
+            final int index=i; Button candidate=button(strip,"",() -> select(index),1);
+            candidate.setLayoutParams(new LinearLayout.LayoutParams(-2,-1));
+            candidate.setSingleLine(true); candidate.setMinWidth(dp(48)); candidate.setMinimumWidth(dp(48));
+            candidate.setPadding(dp(8),0,dp(8),0); candidates.add(candidate);
+        }
         next=button(candidateRow,"›",() -> page(true),0.6f); next.setContentDescription("下一页候选");
         bufferRow=row(keyboard,40);
         preview=new TextView(this); preview.setSingleLine(true); preview.setTextSize(16);
@@ -380,6 +389,9 @@ public final class RimesInputMethodService extends InputMethodService {
             item.setVisibility(exists?View.VISIBLE:View.GONE);
             if(exists) { setText(item,snapshot.candidates.get(i)); item.setContentDescription("候选"+(i+1)+" "+snapshot.candidates.get(i)); }
             item.setEnabled(exists && pending==0);
+        }
+        if(renderedPage!=snapshot.pageStart || !renderedRaw.equals(snapshot.raw)) {
+            candidateScroll.scrollTo(0,0); renderedPage=snapshot.pageStart; renderedRaw=snapshot.raw;
         }
         previous.setEnabled(pending==0 && snapshot.pageStart>0); next.setEnabled(pending==0 && !snapshot.lastPage);
         bufferRow.setVisibility(buffer.isEnabled()?View.VISIBLE:View.GONE);
