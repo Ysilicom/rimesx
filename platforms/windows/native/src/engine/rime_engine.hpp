@@ -19,6 +19,9 @@ struct RimeEngineOptions {
   std::filesystem::path user_data_dir;
   std::filesystem::path log_dir;
   bool full_maintenance_check = false;
+  // Deployment must not open a learned-word database merely for a smoke
+  // session: LevelDB otherwise rotates its journal and manifest on upgrade.
+  bool verify_input_session = true;
 };
 
 // Broker-only librime owner. This class must never be linked into RimesTsf.dll:

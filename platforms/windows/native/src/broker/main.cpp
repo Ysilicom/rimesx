@@ -112,6 +112,7 @@ int wmain(const int argc, wchar_t** argv) {
 
   if (options.deploy_only) {
     options.engine.full_maintenance_check = true;
+    options.engine.verify_input_session = false;
     engine::RimeEngine deploy;
     std::string failure;
     if (!deploy.Start(options.engine, &failure)) {

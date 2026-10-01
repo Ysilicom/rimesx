@@ -15,6 +15,7 @@ $runHandle=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsof
 if($runHandle){$oldAutostart=$runHandle.GetValue('RimesBroker',$null);$runHandle.Dispose()}
 if (Test-Path -LiteralPath "$InstallRoot\state.json") {
     $previous=Get-Content -LiteralPath "$InstallRoot\state.json" -Raw | ConvertFrom-Json
+    $requiresRestart=[bool]$previous.requiresSignOut
     Assert-OwnedVersion $InstallRoot $previous.active | Out-Null
     if ($previous.active -eq $target) { & "$target\Verify.ps1" -InstallRoot $InstallRoot; return }
     Stop-OwnedBroker $previous.active

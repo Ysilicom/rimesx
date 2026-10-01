@@ -317,16 +317,18 @@ class RimeEngine::Impl final {
         return false;
       }
 
-      const abi::SessionId smoke = api_->create_session();
-      if (smoke == 0) {
-        SetError(error, "librime smoke session creation failed");
-        StopLocked();
-        return false;
-      }
-      if (api_->destroy_session(smoke) == 0) {
-        SetError(error, "librime smoke session destruction failed");
-        StopLocked();
-        return false;
+      if (options.verify_input_session) {
+        const abi::SessionId smoke = api_->create_session();
+        if (smoke == 0) {
+          SetError(error, "librime smoke session creation failed");
+          StopLocked();
+          return false;
+        }
+        if (api_->destroy_session(smoke) == 0) {
+          SetError(error, "librime smoke session destruction failed");
+          StopLocked();
+          return false;
+        }
       }
       healthy_ = true;
       return true;
