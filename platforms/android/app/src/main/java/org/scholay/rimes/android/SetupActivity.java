@@ -14,6 +14,8 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Switch;
+import android.view.inputmethod.EditorInfo;
 
 public final class SetupActivity extends Activity {
     @Override public void onCreate(Bundle state) {
@@ -41,11 +43,21 @@ public final class SetupActivity extends Activity {
         choose.setText(R.string.choose_keyboard);
         choose.setOnClickListener(view -> getSystemService(InputMethodManager.class).showInputMethodPicker());
         content.addView(choose);
-        for (int hint : new int[]{R.string.try_typing, R.string.second_field, R.string.password_field}) {
+        Switch learning = new Switch(this);
+        learning.setText(R.string.learning);
+        android.content.SharedPreferences preferences = getSharedPreferences("keyboard", MODE_PRIVATE);
+        learning.setChecked(preferences.getBoolean("learning", true));
+        learning.setOnCheckedChangeListener((button, checked) -> preferences.edit().putBoolean("learning", checked).apply());
+        content.addView(learning);
+        TextView learningDetail = new TextView(this);
+        learningDetail.setText(R.string.learning_detail);
+        content.addView(learningDetail);
+        for (int hint : new int[]{R.string.try_typing, R.string.second_field, R.string.password_field, R.string.private_field}) {
             EditText input = new EditText(this);
             input.setHint(hint);
             input.setInputType(InputType.TYPE_CLASS_TEXT | (hint == R.string.password_field
                     ? InputType.TYPE_TEXT_VARIATION_PASSWORD : InputType.TYPE_TEXT_FLAG_MULTI_LINE));
+            if (hint == R.string.private_field) input.setImeOptions(EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
             input.setSaveEnabled(false);
             input.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_NO);
             content.addView(input);

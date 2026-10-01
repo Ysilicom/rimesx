@@ -7,6 +7,7 @@ import java.util.List;
 public final class BufferSession {
     public static final int MAX_CHARACTERS = 16 * 1024;
     private final List<String> blocks = new ArrayList<>();
+    private final List<Boolean> committed = new ArrayList<>();
     private long target;
     private long revision;
     private boolean permitted;
@@ -32,7 +33,14 @@ public final class BufferSession {
         return true;
     }
 
-    public void clear() { blocks.clear(); revision++; }
+    public void clear() { blocks.clear(); committed.clear(); revision++; }
+
+    /** One Rime confirmation is an immutable block boundary, including non-BMP text. */
+    public boolean appendCommittedBlock(String text) {
+        if (!enabled || !permitted || text == null || text.isEmpty()
+                || text().length() + text.length() > MAX_CHARACTERS) return false;
+        blocks.add(text); committed.add(true); revision++; return true;
+    }
 
     /** Literal English forms words; separators remain verbatim attached to the previous word. */
     public boolean appendLiteral(String text) {
@@ -43,13 +51,13 @@ public final class BufferSession {
             String part = new String(Character.toChars(codePoint));
             offset += Character.charCount(codePoint);
             int last = blocks.size() - 1;
-            if (last < 0) {
-                blocks.add(part);
+            if (last < 0 || committed.get(last)) {
+                blocks.add(part); committed.add(false);
             } else {
                 String previous = blocks.get(last);
                 int tail = previous.codePointBefore(previous.length());
                 if (Character.isLetterOrDigit(codePoint) && !Character.isLetterOrDigit(tail)) {
-                    blocks.add(part);
+                    blocks.add(part); committed.add(false);
                 } else {
                     blocks.set(last, previous + part);
                 }
@@ -61,6 +69,7 @@ public final class BufferSession {
 
     public void deleteLastBlock() {
         if (!enabled || blocks.isEmpty()) return;
+        committed.remove(blocks.size() - 1);
         blocks.remove(blocks.size() - 1);
         revision++;
     }
@@ -80,6 +89,7 @@ public final class BufferSession {
     public boolean acknowledge(Delivery delivery) {
         if (!isCurrent(delivery)) return false;
         blocks.subList(0, delivery.count).clear();
+        committed.subList(0, delivery.count).clear();
         revision++;
         return true;
     }

@@ -195,7 +195,7 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private boolean deliver(String text,boolean block) {
         if(!ownsTarget()) return false;
-        if(buffer.isEnabled()) return buffer.appendLiteral(text);
+        if(buffer.isEnabled()) return block ? buffer.appendCommittedBlock(text) : buffer.appendLiteral(text);
         int start=hostComposing ? composingStart : Math.min(selectionStart,selection);
         expect(start<0 ? -1 : start+text.length());
         boolean accepted=target.commitText(text,1);
