@@ -1,0 +1,146 @@
+{
+  "date": "2026-10-01",
+  "sourceCommit": "70e6301311b28987de12e180e943cadf04c3a2cb",
+  "branch": "codex/android-chinese-input",
+  "baseCommit": "1c2b2eebf3b2cf62dc625ba6640575469c5f8715",
+  "package": "org.scholay.rimes.android.debug",
+  "versionName": "0.1.0-dev.3",
+  "versionCode": 3,
+  "apk": {
+    "file": "RIMES-Android-0.1.0-dev.3-70e6301.apk",
+    "bytes": 17212089,
+    "sha256": "76744592bd8968bba770c6ced476e4998b65a2b7a325621ba3c44ef53a20d42e",
+    "installedApkMatchesLocal": true,
+    "lastUpdateTime": "2026-10-01T21:55:29+08:00"
+  },
+  "build": {
+    "passed": true,
+    "jdk": 21,
+    "gradle": "9.7.1",
+    "agp": "9.4.0",
+    "compileSdk": "37.2",
+    "minSdk": 26,
+    "targetSdk": 37,
+    "ndk": "29.0.14206865",
+    "cmake": "3.22.1",
+    "coreTests": 14,
+    "failures": 0,
+    "lint": {
+      "app": {
+        "errors": 0,
+        "warnings": [
+          "AndroidGradlePluginVersion",
+          "DataExtractionRules",
+          "MissingApplicationIcon"
+        ]
+      },
+      "testhost": {
+        "errors": 0,
+        "warnings": [
+          "SetJavaScriptEnabled",
+          "DataExtractionRules",
+          "MissingApplicationIcon",
+          "SetTextI18n",
+          "SetTextI18n"
+        ]
+      }
+    },
+    "remoteCiRun": false
+  },
+  "engine": {
+    "librime": "1.17.0",
+    "revision": "33e78140250125871856cdc5b42ddc6a5fcd3cd4",
+    "precompiledResourceFiles": 15,
+    "resourceHashesVerifiedInApk": true,
+    "licensesVerified": true,
+    "elfLoadAlignmentBytes": 16384,
+    "apk16KbZipAlignment": true,
+    "arm64": {
+      "deviceEnginePassed": true,
+      "finalPackagedLibraryDlopenPassed": true
+    },
+    "x86_64": {
+      "linuxBionicEnginePassed": true,
+      "finalPackagedLibraryDlopenPassed": true,
+      "androidEmulatorUiTested": false
+    },
+    "conversions": {
+      "nihao": "你好",
+      "nihk": "你好",
+      "wq": "你"
+    },
+    "learning": {
+      "normalEntriesPersistAcrossProcesses": true,
+      "privateFreshHasNoLearnedEntries": true,
+      "privatePreservesExistingExportedEntries": true
+    }
+  },
+  "device": {
+    "model": "25098PN5AC",
+    "android": "16",
+    "api": 36,
+    "abi": "arm64-v8a",
+    "memoryPageBytes": 4096,
+    "navigation": "three-button",
+    "locale": "en"
+  },
+  "deviceContract": {
+    "passed": true,
+    "assertions": 301,
+    "passwordSkipped": true,
+    "method": "Accessibility click actions on actual RIMES buttons; actual native and WebView host text assertions",
+    "passwordSkippedReason": "OEM secure keyboard replaces RIMES in independent password fields; own setup password UI and platform policies verified separately"
+  },
+  "finalChecks": {
+    "soak": "passed",
+    "jni": "passed_unicode_caret_and_password_private_policies",
+    "setupAndSystemSearch": "passed",
+    "passwordOemSurface": "RIMES password UI passed in Setup; OEM secure keyboard confirmed in external host; OEM setting unchanged",
+    "nondefaultPreferenceUpgrade": "passed_20_unchanged_file_hashes_natural_code_and_learning_off",
+    "restoration": "passed"
+  },
+  "notTested": [
+    "Older Android versions",
+    "Other manufacturers",
+    "Actual 16 KB Android runtime",
+    "x86_64 Android emulator UI",
+    "Broad third-party InputConnection fault injection"
+  ],
+  "published": false,
+  "pushed": false,
+  "deviceLearning": {
+    "liveToggleOffPreservedBlocks": true,
+    "liveToggleSettledRawCode": "ni",
+    "offExportsUnchanged": true,
+    "privateExportsUnchanged": true,
+    "normalAndBufferLearningPersistAfterRestartAndReinstall": true
+  },
+  "manualDeviceChecks": [
+    "Setup playground Chinese and Buffer",
+    "Live learning setting with pending composition and existing block",
+    "Local dictionary exports before/off/private/on/restart",
+    "RIMES password UI: English direct, no candidates, Buffer disabled",
+    "External password field: com.miui.securityinputmethod/.latin.LatinIME",
+    "System Settings search: Buffer isolation, exact Chinese insert, search action hides keyboard",
+    "IME picker: switch to Sogou and back clears Buffer"
+  ],
+  "soak": {
+    "durationSeconds": 1801,
+    "cycles": 995,
+    "assertions": 10948,
+    "passed": true,
+    "instrumentationExitCode": 0,
+    "imePidUnchanged": true,
+    "imeCrashLogEmpty": true,
+    "method": "On-device detached instrumentation clicks actual RIMES keys and checks actual native host text"
+  },
+  "restored": {
+    "defaultKeyboard": "com.sohu.inputmethod.sogou.xiaomi/.SogouIME",
+    "accelerometerRotation": 0,
+    "userRotation": 0,
+    "screenOffTimeoutMs": 120000,
+    "oemSecureKeyboardSettingChanged": false,
+    "verified": true
+  },
+  "localEvidenceDirectory": ".build/android-dev3-validation"
+}

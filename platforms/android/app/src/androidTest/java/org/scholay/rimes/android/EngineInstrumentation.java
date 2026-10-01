@@ -1,0 +1,43 @@
+package org.scholay.rimes.android;
+import android.app.Instrumentation;
+import android.os.Bundle;
+
+/** Exercises the actual packaged JNI library, including modified-UTF-8 traps. */
+public final class EngineInstrumentation extends Instrumentation {
+    @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
+    @Override public void onStart() {
+        Bundle result=new Bundle();
+        try {
+            for(String value:new String[]{"中文","A𠮷😀Z","\u0000","你好\u0000𠮷"}) {
+                if(!value.equals(NativeRimeEngine.roundTripNative(value))) throw new AssertionError("JNI Unicode round trip");
+            }
+            java.io.File data=EngineResources.prepare(getTargetContext());
+            if(!data.isDirectory()) throw new AssertionError("packaged resources");
+            EngineWorker.QUEUE.submit(() -> {
+                NativeRimeEngine engine=new NativeRimeEngine();
+                try {
+                    engine.initialize(data.getAbsolutePath(),EngineResources.userDirectory(getTargetContext()).getAbsolutePath());
+                    long session=engine.createSession();
+                    if(!engine.selectSchema(session,"rimes_pinyin_private")) throw new AssertionError("private schema");
+                    for(char key:"nihao".toCharArray()) engine.processKey(session,key);
+                    org.scholay.rimes.core.RimeEngine.Snapshot partial=engine.selectCandidate(session,1);
+                    if(!partial.preedit.contains("你") || partial.caret!=partial.preedit.length())
+                        throw new AssertionError("UTF-8 byte caret to UTF-16: "+partial.preedit+" caret="+partial.caret);
+                    engine.clearComposition(session); engine.destroySession(session);
+                } catch(java.io.IOException error) { throw new RuntimeException(error); }
+            }).get(10,java.util.concurrent.TimeUnit.SECONDS);
+            android.view.inputmethod.EditorInfo info=new android.view.inputmethod.EditorInfo();
+            for(int type:new int[]{android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                    android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+                    android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
+                    android.text.InputType.TYPE_CLASS_NUMBER|android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}) {
+                info.inputType=type;
+                if(!RimesInputMethodService.isPassword(info) || RimesInputMethodService.allowsBuffer(info)) throw new AssertionError("password policy");
+            }
+            info.inputType=android.text.InputType.TYPE_CLASS_TEXT;
+            info.imeOptions=android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING;
+            if(RimesInputMethodService.isPassword(info) || RimesInputMethodService.allowsBuffer(info)) throw new AssertionError("private field policy");
+            result.putString("stream","PASS JNI Chinese/non-BMP/NUL round trips, UTF-16 preedit caret, resources and platform password/private policies\n"); finish(-1,result);
+        } catch(Throwable error) { result.putString("stream","FAIL "+android.util.Log.getStackTraceString(error)); finish(0,result); }
+    }
+}

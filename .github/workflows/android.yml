@@ -3,10 +3,10 @@ name: Android checks
 on:
   pull_request:
     branches: [main]
-    paths: ['platforms/android/**', '.github/workflows/android.yml']
+    paths: ['platforms/android/**', 'platforms/ios/dependencies.lock.json', 'platforms/ios/Resources/EngineData/**', 'platforms/ios/Licenses/**', '.github/workflows/android.yml']
   push:
     branches: [main]
-    paths: ['platforms/android/**', '.github/workflows/android.yml']
+    paths: ['platforms/android/**', 'platforms/ios/dependencies.lock.json', 'platforms/ios/Resources/EngineData/**', 'platforms/ios/Licenses/**', '.github/workflows/android.yml']
   workflow_dispatch:
 
 permissions:
@@ -19,7 +19,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: platforms/android
@@ -40,9 +40,17 @@ jobs:
           assert actual == '7a9ce74cff467ca1bf60a4fcd9f05185acceda4d0f382434d393e17864262c5d', actual
           PY
       - name: Install compile SDK in the runner SDK
-        run: sdkmanager 'platforms;android-37.2' 'build-tools;36.0.0'
+        run: sdkmanager 'platforms;android-37.2' 'build-tools;36.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
+      - name: Build both native ABIs and offline dictionaries
+        run: python3 scripts/build-engine.py
+      - name: Run real Android x86_64 engine and learning contracts
+        run: |
+          set -o pipefail
+          python3 scripts/test-linux-native.py 2>&1 | tee .native/engine-contract.log
       - name: Test Buffer, build development APK and run Lint
-        run: ./gradlew --no-daemon :core:test :app:assembleDebug :app:lintDebug
+        run: ./gradlew --no-daemon :core:test :app:assembleDebug :app:lintDebug :app:assembleDebugAndroidTest :testhost:assembleDebug :testhost:assembleDebugAndroidTest :testhost:lintDebug
+      - name: Verify APK 16 KB alignment
+        run: "$ANDROID_HOME/build-tools/36.0.0/zipalign -c -P 16 -v 4 app/build/outputs/apk/debug/app-debug.apk"
       - name: Upload development APK and reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -52,6 +60,10 @@ jobs:
             platforms/android/app/build/outputs/apk/debug/*.apk
             platforms/android/app/build/reports/lint-results-debug.*
             platforms/android/core/build/test-results/test/
+            platforms/android/testhost/build/reports/lint-results-debug.*
+            platforms/android/app/build/generated/rime/build-receipt.json
+            platforms/android/app/build/generated/rime/assets/rime/manifest.json
+            platforms/android/.native/engine-contract.log
           retention-days: 14
           if-no-files-found: warn
       # No publishing, production signing keys, device install or macOS release gate.
