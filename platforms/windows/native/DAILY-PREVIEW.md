@@ -20,7 +20,9 @@ Development checks include portable Buffer state-machine tests; runtime peer/ack
 
 ## Acceptance status
 
-Implementation is under verification. A successful build, CTest or registration does **not** certify daily-use readiness. Actual x64/x86 hosts, Notepad, Edge input/contenteditable, VS Code, WeChat draft, installed Office, DPI/multi-monitor, lock/resume, elevated windows, broker restart, installation lifecycle and at least one working day of trial remain separate acceptance gates. No production release or signing is claimed.
+Candidate `7c33090` passed both MSVC architectures, all 11 CTest groups per architecture, product-data probes, loopback API transport, fake-TSF integration, and 19 real installation-lifecycle checks on Young. Existing user database files and language preferences were preserved. Both TSF architectures are registered, with sign-out required because a desktop process still maps the original DLL.
+
+A successful build, CTest or registration does **not** certify daily-use readiness. Windows App control repeatedly timed out; actual x64/x86 hosts, Notepad, Edge input/contenteditable, VS Code, WeChat draft, installed Office, DPI/multi-monitor, lock/resume, elevated windows, broker restart, a configured API provider and at least one working day of trial remain unverified. See [the dated acceptance record](ACCEPTANCE-20261001.md) for exact artifacts and evidence. No production release or signing is claimed.
 
 ## Reproduction
 
