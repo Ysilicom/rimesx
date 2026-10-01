@@ -13,7 +13,7 @@ namespace rimes::windows::core {
 // endianness. Every integer is encoded little-endian by broker_protocol.cpp.
 inline constexpr std::uint32_t kFrameMagic = 0x50574252;  // "RBWP"
 inline constexpr std::uint16_t kFrameHeaderSize = 24;
-inline constexpr std::uint16_t kProtocolMajor = 1;
+inline constexpr std::uint16_t kProtocolMajor = 2;
 inline constexpr std::uint16_t kProtocolMinor = 0;
 inline constexpr std::uint32_t kMaxPayloadSize = 1024U * 1024U;
 inline constexpr std::uint32_t kMaxFrameSize =
@@ -32,6 +32,8 @@ enum class MessageType : std::uint16_t {
   kInputSessionClosed = 13,
   kKeyEvent = 14,
   kInputState = 15,
+  kControl = 20,
+  kControlState = 21,
 };
 
 enum class FrameFlags : std::uint32_t {
@@ -79,8 +81,7 @@ struct FrameDecodeResult {
 
 // Encodes one complete frame. The function rejects unsupported protocol
 // versions, message types, flags, and payloads larger than kMaxPayloadSize.
-bool EncodeFrame(const Frame& frame,
-                 std::vector<std::byte>* encoded,
+bool EncodeFrame(const Frame& frame, std::vector<std::byte>* encoded,
                  std::string* error = nullptr);
 
 // Decodes and validates the fixed header without allocating for its payload.
@@ -215,12 +216,14 @@ enum class InputStateFlags : std::uint32_t {
   kHandled = 1U << 0,
   kComposing = 1U << 1,
   kCandidatesVisible = 1U << 2,
+  kBufferCapture = 1U << 3,
 };
 
 inline constexpr std::uint32_t kKnownInputStateFlags =
     static_cast<std::uint32_t>(InputStateFlags::kHandled) |
     static_cast<std::uint32_t>(InputStateFlags::kComposing) |
-    static_cast<std::uint32_t>(InputStateFlags::kCandidatesVisible);
+    static_cast<std::uint32_t>(InputStateFlags::kCandidatesVisible) |
+    static_cast<std::uint32_t>(InputStateFlags::kBufferCapture);
 inline constexpr std::uint16_t kNoCandidateSelected = 0xffffU;
 
 // One atomic response contains every text mutation for a key event. Wire text
@@ -241,25 +244,20 @@ struct InputState {
   std::vector<Candidate> candidates;
 };
 
-bool EncodeClientHello(const ClientHello& dto,
-                       std::vector<std::byte>* payload,
+bool EncodeClientHello(const ClientHello& dto, std::vector<std::byte>* payload,
                        std::string* error = nullptr);
-bool DecodeClientHello(std::span<const std::byte> payload,
-                       ClientHello* dto,
+bool DecodeClientHello(std::span<const std::byte> payload, ClientHello* dto,
                        std::string* error = nullptr);
 
-bool EncodeBrokerHello(const BrokerHello& dto,
-                       std::vector<std::byte>* payload,
+bool EncodeBrokerHello(const BrokerHello& dto, std::vector<std::byte>* payload,
                        std::string* error = nullptr);
-bool DecodeBrokerHello(std::span<const std::byte> payload,
-                       BrokerHello* dto,
+bool DecodeBrokerHello(std::span<const std::byte> payload, BrokerHello* dto,
                        std::string* error = nullptr);
 
 bool EncodeErrorResponse(const ErrorResponse& dto,
                          std::vector<std::byte>* payload,
                          std::string* error = nullptr);
-bool DecodeErrorResponse(std::span<const std::byte> payload,
-                         ErrorResponse* dto,
+bool DecodeErrorResponse(std::span<const std::byte> payload, ErrorResponse* dto,
                          std::string* error = nullptr);
 
 bool EncodeOpenInputSession(const OpenInputSession& dto,
@@ -286,17 +284,13 @@ bool EncodeInputSessionClosed(const InputSessionClosed& dto,
 bool DecodeInputSessionClosed(std::span<const std::byte> payload,
                               InputSessionClosed* dto,
                               std::string* error = nullptr);
-bool EncodeKeyEvent(const KeyEvent& dto,
-                    std::vector<std::byte>* payload,
+bool EncodeKeyEvent(const KeyEvent& dto, std::vector<std::byte>* payload,
                     std::string* error = nullptr);
-bool DecodeKeyEvent(std::span<const std::byte> payload,
-                    KeyEvent* dto,
+bool DecodeKeyEvent(std::span<const std::byte> payload, KeyEvent* dto,
                     std::string* error = nullptr);
-bool EncodeInputState(const InputState& dto,
-                      std::vector<std::byte>* payload,
+bool EncodeInputState(const InputState& dto, std::vector<std::byte>* payload,
                       std::string* error = nullptr);
-bool DecodeInputState(std::span<const std::byte> payload,
-                      InputState* dto,
+bool DecodeInputState(std::span<const std::byte> payload, InputState* dto,
                       std::string* error = nullptr);
 
 }  // namespace rimes::windows::core

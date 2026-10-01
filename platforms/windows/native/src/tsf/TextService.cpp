@@ -1,13 +1,16 @@
 #include "TextService.h"
 
+#include <initguid.h>
+#include <inputscope.h>
+#include <textstor.h>
+
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <new>
 #include <string>
 #include <utility>
-
-#include <textstor.h>
 
 #include "Diagnostics.h"
 #include "DisplayAttribute.h"
@@ -17,19 +20,158 @@
 namespace rimes::windows::tsf {
 namespace {
 
+// Called with a granted edit cookie; never inspect or forward protected text.
+bool AllowedContext(ITfContext* context,
+                    TfEditCookie cookie = TF_INVALID_EDIT_COOKIE) {
+  TF_STATUS status{};
+  if (SUCCEEDED(context->GetStatus(&status)) &&
+      (status.dwStaticFlags & TS_SD_READONLY))
+    return false;
+  ITfCompartmentMgr* compartments = nullptr;
+  if (SUCCEEDED(context->QueryInterface(
+          IID_ITfCompartmentMgr, reinterpret_cast<void**>(&compartments)))) {
+    bool disabled = false;
+    for (const auto& guid :
+         {GUID_COMPARTMENT_KEYBOARD_DISABLED, GUID_COMPARTMENT_EMPTYCONTEXT}) {
+      ITfCompartment* compartment = nullptr;
+      if (SUCCEEDED(compartments->GetCompartment(guid, &compartment)) &&
+          compartment) {
+        VARIANT value{};
+        VariantInit(&value);
+        if (SUCCEEDED(compartment->GetValue(&value)) && value.vt == VT_I4 &&
+            value.lVal)
+          disabled = true;
+        VariantClear(&value);
+        compartment->Release();
+      }
+    }
+    compartments->Release();
+    if (disabled) return false;
+  }
+  ITfContextView* view = nullptr;
+  if (SUCCEEDED(context->GetActiveView(&view)) && view) {
+    HWND window = nullptr;
+    view->GetWnd(&window);
+    view->Release();
+    if (window) {
+      wchar_t name[32]{};
+      GetClassNameW(window, name, 32);
+      if ((_wcsicmp(name, L"Edit") == 0 ||
+           _wcsnicmp(name, L"RichEdit", 8) == 0) &&
+          (GetWindowLongPtrW(window, GWL_STYLE) & ES_PASSWORD))
+        return false;
+    }
+  }
+  if (cookie == TF_INVALID_EDIT_COOKIE) return true;
+  TF_SELECTION selection{};
+  ULONG fetched = 0;
+  if (FAILED(context->GetSelection(cookie, TF_DEFAULT_SELECTION, 1, &selection,
+                                   &fetched)) ||
+      !selection.range)
+    return false;
+  ITfReadOnlyProperty* property = nullptr;
+  bool allowed = true;
+  if (SUCCEEDED(context->GetAppProperty(GUID_PROP_INPUTSCOPE, &property)) &&
+      property) {
+    VARIANT value{};
+    VariantInit(&value);
+    if (SUCCEEDED(property->GetValue(cookie, selection.range, &value)) &&
+        value.vt == VT_UNKNOWN && value.punkVal) {
+      ITfInputScope* scope = nullptr;
+      if (SUCCEEDED(value.punkVal->QueryInterface(
+              IID_ITfInputScope, reinterpret_cast<void**>(&scope)))) {
+        InputScope* values = nullptr;
+        UINT count = 0;
+        if (SUCCEEDED(scope->GetInputScopes(&values, &count))) {
+          for (UINT i = 0; i < count; ++i)
+            if (values[i] == IS_PASSWORD || values[i] == IS_PRIVATE ||
+                (static_cast<int>(values[i]) >= 63 &&
+                 static_cast<int>(values[i]) <= 66))
+              allowed = false;
+          CoTaskMemFree(values);
+        }
+        scope->Release();
+      }
+    }
+    VariantClear(&value);
+    property->Release();
+  }
+  selection.range->Release();
+  return allowed;
+}
+
+class ScopeRead final : public ITfEditSession {
+ public:
+  explicit ScopeRead(ITfContext* context) : context_(context) {
+    context_->AddRef();
+    module::AddObject();
+  }
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** out) override {
+    if (!out) return E_POINTER;
+    *out = nullptr;
+    if (id != IID_IUnknown && id != IID_ITfEditSession) return E_NOINTERFACE;
+    *out = static_cast<ITfEditSession*>(this);
+    AddRef();
+    return S_OK;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++refs_; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const auto n = --refs_;
+    if (!n) delete this;
+    return n;
+  }
+  HRESULT STDMETHODCALLTYPE DoEditSession(TfEditCookie cookie) override {
+    allowed = AllowedContext(context_, cookie);
+    TF_SELECTION selection{};
+    ULONG count = 0;
+    ITfContextView* view = nullptr;
+    if (SUCCEEDED(context_->GetSelection(cookie, TF_DEFAULT_SELECTION, 1,
+                                         &selection, &count)) &&
+        selection.range) {
+      if (SUCCEEDED(context_->GetActiveView(&view)) && view) {
+        BOOL clipped = FALSE;
+        view->GetTextExt(cookie, selection.range, &caret, &clipped);
+        view->Release();
+      }
+      selection.range->Release();
+    }
+    return S_OK;
+  }
+  bool allowed = false;
+  RECT caret{};
+
+ private:
+  ~ScopeRead() {
+    context_->Release();
+    module::ReleaseObject();
+  }
+  std::atomic_ulong refs_{1};
+  ITfContext* context_;
+};
+
 class CommitEditSession final : public ITfEditSession {
-public:
-  CommitEditSession(ITfContext *context, std::wstring text)
-      : context_(context), text_(std::move(text)) {
+ public:
+  CommitEditSession(ITfContext* context, std::wstring text,
+                    std::shared_ptr<std::atomic_bool> valid,
+                    std::function<void(bool)> completion = {},
+                    IUnknown* owner = nullptr,
+                    std::function<bool(TfEditCookie)> validate = {})
+      : context_(context),
+        text_(std::move(text)),
+        valid_(std::move(valid)),
+        completion_(std::move(completion)),
+        owner_(owner),
+        validate_(std::move(validate)) {
+    if (owner_) owner_->AddRef();
     context_->AddRef();
     module::AddObject();
   }
 
-  CommitEditSession(const CommitEditSession &) = delete;
-  CommitEditSession &operator=(const CommitEditSession &) = delete;
+  CommitEditSession(const CommitEditSession&) = delete;
+  CommitEditSession& operator=(const CommitEditSession&) = delete;
 
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interface_id,
-                                           void **object) override {
+                                           void** object) override {
     if (object == nullptr) {
       return E_POINTER;
     }
@@ -38,7 +180,7 @@ public:
         !InlineIsEqualGUID(interface_id, IID_ITfEditSession)) {
       return E_NOINTERFACE;
     }
-    *object = static_cast<ITfEditSession *>(this);
+    *object = static_cast<ITfEditSession*>(this);
     AddRef();
     return S_OK;
   }
@@ -57,6 +199,13 @@ public:
   }
 
   HRESULT STDMETHODCALLTYPE DoEditSession(TfEditCookie edit_cookie) override {
+    struct Completion {
+      CommitEditSession* self;
+      ~Completion() { self->Notify(); }
+    } completion{this};
+    if (!valid_ || !valid_->load() || !AllowedContext(context_, edit_cookie) ||
+        (validate_ && !validate_(edit_cookie)))
+      return TF_E_DISCONNECTED;
     LogDiagnosticStage(DiagnosticStage::kEditSessionEntered);
     if (text_.empty()) {
       LogDiagnosticStage(DiagnosticStage::kEditSessionTextEmpty);
@@ -68,17 +217,17 @@ public:
       return E_INVALIDARG;
     }
 
-    ITfInsertAtSelection *insert_at_selection = nullptr;
+    ITfInsertAtSelection* insert_at_selection = nullptr;
     HRESULT result = context_->QueryInterface(
         IID_ITfInsertAtSelection,
-        reinterpret_cast<void **>(&insert_at_selection));
+        reinterpret_cast<void**>(&insert_at_selection));
     if (FAILED(result)) {
       LogDiagnosticStage(DiagnosticStage::kEditSessionInsertQueryFailed);
       return result;
     }
     LogDiagnosticStage(DiagnosticStage::kEditSessionInsertQuerySucceeded);
 
-    ITfRange *inserted_range = nullptr;
+    ITfRange* inserted_range = nullptr;
     result = insert_at_selection->InsertTextAtSelection(
         edit_cookie, 0, text_.data(), static_cast<LONG>(text_.size()),
         &inserted_range);
@@ -112,6 +261,7 @@ public:
       return result;
     }
 
+    accepted_ = true;
     LogDiagnosticStage(DiagnosticStage::kEditSessionInsertSucceeded);
     if (inserted_range == nullptr) {
       // The host has already accepted the text.  Treat a missing optional
@@ -144,45 +294,61 @@ public:
     return S_OK;
   }
 
-private:
+ private:
+  void Notify() {
+    if (completion_) {
+      auto callback = std::move(completion_);
+      callback(accepted_);
+    }
+  }
   ~CommitEditSession() {
+    Notify();
+    if (owner_) owner_->Release();
     context_->Release();
     module::ReleaseObject();
   }
 
   std::atomic_ulong reference_count_{1};
-  ITfContext *context_;
+  ITfContext* context_;
   std::wstring text_;
+  std::shared_ptr<std::atomic_bool> valid_;
+  std::function<void(bool)> completion_;
+  IUnknown* owner_ = nullptr;
+  bool accepted_ = false;
+  std::function<bool(TfEditCookie)> validate_;
 };
 
 class CompositionEditSession final : public ITfEditSession {
-public:
+ public:
   enum class Action {
     kUpdate,
     kEnd,
+    kApply,
   };
 
-  CompositionEditSession(ITfContext *context,
-                         ITfCompositionSink *sink,
-                         ITfComposition **composition_slot,
-                         Action action,
-                         std::wstring text,
-                         std::uint32_t caret_utf16)
+  CompositionEditSession(ITfContext* context, ITfCompositionSink* sink,
+                         ITfComposition** composition_slot, Action action,
+                         std::wstring text, std::uint32_t caret_utf16,
+                         std::shared_ptr<std::atomic_bool> valid,
+                         std::wstring committed = {})
       : context_(context),
         sink_(sink),
         composition_slot_(composition_slot),
         action_(action),
         text_(std::move(text)),
-        caret_utf16_(caret_utf16) {
+        caret_utf16_(caret_utf16),
+        valid_(std::move(valid)),
+        committed_(std::move(committed)) {
     context_->AddRef();
+    sink_->AddRef();
     module::AddObject();
   }
 
-  CompositionEditSession(const CompositionEditSession &) = delete;
-  CompositionEditSession &operator=(const CompositionEditSession &) = delete;
+  CompositionEditSession(const CompositionEditSession&) = delete;
+  CompositionEditSession& operator=(const CompositionEditSession&) = delete;
 
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interface_id,
-                                           void **object) override {
+                                           void** object) override {
     if (object == nullptr) {
       return E_POINTER;
     }
@@ -191,7 +357,7 @@ public:
         !InlineIsEqualGUID(interface_id, IID_ITfEditSession)) {
       return E_NOINTERFACE;
     }
-    *object = static_cast<ITfEditSession *>(this);
+    *object = static_cast<ITfEditSession*>(this);
     AddRef();
     return S_OK;
   }
@@ -210,15 +376,45 @@ public:
   }
 
   HRESULT STDMETHODCALLTYPE DoEditSession(TfEditCookie edit_cookie) override {
-    if (action_ == Action::kEnd) {
-      return EndLocked(edit_cookie);
+    if (!valid_ || !valid_->load()) return TF_E_DISCONNECTED;
+    if (!AllowedContext(context_, edit_cookie)) return TS_E_READONLY;
+    if (action_ == Action::kEnd) return EndLocked(edit_cookie);
+    if (action_ == Action::kApply) {
+      if (!committed_.empty()) {
+        HRESULT hr = S_OK;
+        if (*composition_slot_) {
+          const auto preedit = std::move(text_);
+          const auto caret = caret_utf16_;
+          text_ = committed_;
+          caret_utf16_ = static_cast<std::uint32_t>(text_.size());
+          hr = UpdateLocked(edit_cookie);
+          text_ = preedit;
+          caret_utf16_ = caret;
+          if (SUCCEEDED(hr)) hr = EndLocked(edit_cookie);
+        } else {
+          auto* insert = new (std::nothrow)
+              CommitEditSession(context_, committed_, valid_);
+          if (!insert) return E_OUTOFMEMORY;
+          hr = insert->DoEditSession(edit_cookie);
+          insert->Release();
+        }
+        if (FAILED(hr)) return hr;
+      }
+      if (text_.empty()) {
+        if (*composition_slot_) {
+          auto hr = UpdateLocked(edit_cookie);
+          if (FAILED(hr)) return hr;
+        }
+        return EndLocked(edit_cookie);
+      }
     }
     return UpdateLocked(edit_cookie);
   }
 
-private:
+ private:
   ~CompositionEditSession() {
     context_->Release();
+    sink_->Release();
     module::ReleaseObject();
   }
 
@@ -226,13 +422,13 @@ private:
     if (composition_slot_ == nullptr || *composition_slot_ != nullptr) {
       return S_OK;
     }
-    ITfInsertAtSelection *insert = nullptr;
+    ITfInsertAtSelection* insert = nullptr;
     HRESULT result = context_->QueryInterface(
-        IID_ITfInsertAtSelection, reinterpret_cast<void **>(&insert));
+        IID_ITfInsertAtSelection, reinterpret_cast<void**>(&insert));
     if (FAILED(result) || insert == nullptr) {
       return result;
     }
-    ITfRange *range = nullptr;
+    ITfRange* range = nullptr;
     result = insert->InsertTextAtSelection(edit_cookie, TF_IAS_QUERYONLY,
                                            nullptr, 0, &range);
     insert->Release();
@@ -243,9 +439,10 @@ private:
       return result;
     }
 
-    ITfContextComposition *context_composition = nullptr;
+    ITfContextComposition* context_composition = nullptr;
     result = context_->QueryInterface(
-        IID_ITfContextComposition, reinterpret_cast<void **>(&context_composition));
+        IID_ITfContextComposition,
+        reinterpret_cast<void**>(&context_composition));
     if (FAILED(result) || context_composition == nullptr) {
       range->Release();
       return result;
@@ -269,7 +466,7 @@ private:
       }
     }
 
-    ITfRange *range = nullptr;
+    ITfRange* range = nullptr;
     result = (*composition_slot_)->GetRange(&range);
     if (FAILED(result) || range == nullptr) {
       if (range != nullptr) {
@@ -286,18 +483,19 @@ private:
                             static_cast<LONG>(text_.size()));
     if (SUCCEEDED(result)) {
       ApplyCompositionDisplayAttribute(edit_cookie, context_, range);
-      ITfRange *caret_range = nullptr;
+      ITfRange* caret_range = nullptr;
       if (SUCCEEDED(range->Clone(&caret_range)) && caret_range != nullptr) {
-        ITfRangeACP *acp = nullptr;
+        ITfRangeACP* acp = nullptr;
         if (SUCCEEDED(caret_range->QueryInterface(
-                IID_ITfRangeACP, reinterpret_cast<void **>(&acp))) &&
+                IID_ITfRangeACP, reinterpret_cast<void**>(&acp))) &&
             acp != nullptr) {
           LONG start = 0;
           LONG ignored = 0;
           if (SUCCEEDED(acp->GetExtent(&start, &ignored))) {
-            const LONG caret = start + static_cast<LONG>((std::min)(
-                                           caret_utf16_,
-                                           static_cast<std::uint32_t>(text_.size())));
+            const LONG caret =
+                start + static_cast<LONG>(
+                            (std::min)(caret_utf16_, static_cast<std::uint32_t>(
+                                                         text_.size())));
             acp->SetExtent(caret, 0);
           }
           acp->Release();
@@ -320,7 +518,7 @@ private:
     if (composition_slot_ == nullptr || *composition_slot_ == nullptr) {
       return S_OK;
     }
-    ITfComposition *composition = *composition_slot_;
+    ITfComposition* composition = *composition_slot_;
     *composition_slot_ = nullptr;
     const HRESULT result = composition->EndComposition(edit_cookie);
     composition->Release();
@@ -328,17 +526,57 @@ private:
   }
 
   std::atomic_ulong reference_count_{1};
-  ITfContext *context_;
-  ITfCompositionSink *sink_;
-  ITfComposition **composition_slot_;
+  ITfContext* context_;
+  ITfCompositionSink* sink_;
+  ITfComposition** composition_slot_;
   Action action_;
   std::wstring text_;
   std::uint32_t caret_utf16_ = 0;
+  std::shared_ptr<std::atomic_bool> valid_;
+  std::wstring committed_;
 };
 
-HRESULT RequestEdit(ITfContext *context,
-                    TfClientId client_id,
-                    ITfEditSession *session) {
+class CancelCompositionEdit final : public ITfEditSession {
+ public:
+  explicit CancelCompositionEdit(ITfComposition* composition)
+      : composition_(composition) {
+    composition_->AddRef();
+    module::AddObject();
+  }
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** out) override {
+    if (!out) return E_POINTER;
+    *out = nullptr;
+    if (id != IID_IUnknown && id != IID_ITfEditSession) return E_NOINTERFACE;
+    *out = static_cast<ITfEditSession*>(this);
+    AddRef();
+    return S_OK;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++references_; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    auto n = --references_;
+    if (!n) delete this;
+    return n;
+  }
+  HRESULT STDMETHODCALLTYPE DoEditSession(TfEditCookie cookie) override {
+    ITfRange* range = nullptr;
+    if (SUCCEEDED(composition_->GetRange(&range)) && range) {
+      range->SetText(cookie, 0, L"", 0);
+      range->Release();
+    }
+    return composition_->EndComposition(cookie);
+  }
+
+ private:
+  ~CancelCompositionEdit() {
+    composition_->Release();
+    module::ReleaseObject();
+  }
+  std::atomic_ulong references_{1};
+  ITfComposition* composition_;
+};
+
+HRESULT RequestEdit(ITfContext* context, TfClientId client_id,
+                    ITfEditSession* session) {
   if (context == nullptr || session == nullptr || client_id == kNullClientId) {
     return E_INVALIDARG;
   }
@@ -353,10 +591,28 @@ HRESULT RequestEdit(ITfContext *context,
   return FAILED(request_result) ? request_result : edit_result;
 }
 
-} // namespace
+}  // namespace
 
 TextService::TextService() noexcept : broker_client_(CreateBrokerClient()) {
   module::AddObject();
+  candidate_window_.SetSelect([this](std::size_t index) {
+    if (!active_context_ || index >= last_state_.candidates.size()) return;
+    DWORD process = 0;
+    GetWindowThreadProcessId(GetForegroundWindow(), &process);
+    if (process != GetCurrentProcessId()) return;
+    const auto label = last_state_.candidates[index].label;
+    if (label.size() != 1 || label[0] < L'1' || label[0] > L'9') return;
+    if (!broker_client_->Control({{"op", "candidate_guard"},
+                                  {"revision", last_state_.revision},
+                                  {"index", index}}))
+      return;
+    BOOL eaten = FALSE;
+    HandleKey(BrokerKeyPhase::kKeyDown, active_context_,
+              static_cast<WPARAM>(label[0]), 1, &eaten);
+    HandleKey(BrokerKeyPhase::kKeyUp, active_context_,
+              static_cast<WPARAM>(label[0]), static_cast<LPARAM>(1ULL << 31),
+              &eaten);
+  });
 }
 
 TextService::~TextService() {
@@ -365,7 +621,7 @@ TextService::~TextService() {
 }
 
 HRESULT STDMETHODCALLTYPE TextService::QueryInterface(REFIID interface_id,
-                                                      void **object) {
+                                                      void** object) {
   if (object == nullptr) {
     return E_POINTER;
   }
@@ -373,15 +629,21 @@ HRESULT STDMETHODCALLTYPE TextService::QueryInterface(REFIID interface_id,
 
   if (InlineIsEqualGUID(interface_id, IID_IUnknown) ||
       InlineIsEqualGUID(interface_id, kTextInputProcessorExIid)) {
-    *object = static_cast<ITfTextInputProcessorEx *>(this);
+    *object = static_cast<ITfTextInputProcessorEx*>(this);
   } else if (InlineIsEqualGUID(interface_id, IID_ITfTextInputProcessor)) {
-    *object = static_cast<ITfTextInputProcessor *>(this);
+    *object = static_cast<ITfTextInputProcessor*>(this);
   } else if (InlineIsEqualGUID(interface_id, IID_ITfKeyEventSink)) {
-    *object = static_cast<ITfKeyEventSink *>(this);
+    *object = static_cast<ITfKeyEventSink*>(this);
   } else if (InlineIsEqualGUID(interface_id, IID_ITfCompositionSink)) {
-    *object = static_cast<ITfCompositionSink *>(this);
+    *object = static_cast<ITfCompositionSink*>(this);
   } else if (InlineIsEqualGUID(interface_id, IID_ITfDisplayAttributeProvider)) {
-    *object = static_cast<ITfDisplayAttributeProvider *>(this);
+    *object = static_cast<ITfDisplayAttributeProvider*>(this);
+  } else if (InlineIsEqualGUID(interface_id, IID_ITfThreadMgrEventSink)) {
+    *object = static_cast<ITfThreadMgrEventSink*>(this);
+  } else if (InlineIsEqualGUID(interface_id, IID_ITfTextEditSink)) {
+    *object = static_cast<ITfTextEditSink*>(this);
+  } else if (InlineIsEqualGUID(interface_id, IID_ITfTextLayoutSink)) {
+    *object = static_cast<ITfTextLayoutSink*>(this);
   } else {
     return E_NOINTERFACE;
   }
@@ -403,12 +665,12 @@ ULONG STDMETHODCALLTYPE TextService::Release() {
   return remaining;
 }
 
-HRESULT STDMETHODCALLTYPE TextService::Activate(ITfThreadMgr *thread_manager,
+HRESULT STDMETHODCALLTYPE TextService::Activate(ITfThreadMgr* thread_manager,
                                                 TfClientId client_id) {
   return ActivateEx(thread_manager, client_id, 0);
 }
 
-HRESULT STDMETHODCALLTYPE TextService::ActivateEx(ITfThreadMgr *thread_manager,
+HRESULT STDMETHODCALLTYPE TextService::ActivateEx(ITfThreadMgr* thread_manager,
                                                   TfClientId client_id,
                                                   DWORD flags) {
   LogActivationFlags(flags);
@@ -421,16 +683,16 @@ HRESULT STDMETHODCALLTYPE TextService::ActivateEx(ITfThreadMgr *thread_manager,
     return TF_E_ALREADY_EXISTS;
   }
 
-  ITfKeystrokeMgr *keystroke_manager = nullptr;
+  ITfKeystrokeMgr* keystroke_manager = nullptr;
   HRESULT result = thread_manager->QueryInterface(
-      IID_ITfKeystrokeMgr, reinterpret_cast<void **>(&keystroke_manager));
+      IID_ITfKeystrokeMgr, reinterpret_cast<void**>(&keystroke_manager));
   if (FAILED(result)) {
     LogDiagnosticStage(DiagnosticStage::kActivateKeystrokeQueryFailed);
     return result;
   }
 
   result = keystroke_manager->AdviseKeyEventSink(
-      client_id, static_cast<ITfKeyEventSink *>(this), TRUE);
+      client_id, static_cast<ITfKeyEventSink*>(this), TRUE);
   if (FAILED(result)) {
     LogDiagnosticStage(DiagnosticStage::kActivateAdviseSinkFailed);
     keystroke_manager->Release();
@@ -444,6 +706,25 @@ HRESULT STDMETHODCALLTYPE TextService::ActivateEx(ITfThreadMgr *thread_manager,
   client_id_ = client_id;
   activation_flags_ = flags;
   key_event_sink_advised_ = true;
+  ITfSource* source = nullptr;
+  if (SUCCEEDED(thread_manager_->QueryInterface(
+          IID_ITfSource, reinterpret_cast<void**>(&source)))) {
+    source->AdviseSink(IID_ITfThreadMgrEventSink,
+                       static_cast<ITfThreadMgrEventSink*>(this),
+                       &thread_sink_cookie_);
+    source->Release();
+  }
+
+  WNDCLASSW notification_class{};
+  notification_class.lpfnWndProc = NotificationProcedure;
+  notification_class.hInstance = module::Instance();
+  notification_class.lpszClassName = L"Rimes.Tsf.Notification";
+  RegisterClassW(&notification_class);
+  notification_window_ = CreateWindowExW(
+      0, notification_class.lpszClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE,
+      nullptr, notification_class.hInstance, this);
+  if (broker_client_)
+    broker_client_->SetNotificationWindow(notification_window_);
 
   // Pipe discovery, server authentication, ClientHello, and session opening
   // all happen on the client's bounded worker and never delay app activation.
@@ -463,6 +744,16 @@ HRESULT STDMETHODCALLTYPE TextService::ActivateEx(ITfThreadMgr *thread_manager,
 
 HRESULT STDMETHODCALLTYPE TextService::Deactivate() {
   LogDiagnosticStage(DiagnosticStage::kDeactivateEntered);
+  RevokeContext();
+  if (thread_manager_ && thread_sink_cookie_ != TF_INVALID_COOKIE) {
+    ITfSource* source = nullptr;
+    if (SUCCEEDED(thread_manager_->QueryInterface(
+            IID_ITfSource, reinterpret_cast<void**>(&source)))) {
+      source->UnadviseSink(thread_sink_cookie_);
+      source->Release();
+    }
+    thread_sink_cookie_ = TF_INVALID_COOKIE;
+  }
   candidate_window_.Hide();
   if (composition_ != nullptr) {
     ending_composition_ = true;
@@ -471,12 +762,17 @@ HRESULT STDMETHODCALLTYPE TextService::Deactivate() {
     ending_composition_ = false;
   }
   if (broker_client_ != nullptr) {
+    broker_client_->SetNotificationWindow(nullptr);
     broker_client_->Disconnect();
   }
+  if (notification_window_) {
+    DestroyWindow(notification_window_);
+    notification_window_ = nullptr;
+  }
 
-  ITfKeystrokeMgr *keystroke_manager =
+  ITfKeystrokeMgr* keystroke_manager =
       std::exchange(keystroke_manager_, nullptr);
-  ITfThreadMgr *thread_manager = std::exchange(thread_manager_, nullptr);
+  ITfThreadMgr* thread_manager = std::exchange(thread_manager_, nullptr);
   const TfClientId client_id = std::exchange(client_id_, kNullClientId);
   const bool was_advised = std::exchange(key_event_sink_advised_, false);
   activation_flags_ = 0;
@@ -495,14 +791,12 @@ HRESULT STDMETHODCALLTYPE TextService::Deactivate() {
 }
 
 HRESULT STDMETHODCALLTYPE TextService::OnSetFocus(BOOL foreground) {
-  if (foreground == FALSE) {
-    candidate_window_.Hide();
-  }
+  if (foreground == FALSE) RevokeContext();
   return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE TextService::OnCompositionTerminated(
-    TfEditCookie, ITfComposition *composition) {
+    TfEditCookie, ITfComposition* composition) {
   if (composition_ == composition) {
     composition_->Release();
     composition_ = nullptr;
@@ -514,12 +808,12 @@ HRESULT STDMETHODCALLTYPE TextService::OnCompositionTerminated(
 }
 
 HRESULT STDMETHODCALLTYPE TextService::EnumDisplayAttributeInfo(
-    IEnumTfDisplayAttributeInfo **enumerator) {
+    IEnumTfDisplayAttributeInfo** enumerator) {
   return CreateEnumDisplayAttributeInfo(enumerator);
 }
 
 HRESULT STDMETHODCALLTYPE TextService::GetDisplayAttributeInfo(
-    REFGUID guid, ITfDisplayAttributeInfo **info) {
+    REFGUID guid, ITfDisplayAttributeInfo** info) {
   if (!InlineIsEqualGUID(guid, kInputDisplayAttributeGuid)) {
     if (info != nullptr) {
       *info = nullptr;
@@ -533,44 +827,44 @@ bool TextService::IsBrokerConnected() const noexcept {
   return broker_client_ != nullptr && broker_client_->IsConnected();
 }
 
-HRESULT STDMETHODCALLTYPE TextService::OnTestKeyDown(ITfContext *context,
+HRESULT STDMETHODCALLTYPE TextService::OnTestKeyDown(ITfContext* context,
                                                      WPARAM virtual_key,
                                                      LPARAM key_data,
-                                                     BOOL *eaten) {
+                                                     BOOL* eaten) {
   return HandleKey(BrokerKeyPhase::kTestKeyDown, context, virtual_key, key_data,
                    eaten);
 }
 
-HRESULT STDMETHODCALLTYPE TextService::OnKeyDown(ITfContext *context,
+HRESULT STDMETHODCALLTYPE TextService::OnKeyDown(ITfContext* context,
                                                  WPARAM virtual_key,
-                                                 LPARAM key_data, BOOL *eaten) {
+                                                 LPARAM key_data, BOOL* eaten) {
   return HandleKey(BrokerKeyPhase::kKeyDown, context, virtual_key, key_data,
                    eaten);
 }
 
-HRESULT STDMETHODCALLTYPE TextService::OnTestKeyUp(ITfContext *context,
+HRESULT STDMETHODCALLTYPE TextService::OnTestKeyUp(ITfContext* context,
                                                    WPARAM virtual_key,
                                                    LPARAM key_data,
-                                                   BOOL *eaten) {
+                                                   BOOL* eaten) {
   return HandleKey(BrokerKeyPhase::kTestKeyUp, context, virtual_key, key_data,
                    eaten);
 }
 
-HRESULT STDMETHODCALLTYPE TextService::OnKeyUp(ITfContext *context,
+HRESULT STDMETHODCALLTYPE TextService::OnKeyUp(ITfContext* context,
                                                WPARAM virtual_key,
-                                               LPARAM key_data, BOOL *eaten) {
+                                               LPARAM key_data, BOOL* eaten) {
   return HandleKey(BrokerKeyPhase::kKeyUp, context, virtual_key, key_data,
                    eaten);
 }
 
-HRESULT STDMETHODCALLTYPE TextService::OnPreservedKey(ITfContext *, REFGUID,
-                                                      BOOL *eaten) {
+HRESULT STDMETHODCALLTYPE TextService::OnPreservedKey(ITfContext*, REFGUID,
+                                                      BOOL* eaten) {
   return HandleKey(BrokerKeyPhase::kPreservedKey, nullptr, 0, 0, eaten);
 }
 
-HRESULT TextService::HandleKey(BrokerKeyPhase phase, ITfContext *context,
+HRESULT TextService::HandleKey(BrokerKeyPhase phase, ITfContext* context,
                                WPARAM virtual_key, LPARAM key_data,
-                               BOOL *eaten) noexcept {
+                               BOOL* eaten) noexcept {
   if (eaten == nullptr) {
     return E_POINTER;
   }
@@ -581,6 +875,36 @@ HRESULT TextService::HandleKey(BrokerKeyPhase phase, ITfContext *context,
     return S_OK;
   }
 
+  const bool test_up = phase == BrokerKeyPhase::kTestKeyUp;
+  const bool up = phase == BrokerKeyPhase::kKeyUp;
+  const bool repeat =
+      (static_cast<std::uint64_t>(key_data) & (1ULL << 30)) != 0;
+  if (virtual_key == VK_RETURN && return_owned_ && (test_up || up || repeat)) {
+    *eaten = TRUE;
+    if (up) {
+      return_owned_ = false;
+      if (context == active_context_) {
+        BrokerInputState ignored;
+        broker_client_->HandleKey({phase, virtual_key, key_data}, &ignored);
+      }
+    }
+    return S_OK;
+  }
+  if (!context || !BindContext(context)) return S_OK;
+  // Read-only locks never enqueue keystrokes or expose sensitive text to IPC.
+  auto* scope = new (std::nothrow) ScopeRead(context);
+  if (!scope) return S_OK;
+  HRESULT scope_result = E_FAIL;
+  const auto read = context->RequestEditSession(
+      client_id_, scope, TF_ES_SYNC | TF_ES_READ, &scope_result);
+  const bool allowed =
+      SUCCEEDED(read) && SUCCEEDED(scope_result) && scope->allowed;
+  scope->Release();
+  if (!allowed) {
+    RevokeContext();
+    return S_OK;
+  }
+  if (!broker_client_->SetContext(context_generation_)) return S_OK;
   BrokerInputState state;
   const bool is_real_event =
       phase == BrokerKeyPhase::kKeyDown || phase == BrokerKeyPhase::kKeyUp;
@@ -591,6 +915,9 @@ HRESULT TextService::HandleKey(BrokerKeyPhase phase, ITfContext *context,
     // the key even if the host refuses an edit lock; passing it through would
     // duplicate raw input while leaving the engine one event ahead.
     *eaten = TRUE;
+    if (virtual_key == VK_RETURN && phase == BrokerKeyPhase::kKeyDown &&
+        broker_client_->Capturing())
+      return_owned_ = true;
     if (context != nullptr && is_real_event && state.has_snapshot) {
       ApplyDocumentState(context, state);
     }
@@ -598,47 +925,45 @@ HRESULT TextService::HandleKey(BrokerKeyPhase phase, ITfContext *context,
   return S_OK;
 }
 
-HRESULT TextService::ApplyDocumentState(ITfContext *context,
-                                        const BrokerInputState &state) noexcept {
+HRESULT TextService::ApplyDocumentState(
+    ITfContext* context, const BrokerInputState& state) noexcept {
   if (context == nullptr) {
     return E_INVALIDARG;
   }
-  if (!state.commit_text.empty()) {
-    LogDiagnosticStage(DiagnosticStage::kCommitDispatchStarted);
-    HRESULT commit_result = S_OK;
-    if (composition_ != nullptr) {
-      commit_result = UpdateComposition(context, state);
-    } else {
-      commit_result = CommitText(context, state.commit_text);
-    }
-    LogDiagnosticStage(SUCCEEDED(commit_result)
-                           ? DiagnosticStage::kCommitDispatchSucceeded
-                           : DiagnosticStage::kCommitDispatchFailed);
-    if (composition_ != nullptr && !state.composing) {
-      EndComposition(context);
-    }
-  } else if (state.composing && !state.composition.empty()) {
-    UpdateComposition(context, state);
-  } else if (composition_ != nullptr) {
-    BrokerInputState cleared;
-    UpdateComposition(context, cleared);
-    EndComposition(context);
+  SetCapture(state.buffer_capture);
+  if (state.buffer_capture) {
+    last_state_ = state;
+    UpdateCandidateWindow(context, state);
+    return S_OK;
+  }
+  auto* session = new (std::nothrow) CompositionEditSession(
+      context, this, &composition_, CompositionEditSession::Action::kApply,
+      state.composing ? state.composition : std::wstring(), state.caret_utf16,
+      edit_valid_, state.commit_text);
+  if (!session) return E_OUTOFMEMORY;
+  const auto result = RequestEdit(context, client_id_, session);
+  session->Release();
+  if (FAILED(result)) {
+    RevokeContext();
+    return result;
   }
 
+  last_state_ = state;
   UpdateCandidateWindow(context, state);
   return S_OK;
 }
 
-HRESULT TextService::UpdateComposition(ITfContext *context,
-                                       const BrokerInputState &state) noexcept {
-  CompositionEditSession *session = new (std::nothrow) CompositionEditSession(
+HRESULT TextService::UpdateComposition(ITfContext* context,
+                                       const BrokerInputState& state) noexcept {
+  CompositionEditSession* session = new (std::nothrow) CompositionEditSession(
       context, this, &composition_,
       state.commit_text.empty() ? CompositionEditSession::Action::kUpdate
                                 : CompositionEditSession::Action::kUpdate,
       state.commit_text.empty() ? state.composition : state.commit_text,
-      state.commit_text.empty() ? state.caret_utf16
-                                : static_cast<std::uint32_t>(
-                                      state.commit_text.size()));
+      state.commit_text.empty()
+          ? state.caret_utf16
+          : static_cast<std::uint32_t>(state.commit_text.size()),
+      edit_valid_);
   if (session == nullptr) {
     return E_OUTOFMEMORY;
   }
@@ -648,9 +973,9 @@ HRESULT TextService::UpdateComposition(ITfContext *context,
     EndComposition(context);
   } else if (!state.commit_text.empty() && state.composing &&
              !state.composition.empty()) {
-    CompositionEditSession *next = new (std::nothrow) CompositionEditSession(
+    CompositionEditSession* next = new (std::nothrow) CompositionEditSession(
         context, this, &composition_, CompositionEditSession::Action::kUpdate,
-        state.composition, state.caret_utf16);
+        state.composition, state.caret_utf16, edit_valid_);
     if (next != nullptr) {
       RequestEdit(context, client_id_, next);
       next->Release();
@@ -659,11 +984,11 @@ HRESULT TextService::UpdateComposition(ITfContext *context,
   return result;
 }
 
-HRESULT TextService::EndComposition(ITfContext *context) noexcept {
+HRESULT TextService::EndComposition(ITfContext* context) noexcept {
   ending_composition_ = true;
-  CompositionEditSession *session = new (std::nothrow) CompositionEditSession(
+  CompositionEditSession* session = new (std::nothrow) CompositionEditSession(
       context, this, &composition_, CompositionEditSession::Action::kEnd,
-      std::wstring(), 0);
+      std::wstring(), 0, edit_valid_);
   HRESULT result = S_OK;
   if (session != nullptr) {
     result = RequestEdit(context, client_id_, session);
@@ -677,8 +1002,8 @@ HRESULT TextService::EndComposition(ITfContext *context) noexcept {
   return result;
 }
 
-void TextService::UpdateCandidateWindow(ITfContext *context,
-                                        const BrokerInputState &state) noexcept {
+void TextService::UpdateCandidateWindow(
+    ITfContext* context, const BrokerInputState& state) noexcept {
   if (!state.candidates_visible || state.candidates.empty() ||
       (activation_flags_ & TF_TMAE_SECUREMODE) != 0) {
     candidate_window_.Hide();
@@ -709,20 +1034,29 @@ void TextService::UpdateCandidateWindow(ITfContext *context,
   }
 }
 
-RECT TextService::QueryCaretRect(ITfContext *context) noexcept {
+RECT TextService::QueryCaretRect(ITfContext* context) noexcept {
   RECT caret{};
   if (context == nullptr) {
     return caret;
   }
-  ITfContextView *view = nullptr;
+  auto* read = new (std::nothrow) ScopeRead(context);
+  if (read) {
+    HRESULT edit = E_FAIL;
+    const auto hr = context->RequestEditSession(client_id_, read,
+                                                TF_ES_SYNC | TF_ES_READ, &edit);
+    if (SUCCEEDED(hr) && SUCCEEDED(edit)) caret = read->caret;
+    read->Release();
+    if (caret.bottom > caret.top) return caret;
+  }
+  ITfContextView* view = nullptr;
   if (FAILED(context->GetActiveView(&view)) || view == nullptr) {
     if (FAILED(context->QueryInterface(IID_ITfContextView,
-                                       reinterpret_cast<void **>(&view))) ||
+                                       reinterpret_cast<void**>(&view))) ||
         view == nullptr) {
       return caret;
     }
   }
-  ITfRange *range = nullptr;
+  ITfRange* range = nullptr;
   if (composition_ != nullptr) {
     composition_->GetRange(&range);
   }
@@ -754,16 +1088,17 @@ void TextService::ClearCompositionPointer() noexcept {
   }
 }
 
-HRESULT TextService::CommitText(ITfContext *context,
-                                const std::wstring &text) noexcept {
+HRESULT TextService::CommitText(ITfContext* context,
+                                const std::wstring& text) noexcept {
   if (context == nullptr || text.empty() || client_id_ == kNullClientId) {
     LogDiagnosticStage(DiagnosticStage::kCommitInvalidArgument);
     return E_INVALIDARG;
   }
 
-  CommitEditSession *edit_session = nullptr;
+  CommitEditSession* edit_session = nullptr;
   try {
-    edit_session = new (std::nothrow) CommitEditSession(context, text);
+    edit_session =
+        new (std::nothrow) CommitEditSession(context, text, edit_valid_);
   } catch (...) {
     LogDiagnosticStage(DiagnosticStage::kCommitAllocationFailed);
     return E_OUTOFMEMORY;
@@ -802,4 +1137,270 @@ HRESULT TextService::CommitText(ITfContext *context,
   return FAILED(request_result) ? request_result : edit_result;
 }
 
-} // namespace rimes::windows::tsf
+bool TextService::BindContext(ITfContext* context) noexcept {
+  if (!context || !AllowedContext(context)) {
+    RevokeContext();
+    return false;
+  }
+  IUnknown* identity = nullptr;
+  if (FAILED(context->QueryInterface(IID_IUnknown,
+                                     reinterpret_cast<void**>(&identity))))
+    return false;
+  if (context_identity_ == identity) {
+    identity->Release();
+    return true;
+  }
+  RevokeContext();
+  try {
+    edit_valid_ = std::make_shared<std::atomic_bool>(true);
+  } catch (...) {
+    identity->Release();
+    return false;
+  }
+  context_identity_ = identity;
+  active_context_ = context;
+  context->AddRef();
+  ++context_generation_;
+  ITfSource* source = nullptr;
+  if (SUCCEEDED(context->QueryInterface(IID_ITfSource,
+                                        reinterpret_cast<void**>(&source)))) {
+    source->AdviseSink(IID_ITfTextLayoutSink,
+                       static_cast<ITfTextLayoutSink*>(this),
+                       &layout_sink_cookie_);
+    source->AdviseSink(IID_ITfTextEditSink, static_cast<ITfTextEditSink*>(this),
+                       &edit_sink_cookie_);
+    source->Release();
+  }
+  if (broker_client_) broker_client_->SetContext(context_generation_);
+  return true;
+}
+
+void TextService::RevokeContext() noexcept {
+  if (edit_valid_) edit_valid_->store(false);
+  capture_active_ = false;
+  candidate_window_.Hide();
+  last_state_ = {};
+  if (active_context_ && composition_) {
+    auto* cleanup = new (std::nothrow) CancelCompositionEdit(composition_);
+    auto* old = composition_;
+    composition_ = nullptr;
+    if (cleanup) {
+      RequestEdit(active_context_, client_id_, cleanup);
+      cleanup->Release();
+    }
+    old->Release();
+  }
+  if (active_context_ && layout_sink_cookie_ != TF_INVALID_COOKIE) {
+    ITfSource* source = nullptr;
+    if (SUCCEEDED(active_context_->QueryInterface(
+            IID_ITfSource, reinterpret_cast<void**>(&source)))) {
+      source->UnadviseSink(layout_sink_cookie_);
+      if (edit_sink_cookie_ != TF_INVALID_COOKIE)
+        source->UnadviseSink(edit_sink_cookie_);
+      source->Release();
+    }
+  }
+  layout_sink_cookie_ = TF_INVALID_COOKIE;
+  edit_sink_cookie_ = TF_INVALID_COOKIE;
+  own_buffer_edit_ = false;
+  if (active_context_) {
+    active_context_->Release();
+    active_context_ = nullptr;
+  }
+  if (context_identity_) {
+    context_identity_->Release();
+    context_identity_ = nullptr;
+  }
+  if (broker_client_) broker_client_->SetContext(0);
+}
+HRESULT STDMETHODCALLTYPE TextService::OnInitDocumentMgr(ITfDocumentMgr*) {
+  return S_OK;
+}
+HRESULT STDMETHODCALLTYPE TextService::OnUninitDocumentMgr(ITfDocumentMgr*) {
+  return S_OK;
+}
+HRESULT STDMETHODCALLTYPE TextService::OnSetFocus(ITfDocumentMgr* focused,
+                                                  ITfDocumentMgr*) {
+  if (!focused) {
+    RevokeContext();
+    return S_OK;
+  }
+  ITfContext* context = nullptr;
+  if (SUCCEEDED(focused->GetTop(&context)) && context) {
+    BindContext(context);
+    context->Release();
+  } else
+    RevokeContext();
+  return S_OK;
+}
+HRESULT STDMETHODCALLTYPE TextService::OnPushContext(ITfContext*) {
+  ITfDocumentMgr* focused = nullptr;
+  if (thread_manager_ && SUCCEEDED(thread_manager_->GetFocus(&focused)) &&
+      focused) {
+    OnSetFocus(focused, nullptr);
+    focused->Release();
+  }
+  return S_OK;
+}
+HRESULT STDMETHODCALLTYPE TextService::OnPopContext(ITfContext* context) {
+  if (context == active_context_) RevokeContext();
+  return S_OK;
+}
+HRESULT STDMETHODCALLTYPE TextService::OnLayoutChange(ITfContext* context,
+                                                      TfLayoutCode code,
+                                                      ITfContextView*) {
+  if (context == active_context_) {
+    if (code == TF_LC_DESTROY)
+      RevokeContext();
+    else
+      UpdateCandidateWindow(context, last_state_);
+  }
+  return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE TextService::OnEndEdit(ITfContext* context,
+                                                 TfEditCookie,
+                                                 ITfEditRecord* record) {
+  if (context != active_context_ || !record) return S_OK;
+  BOOL changed = FALSE;
+  if (SUCCEEDED(record->GetSelectionStatus(&changed)) && changed &&
+      broker_client_->Capturing()) {
+    if (own_buffer_edit_)
+      own_buffer_edit_ = false;
+    else
+      RevokeContext();
+  }
+  return S_OK;
+}
+
+LRESULT CALLBACK TextService::NotificationProcedure(HWND window, UINT message,
+                                                    WPARAM wparam,
+                                                    LPARAM lparam) {
+  auto* self =
+      reinterpret_cast<TextService*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+  if (message == WM_NCCREATE) {
+    self = static_cast<TextService*>(
+        reinterpret_cast<CREATESTRUCTW*>(lparam)->lpCreateParams);
+    SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+  }
+  if (message == kBrokerNotification && self) {
+    try {
+      self->OnBrokerNotification();
+    } catch (...) {
+      self->RevokeContext();
+    }
+    return 0;
+  }
+  return DefWindowProcW(window, message, wparam, lparam);
+}
+void TextService::SetCapture(bool enabled) {
+  if (enabled == capture_active_) return;
+  capture_active_ = enabled;
+  if (edit_valid_) edit_valid_->store(false);
+  edit_valid_ = std::make_shared<std::atomic_bool>(true);
+  if (active_context_ && composition_) {
+    auto* cleanup = new (std::nothrow) CancelCompositionEdit(composition_);
+    auto* old = composition_;
+    composition_ = nullptr;
+    if (cleanup) {
+      own_buffer_edit_ = true;
+      RequestEdit(active_context_, client_id_, cleanup);
+      cleanup->Release();
+    }
+    old->Release();
+  }
+  candidate_window_.Hide();
+  last_state_ = {};
+}
+void TextService::OnBrokerNotification() {
+  while (auto message = broker_client_->TakeNotification()) {
+    const auto kind = message->value("kind", "");
+    if (message->value("context", 0ULL) != context_generation_) continue;
+    if (kind == "capture") {
+      candidate_window_.SetFont(
+          (std::clamp)(message->value("font", 16U), 10U, 40U));
+      SetCapture(message->value("enabled", false));
+      continue;
+    }
+    if (kind != "deliver") continue;
+    const auto request = message->value("request", 0ULL);
+    bool valid = request > last_delivery_ && active_context_ && edit_valid_ &&
+                 edit_valid_->load() &&
+                 message->value("context", 0ULL) == context_generation_ &&
+                 broker_client_->Capturing();
+    DWORD foreground_process = 0;
+    GetWindowThreadProcessId(GetForegroundWindow(), &foreground_process);
+    valid = valid && foreground_process == GetCurrentProcessId();
+    ITfDocumentMgr* manager = nullptr;
+    ITfContext* focused = nullptr;
+    IUnknown* identity = nullptr;
+    if (valid && SUCCEEDED(thread_manager_->GetFocus(&manager)) && manager) {
+      if (SUCCEEDED(manager->GetTop(&focused)) && focused)
+        focused->QueryInterface(IID_IUnknown,
+                                reinterpret_cast<void**>(&identity));
+    }
+    valid = valid && identity && identity == context_identity_;
+    if (identity) identity->Release();
+    if (focused) focused->Release();
+    if (manager) manager->Release();
+    if (!valid) {
+      broker_client_->Control(
+          {{"op", "ack"}, {"request", request}, {"accepted", false}});
+      continue;
+    }
+    last_delivery_ = request;
+    const auto text = message->value("text", std::string());
+    std::wstring wide;
+    if (!text.empty()) {
+      int count =
+          MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                              static_cast<int>(text.size()), nullptr, 0);
+      if (count > 0) {
+        wide.resize(static_cast<std::size_t>(count));
+        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                            static_cast<int>(text.size()), wide.data(), count);
+      }
+    }
+    if (wide.empty()) {
+      broker_client_->Control(
+          {{"op", "ack"}, {"request", request}, {"accepted", false}});
+      continue;
+    }
+    auto* session = new (std::nothrow) CommitEditSession(
+        active_context_, std::move(wide), edit_valid_,
+        [this, request](bool accepted) {
+          own_buffer_edit_ = accepted;
+          broker_client_->Control(
+              {{"op", "ack"}, {"request", request}, {"accepted", accepted}});
+        },
+        static_cast<ITfTextInputProcessorEx*>(this),
+        [this](TfEditCookie) {
+          DWORD process = 0;
+          GetWindowThreadProcessId(GetForegroundWindow(), &process);
+          if (process != GetCurrentProcessId() || !broker_client_->Capturing())
+            return false;
+          ITfDocumentMgr* manager = nullptr;
+          ITfContext* context = nullptr;
+          IUnknown* identity = nullptr;
+          if (SUCCEEDED(thread_manager_->GetFocus(&manager)) && manager) {
+            if (SUCCEEDED(manager->GetTop(&context)) && context)
+              context->QueryInterface(IID_IUnknown,
+                                      reinterpret_cast<void**>(&identity));
+          }
+          const bool matches = identity && identity == context_identity_;
+          if (identity) identity->Release();
+          if (context) context->Release();
+          if (manager) manager->Release();
+          return matches;
+        });
+    if (!session) {
+      broker_client_->Control(
+          {{"op", "ack"}, {"request", request}, {"accepted", false}});
+      continue;
+    }
+    RequestEdit(active_context_, client_id_, session);
+    session->Release();
+  }
+}
+
+}  // namespace rimes::windows::tsf

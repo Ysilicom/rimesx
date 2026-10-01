@@ -4,10 +4,15 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
+#include "../core/control.hpp"
+
 namespace rimes::windows::tsf {
+
+inline constexpr UINT kBrokerNotification = WM_APP + 72;
 
 enum class BrokerKeyPhase {
   kTestKeyDown,
@@ -43,6 +48,7 @@ struct BrokerCandidate {
 // would cancel an in-progress composition.
 struct BrokerInputState {
   bool has_snapshot = false;
+  bool buffer_capture = false;
   bool composing = false;
   bool candidates_visible = false;
   std::uint64_t revision = 0;
@@ -66,6 +72,12 @@ class BrokerClient {
 
   virtual void BeginConnect() noexcept = 0;
   virtual void Disconnect() noexcept = 0;
+  // Called on the owning TSF thread. A new context never inherits composition.
+  virtual bool SetContext(std::uint64_t context_id) noexcept = 0;
+  virtual void SetNotificationWindow(HWND window) noexcept = 0;
+  virtual std::optional<core::Json> TakeNotification() = 0;
+  virtual bool Control(core::Json message) noexcept = 0;
+  virtual bool Capturing() const noexcept = 0;
   [[nodiscard]] virtual bool IsConnected() const noexcept = 0;
   virtual BrokerKeyResult HandleKey(const BrokerKeyEvent& event,
                                     BrokerInputState* state) noexcept = 0;

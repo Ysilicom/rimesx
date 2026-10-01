@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.27)
 
-project(RIMESWindows VERSION 0.1.0 LANGUAGES CXX)
+project(RIMESWindows VERSION 0.2.0 LANGUAGES CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "The native RIMES frontend currently builds on Windows only.")
@@ -84,6 +84,15 @@ target_include_directories(RimesEngine PUBLIC
 target_link_libraries(RimesEngine PUBLIC RimesCore)
 rimes_harden_target(RimesEngine)
 
+add_library(RimesWorkbench STATIC
+    src/workbench/model.cpp
+    src/workbench/provider.cpp
+    src/workbench/runtime.cpp
+    src/workbench/window.cpp
+)
+target_link_libraries(RimesWorkbench PUBLIC RimesCore winhttp advapi32 user32 d2d1 dwrite shell32 wtsapi32 ole32)
+rimes_harden_target(RimesWorkbench)
+
 add_executable(RimesBroker
     src/broker/autostart.cpp
     src/broker/broker_connection.cpp
@@ -101,6 +110,7 @@ target_include_directories(RimesBroker PRIVATE
 target_link_libraries(RimesBroker PRIVATE
     RimesCore
     RimesEngine
+    RimesWorkbench
     advapi32
 )
 rimes_harden_target(RimesBroker)
@@ -152,6 +162,24 @@ rimes_harden_target(RimesRegistrar)
 rimes_use_unicode_console_entrypoint(RimesRegistrar)
 
 if(RIMES_BUILD_TESTS)
+    add_executable(RimesProductProbe src/engine/product_probe.cpp)
+    target_link_libraries(RimesProductProbe PRIVATE RimesEngine)
+    rimes_harden_target(RimesProductProbe)
+    rimes_use_unicode_console_entrypoint(RimesProductProbe)
+    add_executable(RimesRuntimeTests src/workbench/runtime_tests.cpp)
+    target_link_libraries(RimesRuntimeTests PRIVATE RimesWorkbench)
+    rimes_harden_target(RimesRuntimeTests)
+    add_test(NAME RimesRuntime COMMAND RimesRuntimeTests)
+    add_executable(RimesProviderProbe src/workbench/provider_probe.cpp src/workbench/provider.cpp src/workbench/model.cpp)
+    target_link_libraries(RimesProviderProbe PRIVATE RimesCore winhttp advapi32)
+    rimes_harden_target(RimesProviderProbe)
+    rimes_use_unicode_console_entrypoint(RimesProviderProbe)
+    add_executable(RimesSseTests src/workbench/sse_tests.cpp)
+    rimes_harden_target(RimesSseTests)
+    add_test(NAME RimesSseControl COMMAND RimesSseTests)
+    add_executable(RimesWorkbenchTests src/workbench/model.cpp src/workbench/model_tests.cpp)
+    rimes_harden_target(RimesWorkbenchTests)
+    add_test(NAME RimesWorkbench COMMAND RimesWorkbenchTests)
     add_executable(RimesBrokerProtocolTests
         src/core/broker_protocol_tests.cpp
     )
@@ -271,3 +299,17 @@ if(RIMES_BUILD_TESTS)
         PROPERTIES TIMEOUT 10
     )
 endif()
+
+# Source identity follows both Git checkouts and verified source archives.
+get_filename_component(RIMES_REPOSITORY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
+if(EXISTS "${RIMES_REPOSITORY_ROOT}/SOURCE-COMMIT.txt")
+    file(READ "${RIMES_REPOSITORY_ROOT}/SOURCE-COMMIT.txt" RIMES_BUILD_COMMIT)
+    string(STRIP "${RIMES_BUILD_COMMIT}" RIMES_BUILD_COMMIT)
+else()
+    execute_process(COMMAND git rev-parse HEAD WORKING_DIRECTORY "${RIMES_REPOSITORY_ROOT}" OUTPUT_VARIABLE RIMES_BUILD_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+endif()
+if(NOT RIMES_BUILD_COMMIT)
+    set(RIMES_BUILD_COMMIT "unknown")
+endif()
+target_compile_definitions(RimesWorkbench PRIVATE RIMES_BUILD_COMMIT="${RIMES_BUILD_COMMIT}")
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/$<CONFIG>/build-identity.json" CONTENT "{\"commit\":\"${RIMES_BUILD_COMMIT}\",\"version\":\"${PROJECT_VERSION}\",\"protocol\":2}\n")

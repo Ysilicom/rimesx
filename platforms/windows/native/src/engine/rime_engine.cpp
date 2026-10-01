@@ -58,9 +58,8 @@ std::string Win32ErrorMessage(DWORD code) noexcept {
     [[maybe_unused]] LocalMemoryGuard message_guard{system_message};
 
     std::wstring_view wide(system_message, count);
-    while (!wide.empty() &&
-           (wide.back() == L'\r' || wide.back() == L'\n' ||
-            wide.back() == L' ')) {
+    while (!wide.empty() && (wide.back() == L'\r' || wide.back() == L'\n' ||
+                             wide.back() == L' ')) {
       wide.remove_suffix(1);
     }
     const int required = WideCharToMultiByte(
@@ -70,8 +69,8 @@ std::string Win32ErrorMessage(DWORD code) noexcept {
     if (required > 0) {
       result.resize(static_cast<std::size_t>(required));
       WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide.data(),
-                          static_cast<int>(wide.size()), result.data(), required,
-                          nullptr, nullptr);
+                          static_cast<int>(wide.size()), result.data(),
+                          required, nullptr, nullptr);
     } else {
       result = "Win32 error " + std::to_string(code);
     }
@@ -81,15 +80,15 @@ std::string Win32ErrorMessage(DWORD code) noexcept {
   }
 }
 
-bool WideToUtf8(std::wstring_view wide,
-                std::string* output,
+bool WideToUtf8(std::wstring_view wide, std::string* output,
                 std::string* error) noexcept {
   try {
     if (wide.empty()) {
       output->clear();
       return true;
     }
-    if (wide.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+    if (wide.size() >
+        static_cast<std::size_t>(std::numeric_limits<int>::max())) {
       SetError(error, "path is too long to encode as UTF-8");
       return false;
     }
@@ -115,8 +114,7 @@ bool WideToUtf8(std::wstring_view wide,
   }
 }
 
-bool NormalizeDllPath(const std::filesystem::path& path,
-                      std::wstring* output,
+bool NormalizeDllPath(const std::filesystem::path& path, std::wstring* output,
                       std::string* error) noexcept {
   try {
     if (path.empty() || !path.is_absolute()) {
@@ -135,8 +133,8 @@ bool NormalizeDllPath(const std::filesystem::path& path,
       return false;
     }
     std::wstring normalized(required, L'\0');
-    const DWORD written = GetFullPathNameW(input.c_str(), required,
-                                           normalized.data(), nullptr);
+    const DWORD written =
+        GetFullPathNameW(input.c_str(), required, normalized.data(), nullptr);
     if (written == 0 || written >= required) {
       SetError(error, "failed to normalize the rime.dll path");
       return false;
@@ -179,10 +177,8 @@ bool NormalizeDllPath(const std::filesystem::path& path,
   }
 }
 
-bool CopyBoundedCString(const char* value,
-                        std::size_t maximum_bytes,
-                        std::string* output,
-                        std::string* error) noexcept {
+bool CopyBoundedCString(const char* value, std::size_t maximum_bytes,
+                        std::string* output, std::string* error) noexcept {
   try {
     if (value == nullptr) {
       output->clear();
@@ -193,8 +189,8 @@ bool CopyBoundedCString(const char* value,
       SetError(error, "librime returned an unterminated or oversized string");
       return false;
     }
-    const auto length = static_cast<std::size_t>(
-        static_cast<const char*>(terminator) - value);
+    const auto length =
+        static_cast<std::size_t>(static_cast<const char*>(terminator) - value);
     output->assign(value, length);
     if (!detail::IsValidUtf8(*output)) {
       SetError(error, "librime returned invalid UTF-8");
@@ -231,8 +227,8 @@ bool HasRequiredApi(const abi::ApiPrefix* api) noexcept {
   if (api == nullptr || api->data_size < 0) {
     return false;
   }
-  const std::size_t available = sizeof(api->data_size) +
-                                static_cast<std::size_t>(api->data_size);
+  const std::size_t available =
+      sizeof(api->data_size) + static_cast<std::size_t>(api->data_size);
   if (available < sizeof(abi::ApiPrefix) || available > kMaximumApiBytes) {
     return false;
   }
@@ -259,7 +255,8 @@ class RimeEngine::Impl final {
 
       void* expected = nullptr;
       if (!g_runtime_owner.compare_exchange_strong(expected, this)) {
-        SetError(error, "another RimeEngine owns the process-wide librime runtime");
+        SetError(error,
+                 "another RimeEngine owns the process-wide librime runtime");
         return false;
       }
       owns_runtime_ = true;
@@ -306,7 +303,7 @@ class RimeEngine::Impl final {
       traits.distribution_version = "0.1.0";
       traits.app_name = "rime.rimes.windows";
       traits.modules = nullptr;
-      traits.min_log_level = 1;
+      traits.min_log_level = 3;
       traits.log_dir = log_dir_.empty() ? nullptr : log_dir_.c_str();
       traits.prebuilt_data_dir = nullptr;
       traits.staging_dir = nullptr;
@@ -425,10 +422,8 @@ class RimeEngine::Impl final {
     }
   }
 
-  bool ProcessKey(SessionId session,
-                  std::int32_t keycode,
-                  std::int32_t modifiers,
-                  EngineSnapshot* output,
+  bool ProcessKey(SessionId session, std::int32_t keycode,
+                  std::int32_t modifiers, EngineSnapshot* output,
                   std::string* error) noexcept {
     if (output != nullptr) {
       *output = EngineSnapshot{};
@@ -456,6 +451,33 @@ class RimeEngine::Impl final {
     } catch (...) {
       *output = EngineSnapshot{};
       SetError(error, "exception while processing a librime key event");
+      return false;
+    }
+  }
+
+  bool Configure(SessionId session, const std::string& schema, bool ascii,
+                 bool traditional, bool punctuation,
+                 std::string* error) noexcept {
+    try {
+      std::lock_guard lock(mutex_);
+      if (!healthy_ || !sessions_.contains(session) || !api_ ||
+          api_->data_size <
+              static_cast<int>(offsetof(abi::ApiPrefix, select_schema) +
+                               sizeof(api_->select_schema) -
+                               sizeof(api_->data_size)) ||
+          !api_->select_schema || !api_->set_option || !api_->clear_composition)
+        return false;
+      api_->clear_composition(session);
+      if (!api_->select_schema(session, schema.c_str())) {
+        SetError(error, "Schema unavailable");
+        return false;
+      }
+      api_->set_option(session, "ascii_mode", ascii ? 1 : 0);
+      api_->set_option(session, "traditionalization", traditional ? 1 : 0);
+      api_->set_option(session, "ascii_punct", punctuation ? 1 : 0);
+      return true;
+    } catch (...) {
+      SetError(error, "Engine configuration failed");
       return false;
     }
   }
@@ -513,8 +535,7 @@ class RimeEngine::Impl final {
     return true;
   }
 
-  bool CollectSnapshotLocked(SessionId session,
-                             EngineSnapshot* output,
+  bool CollectSnapshotLocked(SessionId session, EngineSnapshot* output,
                              std::string* error) noexcept {
     std::string commit_text;
     abi::Commit commit;
@@ -562,13 +583,12 @@ class RimeEngine::Impl final {
       }
 
       if (copied) {
-        copied = CopyBoundedCString(context.composition.preedit,
-                                    core::kMaxCompositionBytes, &composition,
-                                    error);
+        copied =
+            CopyBoundedCString(context.composition.preedit,
+                               core::kMaxCompositionBytes, &composition, error);
       }
-      if (copied &&
-          static_cast<std::size_t>(context.composition.length) >
-              composition.size()) {
+      if (copied && static_cast<std::size_t>(context.composition.length) >
+                        composition.size()) {
         SetError(error, "librime composition length exceeds its preedit text");
         copied = false;
       }
@@ -597,9 +617,9 @@ class RimeEngine::Impl final {
       }
 
       if (copied && count > 0 && context.menu.select_keys != nullptr) {
-        copied = CopyBoundedCString(context.menu.select_keys,
-                                    kMaximumSelectKeysBytes, &select_keys,
-                                    error);
+        copied =
+            CopyBoundedCString(context.menu.select_keys,
+                               kMaximumSelectKeysBytes, &select_keys, error);
       }
       const std::vector<std::string_view> scalar_labels =
           copied ? SplitUtf8Scalars(select_keys)
@@ -607,13 +627,12 @@ class RimeEngine::Impl final {
 
       for (int index = 0; copied && index < count; ++index) {
         OwnedCandidate& candidate = candidates[static_cast<std::size_t>(index)];
-        copied = CopyBoundedCString(
-                     context.menu.candidates[index].text,
-                     core::kMaxCandidateTextBytes, &candidate.text, error) &&
-                 CopyBoundedCString(
-                     context.menu.candidates[index].comment,
-                     core::kMaxCandidateCommentBytes, &candidate.comment,
-                     error);
+        copied = CopyBoundedCString(context.menu.candidates[index].text,
+                                    core::kMaxCandidateTextBytes,
+                                    &candidate.text, error) &&
+                 CopyBoundedCString(context.menu.candidates[index].comment,
+                                    core::kMaxCandidateCommentBytes,
+                                    &candidate.comment, error);
         if (!copied) {
           break;
         }
@@ -624,7 +643,8 @@ class RimeEngine::Impl final {
                                       core::kMaxCandidateLabelBytes,
                                       &candidate.label, error);
         } else if (static_cast<std::size_t>(index) < scalar_labels.size()) {
-          candidate.label.assign(scalar_labels[static_cast<std::size_t>(index)]);
+          candidate.label.assign(
+              scalar_labels[static_cast<std::size_t>(index)]);
         } else {
           candidate.label = std::to_string(index + 1);
         }
@@ -708,8 +728,7 @@ void RimeEngine::Stop() noexcept { impl_->Stop(); }
 
 bool RimeEngine::IsHealthy() const noexcept { return impl_->IsHealthy(); }
 
-bool RimeEngine::RunMaintenance(bool full_check,
-                                std::string* error) noexcept {
+bool RimeEngine::RunMaintenance(bool full_check, std::string* error) noexcept {
   return impl_->RunMaintenance(full_check, error);
 }
 
@@ -722,12 +741,17 @@ bool RimeEngine::DestroySession(SessionId session,
   return impl_->DestroySession(session, error);
 }
 
-bool RimeEngine::ProcessKey(SessionId session,
-                            std::int32_t keycode,
-                            std::int32_t modifiers,
-                            EngineSnapshot* output,
+bool RimeEngine::ProcessKey(SessionId session, std::int32_t keycode,
+                            std::int32_t modifiers, EngineSnapshot* output,
                             std::string* error) noexcept {
   return impl_->ProcessKey(session, keycode, modifiers, output, error);
+}
+
+bool RimeEngine::Configure(SessionId session, const std::string& schema,
+                           bool ascii, bool traditional, bool punctuation,
+                           std::string* error) noexcept {
+  return impl_->Configure(session, schema, ascii, traditional, punctuation,
+                          error);
 }
 
 }  // namespace rimes::windows::engine

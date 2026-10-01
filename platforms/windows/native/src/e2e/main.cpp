@@ -1,5 +1,3 @@
-#include "fake_tsf.hpp"
-
 #include <Windows.h>
 
 #include <cstdlib>
@@ -11,6 +9,7 @@
 #include "CandidateWindow.h"
 #include "ModuleState.h"
 #include "TextService.h"
+#include "fake_tsf.hpp"
 
 namespace {
 
@@ -47,9 +46,7 @@ void ClearCapsLockIfLatched() {
 }
 
 void TypeVirtualKey(rimes::windows::tsf::TextService* service,
-                    ITfContext* context,
-                    WPARAM virtual_key,
-                    bool require_eaten,
+                    ITfContext* context, WPARAM virtual_key, bool require_eaten,
                     rimes::windows::e2e::FakeDocument* document = nullptr,
                     bool dump_after_key_down = false) {
   using rimes::windows::tsf::TextService;
@@ -73,8 +70,7 @@ void TypeVirtualKey(rimes::windows::tsf::TextService* service,
   service->OnKeyUp(context, virtual_key, 0, &eaten);
 }
 
-void TypeLatin(rimes::windows::tsf::TextService* service,
-               ITfContext* context,
+void TypeLatin(rimes::windows::tsf::TextService* service, ITfContext* context,
                std::string_view letters,
                rimes::windows::e2e::FakeDocument* document = nullptr) {
   bool first = true;
@@ -198,7 +194,8 @@ int RunTypingScenarios() {
   ResetDocument(&document);
   TypeLatin(service, context, "nihao");
   const std::vector<std::wstring> before_number = CandidateTexts();
-  Expect(before_number.size() >= 2, "nihao should offer at least two candidates");
+  Expect(before_number.size() >= 2,
+         "nihao should offer at least two candidates");
   const std::wstring second =
       before_number.size() >= 2 ? before_number[1] : std::wstring();
   TypeVirtualKey(service, context, static_cast<WPARAM>('2'), true);
@@ -229,6 +226,27 @@ int RunTypingScenarios() {
          "Escape during preedit should not commit");
   Expect(!document.composing, "Escape should clear composing state");
 
+  // An asynchronous edit accepted by RequestEditSession is still revocable.
+  ResetDocument(&document);
+  context->defer_edits = true;
+  TypeLatin(service, context, "nihao");
+  Expect(!context->delayed_edits.empty(),
+         "host queued asynchronous composition edits");
+  FakeDocument other_document;
+  auto* other = new FakeContext(&other_document);
+  TypeLatin(service, other, "nihao");
+  context->DrainEdits();
+  context->defer_edits = false;
+  Expect(document.text.empty() && !document.composing,
+         "old context edits revoked before execution");
+  TypeVirtualKey(service, other, VK_SPACE, true);
+  Expect(other_document.text == L"你好", "new context commits independently");
+  other->read_only = true;
+  BOOL protected_eaten = TRUE;
+  service->OnKeyDown(other, 'N', 0, &protected_eaten);
+  Expect(!protected_eaten, "read-only context never forwards input");
+  other->Release();
+
   service->Deactivate();
   service->Release();
   context->Release();
@@ -241,6 +259,4 @@ int RunTypingScenarios() {
 
 }  // namespace
 
-int wmain() {
-  return RunTypingScenarios();
-}
+int wmain() { return RunTypingScenarios(); }

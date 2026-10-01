@@ -11,7 +11,7 @@ using SessionId = std::uintptr_t;
 
 // Prefix-compatible declarations calibrated against librime's public 1.x
 // rime_api.h and the existing Sources/CRimeBridge adapter. Only the prefix
-// through free_context is used by the Windows broker. Never append a function
+// through select_schema is used by the Windows broker. Never append a function
 // here without checking both its exact order and RimeApi::data_size first.
 struct Traits {
   int data_size;
@@ -95,6 +95,16 @@ struct ApiPrefix {
   Bool (*free_commit)(Commit*);
   Bool (*get_context)(SessionId, Context*);
   Bool (*free_context)(Context*);
+  Bool (*get_status)(SessionId, void*);
+  Bool (*free_status)(void*);
+  void (*set_option)(SessionId, const char*, Bool);
+  Bool (*get_option)(SessionId, const char*);
+  void (*set_property)(SessionId, const char*, const char*);
+  Bool (*get_property)(SessionId, const char*, char*, std::size_t);
+  Bool (*get_schema_list)(void*);
+  void (*free_schema_list)(void*);
+  Bool (*get_current_schema)(SessionId, char*, std::size_t);
+  Bool (*select_schema)(SessionId, const char*);
 };
 
 using GetApiFunction = ApiPrefix* (*)();
@@ -102,8 +112,7 @@ using GetApiFunction = ApiPrefix* (*)();
 template <typename Type>
 void InitializeVersionedStruct(Type* value) noexcept {
   *value = Type{};
-  value->data_size =
-      static_cast<int>(sizeof(Type) - sizeof(value->data_size));
+  value->data_size = static_cast<int>(sizeof(Type) - sizeof(value->data_size));
 }
 
 static_assert(std::is_standard_layout_v<Traits>);

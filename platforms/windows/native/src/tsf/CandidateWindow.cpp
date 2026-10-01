@@ -13,7 +13,6 @@ namespace {
 constexpr int kPaddingDip = 8;
 constexpr int kItemHeightDip = 22;
 constexpr int kMinWidthDip = 160;
-constexpr int kFontDip = 16;
 
 std::mutex g_snapshot_mutex;
 CandidateSnapshot g_last_snapshot;
@@ -50,8 +49,7 @@ unsigned int WindowDpi(HWND window) noexcept {
 
 ScreenRect WorkAreaFromCaret(const RECT& caret) noexcept {
   const POINT probe{caret.left, caret.top};
-  const HMONITOR monitor =
-      MonitorFromPoint(probe, MONITOR_DEFAULTTONEAREST);
+  const HMONITOR monitor = MonitorFromPoint(probe, MONITOR_DEFAULTTONEAREST);
   MONITORINFO info{};
   info.cbSize = sizeof(info);
   if (monitor != nullptr && GetMonitorInfoW(monitor, &info)) {
@@ -86,7 +84,8 @@ bool CandidateWindow::GetLastSnapshot(CandidateSnapshot* snapshot) noexcept {
   }
 }
 
-void CandidateWindow::PublishSnapshot(const CandidateSnapshot& snapshot) noexcept {
+void CandidateWindow::PublishSnapshot(
+    const CandidateSnapshot& snapshot) noexcept {
   try {
     std::lock_guard lock(g_snapshot_mutex);
     g_last_snapshot = snapshot;
@@ -124,15 +123,14 @@ bool CandidateWindow::EnsureWindow() noexcept {
   window_class.hInstance = instance;
   window_class.lpszClassName = kCandidateWindowClass;
   window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-  window_class.hbrBackground =
-      static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH));
+  window_class.hbrBackground = static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH));
   window_class.style = CS_HREDRAW | CS_VREDRAW | CS_DROPSHADOW;
   RegisterClassExW(&window_class);
 
-  window_ = CreateWindowExW(
-      WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_NOINHERITLAYOUT,
-      kCandidateWindowClass, L"", WS_POPUP, 0, 0, 0, 0, nullptr, nullptr,
-      instance, this);
+  window_ = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST |
+                                WS_EX_NOACTIVATE | WS_EX_NOINHERITLAYOUT,
+                            kCandidateWindowClass, L"", WS_POPUP, 0, 0, 0, 0,
+                            nullptr, nullptr, instance, this);
   return window_ != nullptr;
 }
 
@@ -156,18 +154,20 @@ void CandidateWindow::Update(const CandidateSnapshot& snapshot) noexcept {
   }
 }
 
-void CandidateWindow::LayoutAndShow(const CandidateSnapshot& snapshot) noexcept {
+void CandidateWindow::LayoutAndShow(
+    const CandidateSnapshot& snapshot) noexcept {
   const unsigned int dpi = WindowDpi(window_);
   const int padding = ScaleForDpi(kPaddingDip, dpi);
-  const int item_height = ScaleForDpi(kItemHeightDip, dpi);
+  const int item_height = ScaleForDpi(
+      (std::max)(kItemHeightDip, static_cast<int>(font_size_) + 6), dpi);
   const int min_width = ScaleForDpi(kMinWidthDip, dpi);
-  const int font_height = ScaleForDpi(kFontDip, dpi);
+  const int font_height = ScaleForDpi(static_cast<int>(font_size_), dpi);
 
   HDC device = GetDC(window_);
-  HFONT font = CreateFontW(-font_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE,
-                           FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                           CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                           DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+  HFONT font =
+      CreateFontW(-font_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                  DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                  CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
   HFONT previous = nullptr;
   if (device != nullptr && font != nullptr) {
     previous = static_cast<HFONT>(SelectObject(device, font));
@@ -186,8 +186,8 @@ void CandidateWindow::LayoutAndShow(const CandidateSnapshot& snapshot) noexcept 
         line.append(item.comment);
       }
       SIZE size{};
-      GetTextExtentPoint32W(device, line.c_str(),
-                            static_cast<int>(line.size()), &size);
+      GetTextExtentPoint32W(device, line.c_str(), static_cast<int>(line.size()),
+                            &size);
       text_width = (std::max)(text_width, static_cast<long>(size.cx));
     }
   }
@@ -201,14 +201,14 @@ void CandidateWindow::LayoutAndShow(const CandidateSnapshot& snapshot) noexcept 
     DeleteObject(font);
   }
 
-  const long width = (std::max)(static_cast<long>(min_width),
-                                text_width + (2 * padding) + 8);
-  const long height = (2 * padding) +
-                      static_cast<long>(snapshot.items.size()) * item_height;
+  const long width =
+      (std::max)(static_cast<long>(min_width), text_width + (2 * padding) + 8);
+  const long height =
+      (2 * padding) + static_cast<long>(snapshot.items.size()) * item_height;
   const ScreenRect caret{snapshot.caret_rect.left, snapshot.caret_rect.top,
                          snapshot.caret_rect.right, snapshot.caret_rect.bottom};
-  const ScreenPoint origin =
-      PlaceCandidateWindow(caret, width, height, WorkAreaFromCaret(snapshot.caret_rect));
+  const ScreenPoint origin = PlaceCandidateWindow(
+      caret, width, height, WorkAreaFromCaret(snapshot.caret_rect));
   snapshot_.window_rect = ToRect(origin, width, height);
   PublishSnapshot(snapshot_);
 
@@ -224,15 +224,16 @@ void CandidateWindow::Paint(HDC device) const noexcept {
 
   const unsigned int dpi = WindowDpi(window_);
   const int padding = ScaleForDpi(kPaddingDip, dpi);
-  const int item_height = ScaleForDpi(kItemHeightDip, dpi);
-  const int font_height = ScaleForDpi(kFontDip, dpi);
-  HFONT font = CreateFontW(-font_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE,
-                           FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                           CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                           DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-  const HFONT previous =
-      font != nullptr ? static_cast<HFONT>(SelectObject(device, font))
-                      : nullptr;
+  const int item_height = ScaleForDpi(
+      (std::max)(kItemHeightDip, static_cast<int>(font_size_) + 6), dpi);
+  const int font_height = ScaleForDpi(static_cast<int>(font_size_), dpi);
+  HFONT font =
+      CreateFontW(-font_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                  DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                  CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+  const HFONT previous = font != nullptr
+                             ? static_cast<HFONT>(SelectObject(device, font))
+                             : nullptr;
   SetBkMode(device, TRANSPARENT);
 
   for (std::size_t index = 0; index < snapshot_.items.size(); ++index) {
@@ -271,8 +272,7 @@ void CandidateWindow::Paint(HDC device) const noexcept {
   }
 }
 
-LRESULT CALLBACK CandidateWindow::WindowProcedure(HWND window,
-                                                  UINT message,
+LRESULT CALLBACK CandidateWindow::WindowProcedure(HWND window, UINT message,
                                                   WPARAM wparam,
                                                   LPARAM lparam) {
   CandidateWindow* self = nullptr;
@@ -304,6 +304,22 @@ LRESULT CALLBACK CandidateWindow::WindowProcedure(HWND window,
       EndPaint(window, &paint);
       return 0;
     }
+    case WM_LBUTTONUP:
+      if (self && self->snapshot_.visible && self->select_) {
+        const auto dpi = WindowDpi(window);
+        const int y =
+            static_cast<short>(HIWORD(lparam)) - ScaleForDpi(kPaddingDip, dpi);
+        const int row = ScaleForDpi(
+            (std::max)(kItemHeightDip, static_cast<int>(self->font_size_) + 6),
+            dpi);
+        if (y >= 0 &&
+            static_cast<std::size_t>(y / row) < self->snapshot_.items.size())
+          self->select_(static_cast<std::size_t>(y / row));
+      }
+      return 0;
+    case WM_DPICHANGED:
+      if (self && self->snapshot_.visible) self->LayoutAndShow(self->snapshot_);
+      return 0;
     case WM_MOUSEACTIVATE:
       return MA_NOACTIVATE;
     case WM_ERASEBKGND:

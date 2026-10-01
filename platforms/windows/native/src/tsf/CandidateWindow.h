@@ -3,6 +3,7 @@
 #include <Windows.h>
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -35,6 +36,10 @@ class CandidateWindow {
 
   void Update(const CandidateSnapshot& snapshot) noexcept;
   void Hide() noexcept;
+  void SetSelect(std::function<void(std::size_t)> select) {
+    select_ = std::move(select);
+  }
+  void SetFont(unsigned size) { font_size_ = size; }
   [[nodiscard]] CandidateSnapshot snapshot() const noexcept;
 
   static bool GetLastSnapshot(CandidateSnapshot* snapshot) noexcept;
@@ -44,12 +49,12 @@ class CandidateWindow {
   void LayoutAndShow(const CandidateSnapshot& snapshot) noexcept;
   void Paint(HDC device) const noexcept;
 
-  static LRESULT CALLBACK WindowProcedure(HWND window,
-                                          UINT message,
-                                          WPARAM wparam,
-                                          LPARAM lparam);
+  static LRESULT CALLBACK WindowProcedure(HWND window, UINT message,
+                                          WPARAM wparam, LPARAM lparam);
   static void PublishSnapshot(const CandidateSnapshot& snapshot) noexcept;
 
+  std::function<void(std::size_t)> select_;
+  unsigned font_size_ = 16;
   HWND window_ = nullptr;
   CandidateSnapshot snapshot_{};
 };

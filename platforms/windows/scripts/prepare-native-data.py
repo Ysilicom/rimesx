@@ -24,6 +24,19 @@ preview = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(preview)
 MANIFEST = "NATIVE-DATA-MANIFEST.json"
 LICENSE = "LICENSE-OpenCC.txt"
+WINDOWS_PATCHES = {
+    "wubi86.custom.yaml": """# Windows settings: traditional output without changing shared schemas.
+patch:
+  engine/filters/@before 0: simplifier@traditionalize
+  switches/@next:
+    name: traditionalization
+    states: [简, 繁]
+  traditionalize:
+    option_name: traditionalization
+    opencc_config: s2t.json
+    tips: none
+"""
+}
 
 
 def regular_file(path: Path) -> None:
@@ -85,7 +98,7 @@ def verify(root: Path) -> dict:
     policy = preview.load_policy()
     if manifest.get("policySha256") != preview.sha256_file(preview.policy_path()):
         preview.fail("native-data manifest belongs to a different reviewed data policy")
-    expected = set(policy["include"]) | expected_runtime(root)
+    expected = set(policy["include"]) | expected_runtime(root) | set(WINDOWS_PATCHES)
     actual, symlinks = preview.scan_source_tree(root)
     if symlinks or actual != expected | {MANIFEST}:
         preview.fail(f"shared-data inventory mismatch: missing={sorted(expected - actual)}, "
@@ -134,7 +147,9 @@ def stage(repo: Path, output: Path, opencc_data: Path, opencc_license: Path, rev
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(opencc_data / name, destination)
         shutil.copyfile(opencc_license, temporary / LICENSE)
-        files = sorted(set(result["included"]) | expected_runtime(temporary))
+        for name, content in WINDOWS_PATCHES.items():
+            (temporary / name).write_text(content, encoding="utf-8")
+        files = sorted(set(result["included"]) | expected_runtime(temporary) | set(WINDOWS_PATCHES))
         manifest = {
             "formatVersion": 1,
             "kind": "rimes-windows-native-shared-data",

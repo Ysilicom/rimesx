@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <iomanip>
 #include <limits>
 #include <memory>
@@ -92,11 +93,8 @@ enum class RequestFailure {
 
 // Performs one bounded overlapped transfer.  On timeout/cancellation, the
 // operation is cancelled and reaped before OVERLAPPED leaves the stack.
-bool TransferExact(HANDLE pipe,
-                   bool write,
-                   std::span<std::byte> bytes,
-                   ULONGLONG deadline,
-                   HANDLE cancellation_event,
+bool TransferExact(HANDLE pipe, bool write, std::span<std::byte> bytes,
+                   ULONGLONG deadline, HANDLE cancellation_event,
                    bool* timed_out) noexcept {
   if (pipe == nullptr || pipe == INVALID_HANDLE_VALUE) {
     return false;
@@ -126,11 +124,10 @@ bool TransferExact(HANDLE pipe,
         bytes.size() - offset,
         static_cast<std::size_t>(std::numeric_limits<DWORD>::max())));
     DWORD transferred = 0;
-    const BOOL started =
-        write ? WriteFile(pipe, bytes.data() + offset, requested, &transferred,
-                          &overlapped)
-              : ReadFile(pipe, bytes.data() + offset, requested, &transferred,
-                         &overlapped);
+    const BOOL started = write ? WriteFile(pipe, bytes.data() + offset,
+                                           requested, &transferred, &overlapped)
+                               : ReadFile(pipe, bytes.data() + offset,
+                                          requested, &transferred, &overlapped);
     if (!started) {
       const DWORD error = GetLastError();
       if (error != ERROR_IO_PENDING) {
@@ -139,8 +136,8 @@ bool TransferExact(HANDLE pipe,
 
       HANDLE waits[2] = {event.get(), cancellation_event};
       const DWORD wait_count = cancellation_event == nullptr ? 1U : 2U;
-      const DWORD wait_result = WaitForMultipleObjects(
-          wait_count, waits, FALSE, RemainingWait(deadline));
+      const DWORD wait_result = WaitForMultipleObjects(wait_count, waits, FALSE,
+                                                       RemainingWait(deadline));
       if (wait_result != WAIT_OBJECT_0) {
         if (timed_out != nullptr && wait_result == WAIT_TIMEOUT) {
           *timed_out = true;
@@ -162,36 +159,26 @@ bool TransferExact(HANDLE pipe,
   return true;
 }
 
-bool WriteExact(HANDLE pipe,
-                std::span<const std::byte> bytes,
-                ULONGLONG deadline,
-                HANDLE cancellation_event,
+bool WriteExact(HANDLE pipe, std::span<const std::byte> bytes,
+                ULONGLONG deadline, HANDLE cancellation_event,
                 bool* timed_out) noexcept {
   // WriteFile predates const-correct buffer annotations and never mutates this
   // buffer; keep the audited cast at this one boundary.
-  return TransferExact(
-      pipe, true,
-      {const_cast<std::byte*>(bytes.data()), bytes.size()}, deadline,
-      cancellation_event, timed_out);
+  return TransferExact(pipe, true,
+                       {const_cast<std::byte*>(bytes.data()), bytes.size()},
+                       deadline, cancellation_event, timed_out);
 }
 
-bool ReadExact(HANDLE pipe,
-               std::span<std::byte> bytes,
-               ULONGLONG deadline,
-               HANDLE cancellation_event,
-               bool* timed_out) noexcept {
+bool ReadExact(HANDLE pipe, std::span<std::byte> bytes, ULONGLONG deadline,
+               HANDLE cancellation_event, bool* timed_out) noexcept {
   return TransferExact(pipe, false, bytes, deadline, cancellation_event,
                        timed_out);
 }
 
-bool RequestResponse(HANDLE pipe,
-                     protocol::MessageType request_type,
-                     std::uint32_t request_id,
-                     std::vector<std::byte> payload,
-                     ULONGLONG deadline,
-                     HANDLE cancellation_event,
-                     protocol::Frame* response,
-                     RequestFailure* failure) {
+bool RequestResponse(HANDLE pipe, protocol::MessageType request_type,
+                     std::uint32_t request_id, std::vector<std::byte> payload,
+                     ULONGLONG deadline, HANDLE cancellation_event,
+                     protocol::Frame* response, RequestFailure* failure) {
   if (failure != nullptr) {
     *failure = RequestFailure::kNone;
   }
@@ -248,9 +235,8 @@ bool RequestResponse(HANDLE pipe,
   decoded.header = header.header;
   decoded.payload.resize(header.header.payload_size);
   timed_out = false;
-  if (!decoded.payload.empty() &&
-      !ReadExact(pipe, decoded.payload, deadline, cancellation_event,
-                 &timed_out)) {
+  if (!decoded.payload.empty() && !ReadExact(pipe, decoded.payload, deadline,
+                                             cancellation_event, &timed_out)) {
     if (failure != nullptr) {
       *failure = timed_out ? RequestFailure::kReadTimedOut
                            : RequestFailure::kReadFailed;
@@ -276,13 +262,12 @@ bool Utf8ToWide(std::string_view text, std::wstring* output) {
     output->clear();
     return true;
   }
-  if (text.size() > static_cast<std::size_t>(
-                        std::numeric_limits<int>::max())) {
+  if (text.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
     return false;
   }
   const int length = static_cast<int>(text.size());
-  const int required = MultiByteToWideChar(
-      CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), length, nullptr, 0);
+  const int required = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                           text.data(), length, nullptr, 0);
   if (required <= 0) {
     return false;
   }
@@ -295,10 +280,10 @@ bool Utf8ToWide(std::string_view text, std::wstring* output) {
   return true;
 }
 
-using OpenProcessTokenFunction =
-    BOOL(WINAPI*)(HANDLE, DWORD, PHANDLE);
-using GetTokenInformationFunction = BOOL(WINAPI*)(
-    HANDLE, TOKEN_INFORMATION_CLASS, LPVOID, DWORD, PDWORD);
+using OpenProcessTokenFunction = BOOL(WINAPI*)(HANDLE, DWORD, PHANDLE);
+using GetTokenInformationFunction = BOOL(WINAPI*)(HANDLE,
+                                                  TOKEN_INFORMATION_CLASS,
+                                                  LPVOID, DWORD, PDWORD);
 
 template <typename Function>
 Function ResolveProcedure(HMODULE module, const char* name) noexcept {
@@ -314,8 +299,7 @@ struct TokenIdentity {
   std::wstring sid_string;
 };
 
-bool CopyAndFormatSid(PSID raw_sid,
-                      std::span<const std::byte> token_storage,
+bool CopyAndFormatSid(PSID raw_sid, std::span<const std::byte> token_storage,
                       TokenIdentity* identity) {
   if (raw_sid == nullptr || identity == nullptr || token_storage.empty()) {
     return false;
@@ -362,10 +346,10 @@ bool CopyAndFormatSid(PSID raw_sid,
 
   const std::size_t sid_offset =
       static_cast<std::size_t>(sid_begin - storage_begin);
-  identity->sid.assign(token_storage.begin() +
-                           static_cast<std::ptrdiff_t>(sid_offset),
-                       token_storage.begin() +
-                           static_cast<std::ptrdiff_t>(sid_offset + sid_size));
+  identity->sid.assign(
+      token_storage.begin() + static_cast<std::ptrdiff_t>(sid_offset),
+      token_storage.begin() +
+          static_cast<std::ptrdiff_t>(sid_offset + sid_size));
   identity->sid_string = formatted.str();
   return !identity->sid.empty() && !identity->sid_string.empty();
 }
@@ -374,15 +358,14 @@ bool ReadProcessIdentity(HANDLE process, TokenIdentity* identity) {
   if (process == nullptr || identity == nullptr) {
     return false;
   }
-  HMODULE raw_advapi = LoadLibraryExW(L"advapi32.dll", nullptr,
-                                     LOAD_LIBRARY_SEARCH_SYSTEM32);
+  HMODULE raw_advapi =
+      LoadLibraryExW(L"advapi32.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
   if (raw_advapi == nullptr) {
     return false;
   }
   LibraryGuard advapi(raw_advapi);
-  const auto open_process_token =
-      ResolveProcedure<OpenProcessTokenFunction>(raw_advapi,
-                                                 "OpenProcessToken");
+  const auto open_process_token = ResolveProcedure<OpenProcessTokenFunction>(
+      raw_advapi, "OpenProcessToken");
   const auto get_token_information =
       ResolveProcedure<GetTokenInformationFunction>(raw_advapi,
                                                     "GetTokenInformation");
@@ -409,8 +392,7 @@ bool ReadProcessIdentity(HANDLE process, TokenIdentity* identity) {
       required > storage.size()) {
     return false;
   }
-  const auto* token_user =
-      reinterpret_cast<const TOKEN_USER*>(storage.data());
+  const auto* token_user = reinterpret_cast<const TOKEN_USER*>(storage.data());
   return CopyAndFormatSid(token_user->User.Sid, storage, identity);
 }
 
@@ -423,8 +405,7 @@ std::uint64_t HashSid(std::wstring_view sid) noexcept {
   return hash;
 }
 
-bool BuildEndpoint(std::wstring* endpoint,
-                   TokenIdentity* current_identity,
+bool BuildEndpoint(std::wstring* endpoint, TokenIdentity* current_identity,
                    DWORD* current_session_id) {
   if (endpoint == nullptr || current_identity == nullptr ||
       current_session_id == nullptr ||
@@ -444,7 +425,7 @@ bool BuildEndpoint(std::wstring* endpoint,
     }
   }
   std::wostringstream suffix;
-  suffix << L".v1.session-" << *current_session_id << L".user-" << std::hex
+  suffix << L".v2.session-" << *current_session_id << L".user-" << std::hex
          << std::setw(16) << std::setfill(L'0')
          << HashSid(current_identity->sid_string);
   *endpoint = L"\\\\.\\pipe\\RIMES.Broker" + suffix.str();
@@ -461,8 +442,7 @@ enum class ServerIdentityFailure {
   kSidMismatch,
 };
 
-bool VerifyServerIdentity(HANDLE pipe,
-                          DWORD expected_session_id,
+bool VerifyServerIdentity(HANDLE pipe, DWORD expected_session_id,
                           const TokenIdentity& expected_identity,
                           DWORD* server_process_id,
                           ServerIdentityFailure* failure) {
@@ -496,8 +476,8 @@ bool VerifyServerIdentity(HANDLE pipe,
     }
     return false;
   }
-  UniqueHandle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
-                                   raw_process_id));
+  UniqueHandle process(
+      OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, raw_process_id));
   if (!process) {
     if (failure != nullptr) {
       *failure = ServerIdentityFailure::kProcessOpenFailed;
@@ -614,8 +594,7 @@ bool SiblingBrokerPath(std::wstring* path) noexcept {
     instance = GetModuleHandleW(nullptr);
   }
   wchar_t module_path[MAX_PATH]{};
-  const DWORD length =
-      GetModuleFileNameW(instance, module_path, MAX_PATH);
+  const DWORD length = GetModuleFileNameW(instance, module_path, MAX_PATH);
   if (length == 0 || length >= MAX_PATH) {
     return false;
   }
@@ -625,7 +604,11 @@ bool SiblingBrokerPath(std::wstring* path) noexcept {
     return false;
   }
   directory.resize(slash + 1);
-  *path = directory + L"RimesBroker.exe";
+  auto parent = directory.substr(0, directory.size() - 1);
+  parent = parent.substr(0, parent.find_last_of(L"\\/"));
+  *path = parent + L"\\x64\\RimesBroker.exe";
+  if (GetFileAttributesW(path->c_str()) == INVALID_FILE_ATTRIBUTES)
+    *path = directory + L"RimesBroker.exe";
   const DWORD attributes = GetFileAttributesW(path->c_str());
   return attributes != INVALID_FILE_ATTRIBUTES &&
          (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
@@ -644,10 +627,10 @@ bool LaunchBrokerProcess() noexcept {
   std::wstring command = L"\"" + broker_path + L"\"";
   std::wstring working_directory =
       broker_path.substr(0, broker_path.find_last_of(L"\\/"));
-  const BOOL created = CreateProcessW(
-      broker_path.c_str(), command.data(), nullptr, nullptr, FALSE,
-      CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP, nullptr,
-      working_directory.c_str(), &startup, &process);
+  const BOOL created =
+      CreateProcessW(broker_path.c_str(), command.data(), nullptr, nullptr,
+                     FALSE, CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
+                     nullptr, working_directory.c_str(), &startup, &process);
   if (!created) {
     return false;
   }
@@ -660,11 +643,9 @@ bool LaunchBrokerProcess() noexcept {
   return true;
 }
 
-bool ShouldOfferKey(WPARAM virtual_key,
-                    std::uint32_t modifiers,
+bool ShouldOfferKey(WPARAM virtual_key, std::uint32_t modifiers,
                     bool composing) noexcept {
-  if (virtual_key == 0 || virtual_key > 0xffU ||
-      IsModifierKey(virtual_key)) {
+  if (virtual_key == 0 || virtual_key > 0xffU || IsModifierKey(virtual_key)) {
     return false;
   }
   constexpr std::uint32_t kShortcutModifiers =
@@ -696,6 +677,92 @@ class NamedPipeBrokerClient final : public BrokerClient {
     return connected_.load(std::memory_order_acquire);
   }
 
+  void SetNotificationWindow(HWND window) noexcept override {
+    notification_window_.store(window);
+  }
+  bool Capturing() const noexcept override { return capturing_.load(); }
+  std::optional<core::Json> TakeNotification() override {
+    std::lock_guard lock(notification_mutex_);
+    if (notifications_.empty()) return {};
+    auto value = std::move(notifications_.front());
+    notifications_.pop_front();
+    return value;
+  }
+  bool Control(core::Json message) noexcept override {
+    try {
+      std::unique_lock lock(io_mutex_, std::try_to_lock);
+      if (!lock.owns_lock() || !connected_.load() || !input_session_id_)
+        return false;
+      message["session"] = input_session_id_;
+      protocol::Frame response;
+      return RequestResponse(pipe_, protocol::MessageType::kControl,
+                             next_request_id_++, core::EncodeControl(message),
+                             GetTickCount64() + kKeyBudgetMillis, stop_event_,
+                             &response, nullptr) &&
+             IsExpectedResponse(response,
+                                protocol::MessageType::kControlState) &&
+             core::DecodeControl(response.payload)
+                     .value_or(core::Json::object())
+                     .value("kind", "") == "ok";
+    } catch (...) {
+      return false;
+    }
+  }
+
+  bool SetContext(std::uint64_t context_id) noexcept override {
+    try {
+      std::unique_lock lock(io_mutex_, std::try_to_lock);
+      if (!lock.owns_lock()) return false;
+      if (!connected_.load() || pipe_ == INVALID_HANDLE_VALUE) {
+        ScheduleReconnectLocked();
+        return false;
+      }
+      if (context_id == context_id_) return true;
+      BestEffortCloseSessionLocked();
+      input_session_id_ = 0;
+      capturing_.store(false);
+      {
+        std::lock_guard pending(notification_mutex_);
+        notifications_.clear();
+      }
+      composing_.store(false);
+      for (auto& pressed : pressed_keys_) pressed.store(false);
+      context_id_ = context_id;
+      if (context_id == 0) return true;
+      protocol::OpenInputSession open{context_id, {}};
+      std::vector<std::byte> payload;
+      protocol::Frame response;
+      protocol::InputSessionOpened opened;
+      if (!protocol::EncodeOpenInputSession(open, &payload) ||
+          !RequestResponse(pipe_, protocol::MessageType::kOpenInputSession,
+                           next_request_id_++, std::move(payload),
+                           GetTickCount64() + kKeyBudgetMillis, stop_event_,
+                           &response, nullptr) ||
+          !IsExpectedResponse(response,
+                              protocol::MessageType::kInputSessionOpened) ||
+          !protocol::DecodeInputSessionOpened(response.payload, &opened)) {
+        FailConnectionLocked();
+        return false;
+      }
+      input_session_id_ = opened.session_id;
+      if (control_capable_.load()) {
+        protocol::Frame focused;
+        RequestResponse(pipe_, protocol::MessageType::kControl,
+                        next_request_id_++,
+                        core::EncodeControl(
+                            {{"op", "focus"}, {"session", input_session_id_}}),
+                        GetTickCount64() + kKeyBudgetMillis, stop_event_,
+                        &focused, nullptr);
+      }
+      next_sequence_id_ = 1;
+      last_revision_ = 0;
+      return true;
+    } catch (...) {
+      FailConnection();
+      return false;
+    }
+  }
+
   void BeginConnect() noexcept override {
     LogDiagnosticStage(DiagnosticStage::kConnectBeginCalled);
     Disconnect();
@@ -705,9 +772,12 @@ class NamedPipeBrokerClient final : public BrokerClient {
     }
     ResetEvent(stop_event_);
     stopping_.store(false, std::memory_order_release);
+    reconnecting_.store(true);
     try {
-      connect_thread_ = std::thread(&NamedPipeBrokerClient::ConnectWorker,
-                                    this);
+      connect_thread_ =
+          std::thread(&NamedPipeBrokerClient::ConnectWorker, this);
+      control_thread_ =
+          std::thread(&NamedPipeBrokerClient::ControlWorker, this);
       LogDiagnosticStage(DiagnosticStage::kConnectWorkerThreadStarted);
     } catch (...) {
       LogDiagnosticStage(DiagnosticStage::kConnectWorkerThreadStartFailed);
@@ -728,6 +798,7 @@ class NamedPipeBrokerClient final : public BrokerClient {
       connect_thread_.join();
     }
 
+    if (control_thread_.joinable()) control_thread_.join();
     std::lock_guard lock(io_mutex_);
     if (pipe_ != INVALID_HANDLE_VALUE) {
       BestEffortCloseSessionLocked();
@@ -763,7 +834,10 @@ class NamedPipeBrokerClient final : public BrokerClient {
       if (!connected_.load(std::memory_order_acquire)) {
         return BrokerKeyResult::kUnavailable;
       }
-      return ShouldOfferKey(event.virtual_key, modifiers, composing)
+      return (ShouldOfferKey(event.virtual_key, modifiers, composing) ||
+              (capturing_.load() && (event.virtual_key == VK_RETURN ||
+                                     event.virtual_key == VK_BACK ||
+                                     event.virtual_key == VK_ESCAPE)))
                  ? BrokerKeyResult::kConsumed
                  : BrokerKeyResult::kPassThrough;
     }
@@ -771,10 +845,11 @@ class NamedPipeBrokerClient final : public BrokerClient {
     const bool key_down = event.phase == BrokerKeyPhase::kKeyDown;
     const bool key_up = event.phase == BrokerKeyPhase::kKeyUp;
     if ((!key_down && !key_up) ||
-        (key_down &&
-         !ShouldOfferKey(event.virtual_key, modifiers, composing)) ||
-        (key_up &&
-         !pressed_keys_[key_index].load(std::memory_order_acquire))) {
+        (key_down && !ShouldOfferKey(event.virtual_key, modifiers, composing) &&
+         !(capturing_.load() &&
+           (event.virtual_key == VK_RETURN || event.virtual_key == VK_BACK ||
+            event.virtual_key == VK_ESCAPE))) ||
+        (key_up && !pressed_keys_[key_index].load(std::memory_order_acquire))) {
       return BrokerKeyResult::kPassThrough;
     }
 
@@ -811,14 +886,14 @@ class NamedPipeBrokerClient final : public BrokerClient {
       key.scan_code =
           static_cast<std::uint32_t>((event.key_data >> 16U) & 0xffU);
       key.repeat_count =
-          key_down ? std::max<std::uint32_t>(
-                         1, static_cast<std::uint32_t>(event.key_data &
-                                                      0xffffU))
-                   : 1;
+          key_down
+              ? std::max<std::uint32_t>(
+                    1, static_cast<std::uint32_t>(event.key_data & 0xffffU))
+              : 1;
       key.modifiers = modifiers;
       if (key_down) {
-        key.event_flags |= static_cast<std::uint32_t>(
-            protocol::KeyEventFlags::kKeyDown);
+        key.event_flags |=
+            static_cast<std::uint32_t>(protocol::KeyEventFlags::kKeyDown);
       }
       if (key_down && key.repeat_count > 1) {
         key.event_flags |=
@@ -855,8 +930,7 @@ class NamedPipeBrokerClient final : public BrokerClient {
         FailConnectionLocked();
         return BrokerKeyResult::kUnavailable;
       }
-      if (!IsExpectedResponse(response,
-                              protocol::MessageType::kInputState)) {
+      if (!IsExpectedResponse(response, protocol::MessageType::kInputState)) {
         LogDiagnosticStage(DiagnosticStage::kKeyResponseEnvelopeInvalid);
         FailConnectionLocked();
         return BrokerKeyResult::kUnavailable;
@@ -873,12 +947,11 @@ class NamedPipeBrokerClient final : public BrokerClient {
       }
       last_revision_ = decoded.revision;
       const bool handled =
-          (decoded.state_flags &
-           static_cast<std::uint32_t>(protocol::InputStateFlags::kHandled)) !=
-          0;
-      const bool is_composing =
           (decoded.state_flags & static_cast<std::uint32_t>(
-                                     protocol::InputStateFlags::kComposing)) !=
+                                     protocol::InputStateFlags::kHandled)) != 0;
+      const bool is_composing =
+          (decoded.state_flags &
+           static_cast<std::uint32_t>(protocol::InputStateFlags::kComposing)) !=
           0;
       if (!handled) {
         LogDiagnosticStage(DiagnosticStage::kKeyResponseUnhandled);
@@ -904,6 +977,11 @@ class NamedPipeBrokerClient final : public BrokerClient {
 
       if (state != nullptr) {
         state->has_snapshot = true;
+        state->buffer_capture =
+            (decoded.state_flags &
+             static_cast<unsigned>(
+                 protocol::InputStateFlags::kBufferCapture)) != 0;
+        capturing_.store(state->buffer_capture);
         state->composing = is_composing;
         state->revision = decoded.revision;
         state->caret_utf16 = decoded.caret_utf16;
@@ -941,8 +1019,7 @@ class NamedPipeBrokerClient final : public BrokerClient {
           return BrokerKeyResult::kUnavailable;
         }
         if (state->commit_text.empty()) {
-          LogDiagnosticStage(
-              DiagnosticStage::kKeyResponseHandledCommitEmpty);
+          LogDiagnosticStage(DiagnosticStage::kKeyResponseHandledCommitEmpty);
         } else if (state->commit_text.size() == 1) {
           LogDiagnosticStage(
               DiagnosticStage::kKeyResponseHandledCommitOneUtf16);
@@ -965,6 +1042,10 @@ class NamedPipeBrokerClient final : public BrokerClient {
 
  private:
   void ConnectWorker() noexcept {
+    struct Finished {
+      std::atomic_bool& value;
+      ~Finished() { value.store(false); }
+    } finished{reconnecting_};
     LogDiagnosticStage(DiagnosticStage::kConnectWorkerEntered);
     try {
       std::wstring endpoint;
@@ -1009,8 +1090,8 @@ class NamedPipeBrokerClient final : public BrokerClient {
               deadline = GetTickCount64() + kLaunchConnectBudgetMillis;
             }
           }
-          if (WaitForSingleObject(
-                  stop_event_, (std::min)(remaining, kConnectRetryMillis)) ==
+          if (WaitForSingleObject(stop_event_,
+                                  (std::min)(remaining, kConnectRetryMillis)) ==
               WAIT_OBJECT_0) {
             LogDiagnosticStage(DiagnosticStage::kConnectCancelledWhileOpening);
             return;
@@ -1018,18 +1099,16 @@ class NamedPipeBrokerClient final : public BrokerClient {
           continue;
         }
         if (open_error != ERROR_FILE_NOT_FOUND) {
-          LogDiagnosticStage(
-              open_error == ERROR_ACCESS_DENIED
-                  ? DiagnosticStage::kConnectPipeAccessDenied
-                  : DiagnosticStage::kConnectPipeOpenFailed);
+          LogDiagnosticStage(open_error == ERROR_ACCESS_DENIED
+                                 ? DiagnosticStage::kConnectPipeAccessDenied
+                                 : DiagnosticStage::kConnectPipeOpenFailed);
           return;
         }
       }
       if (pipe == INVALID_HANDLE_VALUE) {
-        LogDiagnosticStage(
-            stopping_.load(std::memory_order_acquire)
-                ? DiagnosticStage::kConnectCancelledWhileOpening
-                : DiagnosticStage::kConnectPipeDeadlineExpired);
+        LogDiagnosticStage(stopping_.load(std::memory_order_acquire)
+                               ? DiagnosticStage::kConnectCancelledWhileOpening
+                               : DiagnosticStage::kConnectPipeDeadlineExpired);
         return;
       }
       UniqueHandle candidate_pipe(pipe);
@@ -1047,16 +1126,13 @@ class NamedPipeBrokerClient final : public BrokerClient {
                 DiagnosticStage::kConnectServerSessionQueryFailed;
             break;
           case ServerIdentityFailure::kSessionMismatch:
-            diagnostic_stage =
-                DiagnosticStage::kConnectServerSessionMismatch;
+            diagnostic_stage = DiagnosticStage::kConnectServerSessionMismatch;
             break;
           case ServerIdentityFailure::kProcessOpenFailed:
-            diagnostic_stage =
-                DiagnosticStage::kConnectServerProcessOpenFailed;
+            diagnostic_stage = DiagnosticStage::kConnectServerProcessOpenFailed;
             break;
           case ServerIdentityFailure::kTokenReadFailed:
-            diagnostic_stage =
-                DiagnosticStage::kConnectServerTokenReadFailed;
+            diagnostic_stage = DiagnosticStage::kConnectServerTokenReadFailed;
             break;
           case ServerIdentityFailure::kSidMismatch:
             diagnostic_stage = DiagnosticStage::kConnectServerSidMismatch;
@@ -1087,8 +1163,8 @@ class NamedPipeBrokerClient final : public BrokerClient {
       RequestFailure request_failure = RequestFailure::kNone;
       if (!RequestResponse(candidate_pipe.get(),
                            protocol::MessageType::kClientHello, request_id++,
-                           std::move(payload), deadline, stop_event_,
-                           &response, &request_failure)) {
+                           std::move(payload), deadline, stop_event_, &response,
+                           &request_failure)) {
         const DiagnosticStage diagnostic_stage =
             request_failure == RequestFailure::kWriteTimedOut
                 ? DiagnosticStage::kConnectHelloWriteTimedOut
@@ -1098,8 +1174,7 @@ class NamedPipeBrokerClient final : public BrokerClient {
         LogDiagnosticStage(diagnostic_stage);
         return;
       }
-      if (!IsExpectedResponse(response,
-                              protocol::MessageType::kBrokerHello)) {
+      if (!IsExpectedResponse(response, protocol::MessageType::kBrokerHello)) {
         LogDiagnosticStage(DiagnosticStage::kConnectHelloEnvelopeInvalid);
         return;
       }
@@ -1114,6 +1189,7 @@ class NamedPipeBrokerClient final : public BrokerClient {
         return;
       }
 
+      control_capable_.store((broker_hello.capabilities & 1) != 0);
       protocol::OpenInputSession open;
       open.context_id =
           (static_cast<std::uint64_t>(GetCurrentProcessId()) << 32U) ^
@@ -1180,6 +1256,102 @@ class NamedPipeBrokerClient final : public BrokerClient {
     reconnecting_.store(false, std::memory_order_release);
   }
 
+  void ControlWorker() noexcept {
+    try {
+      UniqueHandle channel;
+      std::uint32_t request = 1;
+      while (!stopping_.load()) {
+        std::uint64_t session = 0;
+        {
+          std::lock_guard lock(io_mutex_);
+          if (connected_.load() && control_capable_.load())
+            session = input_session_id_;
+          else if (!connected_.load())
+            ScheduleReconnectLocked();
+        }
+        if (!session) {
+          WaitForSingleObject(stop_event_, 50);
+          continue;
+        }
+        if (!channel) {
+          std::wstring endpoint;
+          TokenIdentity identity;
+          DWORD logon = 0;
+          if (!BuildEndpoint(&endpoint, &identity, &logon)) return;
+          HANDLE raw =
+              CreateFileW(endpoint.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
+                          nullptr, OPEN_EXISTING,
+                          FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT |
+                              SECURITY_IDENTIFICATION,
+                          nullptr);
+          if (raw == INVALID_HANDLE_VALUE) {
+            WaitForSingleObject(stop_event_, 100);
+            continue;
+          }
+          channel.reset(raw);
+          DWORD server = 0;
+          ServerIdentityFailure stage = ServerIdentityFailure::kNone;
+          if (!VerifyServerIdentity(channel.get(), logon, identity, &server,
+                                    &stage)) {
+            channel.reset();
+            return;
+          }
+          protocol::ClientHello hello;
+          hello.process_id = GetCurrentProcessId();
+          hello.session_id = logon;
+          hello.client_name = "RIMES.TSF.Control";
+          std::vector<std::byte> payload;
+          protocol::EncodeClientHello(hello, &payload);
+          protocol::Frame response;
+          request = 1;
+          if (!RequestResponse(channel.get(),
+                               protocol::MessageType::kClientHello, request++,
+                               std::move(payload), GetTickCount64() + 2000,
+                               stop_event_, &response, nullptr) ||
+              !IsExpectedResponse(response,
+                                  protocol::MessageType::kBrokerHello)) {
+            channel.reset();
+            continue;
+          }
+        }
+        protocol::Frame response;
+        if (!RequestResponse(
+                channel.get(), protocol::MessageType::kControl, request++,
+                core::EncodeControl({{"op", "wait"}, {"session", session}}),
+                GetTickCount64() + 12000, stop_event_, &response, nullptr) ||
+            !IsExpectedResponse(response,
+                                protocol::MessageType::kControlState)) {
+          channel.reset();
+          continue;
+        }
+        auto message = core::DecodeControl(response.payload);
+        if (!message) {
+          channel.reset();
+          return;
+        }
+        {
+          std::lock_guard lock(io_mutex_);
+          if (input_session_id_ != session) continue;
+        }
+        auto kind = message->value("kind", "");
+        if (kind == "capture")
+          capturing_.store(message->value("enabled", false));
+        if (kind == "capture" || kind == "deliver") {
+          {
+            std::lock_guard lock(notification_mutex_);
+            if (notifications_.size() >= 128) return;
+            notifications_.push_back(std::move(*message));
+          }
+          const auto window = notification_window_.load();
+          if (window) PostMessageW(window, kBrokerNotification, 0, 0);
+        } else if (kind == "disconnected")
+          WaitForSingleObject(stop_event_, 100);
+      }
+    } catch (...) {
+      capturing_.store(false);
+    }
+  }
+
   void BestEffortCloseSessionLocked() noexcept {
     if (input_session_id_ == 0 || next_request_id_ == 0 ||
         next_request_id_ == std::numeric_limits<std::uint32_t>::max()) {
@@ -1194,13 +1366,15 @@ class NamedPipeBrokerClient final : public BrokerClient {
       }
       RequestResponse(pipe_, protocol::MessageType::kCloseInputSession,
                       next_request_id_++, std::move(payload),
-                      GetTickCount64() + kCloseBudgetMillis, nullptr,
-                      &response, nullptr);
+                      GetTickCount64() + kCloseBudgetMillis, nullptr, &response,
+                      nullptr);
     } catch (...) {
     }
   }
 
   void ResetSessionLocked() noexcept {
+    context_id_ = 0;
+    capturing_.store(false);
     input_session_id_ = 0;
     next_request_id_ = 1;
     next_sequence_id_ = 1;
@@ -1224,8 +1398,8 @@ class NamedPipeBrokerClient final : public BrokerClient {
       if (stop_event_ != nullptr) {
         ResetEvent(stop_event_);
       }
-      connect_thread_ = std::thread(&NamedPipeBrokerClient::ConnectWorker,
-                                    this);
+      connect_thread_ =
+          std::thread(&NamedPipeBrokerClient::ConnectWorker, this);
     } catch (...) {
       reconnecting_.store(false, std::memory_order_release);
     }
@@ -1246,6 +1420,11 @@ class NamedPipeBrokerClient final : public BrokerClient {
     FailConnectionLocked();
   }
 
+  std::atomic<HWND> notification_window_{nullptr};
+  std::atomic_bool capturing_{false}, control_capable_{false};
+  std::mutex notification_mutex_;
+  std::deque<core::Json> notifications_;
+  std::thread control_thread_;
   std::mutex io_mutex_;
   HANDLE pipe_ = INVALID_HANDLE_VALUE;
   HANDLE stop_event_ = nullptr;
@@ -1259,13 +1438,14 @@ class NamedPipeBrokerClient final : public BrokerClient {
   std::uint32_t next_request_id_ = 1;
   std::uint64_t next_sequence_id_ = 1;
   std::uint64_t last_revision_ = 0;
+  std::uint64_t context_id_ = 0;
 };
 
 }  // namespace
 
 std::unique_ptr<BrokerClient> CreateBrokerClient() noexcept {
-  return std::unique_ptr<BrokerClient>(
-      new (std::nothrow) NamedPipeBrokerClient());
+  return std::unique_ptr<BrokerClient>(new (std::nothrow)
+                                           NamedPipeBrokerClient());
 }
 
 }  // namespace rimes::windows::tsf

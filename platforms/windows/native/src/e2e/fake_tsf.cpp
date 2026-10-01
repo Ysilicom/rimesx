@@ -6,9 +6,7 @@
 namespace rimes::windows::e2e {
 namespace {
 
-HRESULT NotImpl() {
-  return E_NOTIMPL;
-}
+HRESULT NotImpl() { return E_NOTIMPL; }
 
 }  // namespace
 
@@ -54,7 +52,8 @@ HRESULT STDMETHODCALLTYPE FakeThreadMgr::Deactivate() { return S_OK; }
 HRESULT STDMETHODCALLTYPE FakeThreadMgr::CreateDocumentMgr(ITfDocumentMgr**) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeThreadMgr::EnumDocumentMgrs(IEnumTfDocumentMgrs**) {
+HRESULT STDMETHODCALLTYPE
+FakeThreadMgr::EnumDocumentMgrs(IEnumTfDocumentMgrs**) {
   return NotImpl();
 }
 HRESULT STDMETHODCALLTYPE FakeThreadMgr::GetFocus(ITfDocumentMgr**) {
@@ -63,8 +62,7 @@ HRESULT STDMETHODCALLTYPE FakeThreadMgr::GetFocus(ITfDocumentMgr**) {
 HRESULT STDMETHODCALLTYPE FakeThreadMgr::SetFocus(ITfDocumentMgr*) {
   return S_OK;
 }
-HRESULT STDMETHODCALLTYPE FakeThreadMgr::AssociateFocus(HWND,
-                                                        ITfDocumentMgr*,
+HRESULT STDMETHODCALLTYPE FakeThreadMgr::AssociateFocus(HWND, ITfDocumentMgr*,
                                                         ITfDocumentMgr**) {
   return NotImpl();
 }
@@ -74,16 +72,16 @@ HRESULT STDMETHODCALLTYPE FakeThreadMgr::IsThreadFocus(BOOL* focus) {
   }
   return S_OK;
 }
-HRESULT STDMETHODCALLTYPE FakeThreadMgr::GetFunctionProvider(
-    REFCLSID, ITfFunctionProvider**) {
+HRESULT STDMETHODCALLTYPE
+FakeThreadMgr::GetFunctionProvider(REFCLSID, ITfFunctionProvider**) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeThreadMgr::EnumFunctionProviders(
-    IEnumTfFunctionProviders**) {
+HRESULT STDMETHODCALLTYPE
+FakeThreadMgr::EnumFunctionProviders(IEnumTfFunctionProviders**) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeThreadMgr::GetGlobalCompartment(
-    ITfCompartmentMgr**) {
+HRESULT STDMETHODCALLTYPE
+FakeThreadMgr::GetGlobalCompartment(ITfCompartmentMgr**) {
   return NotImpl();
 }
 HRESULT STDMETHODCALLTYPE FakeThreadMgr::AdviseKeyEventSink(TfClientId,
@@ -119,19 +117,17 @@ HRESULT STDMETHODCALLTYPE FakeThreadMgr::IsPreservedKey(REFGUID,
                                                         BOOL*) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeThreadMgr::PreserveKey(TfClientId,
-                                                     REFGUID,
+HRESULT STDMETHODCALLTYPE FakeThreadMgr::PreserveKey(TfClientId, REFGUID,
                                                      const TF_PRESERVEDKEY*,
-                                                     const WCHAR*,
-                                                     ULONG) {
+                                                     const WCHAR*, ULONG) {
   return NotImpl();
 }
 HRESULT STDMETHODCALLTYPE FakeThreadMgr::UnpreserveKey(REFGUID,
                                                        const TF_PRESERVEDKEY*) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeThreadMgr::SetPreservedKeyDescription(
-    REFGUID, const WCHAR*, ULONG) {
+HRESULT STDMETHODCALLTYPE
+FakeThreadMgr::SetPreservedKeyDescription(REFGUID, const WCHAR*, ULONG) {
   return NotImpl();
 }
 HRESULT STDMETHODCALLTYPE FakeThreadMgr::GetPreservedKeyDescription(REFGUID,
@@ -139,12 +135,12 @@ HRESULT STDMETHODCALLTYPE FakeThreadMgr::GetPreservedKeyDescription(REFGUID,
   return NotImpl();
 }
 HRESULT STDMETHODCALLTYPE FakeThreadMgr::SimulatePreservedKey(ITfContext*,
-                                                              REFGUID,
-                                                              BOOL*) {
+                                                              REFGUID, BOOL*) {
   return NotImpl();
 }
 
-FakeContext::FakeContext(FakeDocument* document) noexcept : document_(document) {}
+FakeContext::FakeContext(FakeDocument* document) noexcept
+    : document_(document) {}
 
 HRESULT STDMETHODCALLTYPE FakeContext::QueryInterface(REFIID interface_id,
                                                       void** object) {
@@ -183,12 +179,20 @@ ULONG STDMETHODCALLTYPE FakeContext::Release() {
   return remaining;
 }
 
-HRESULT STDMETHODCALLTYPE FakeContext::RequestEditSession(TfClientId,
-                                                          ITfEditSession* session,
-                                                          DWORD,
-                                                          HRESULT* result) {
+HRESULT STDMETHODCALLTYPE FakeContext::RequestEditSession(
+    TfClientId, ITfEditSession* session, DWORD flags, HRESULT* result) {
   if (session == nullptr || result == nullptr) {
     return E_POINTER;
+  }
+  if (defer_edits && ((flags & TF_ES_READWRITE) == TF_ES_READWRITE)) {
+    if (flags & TF_ES_SYNC) {
+      *result = TF_E_SYNCHRONOUS;
+      return S_OK;
+    }
+    session->AddRef();
+    delayed_edits.push_back(session);
+    *result = TF_S_ASYNC;
+    return S_OK;
   }
   *result = session->DoEditSession(1);
   return S_OK;
@@ -201,26 +205,37 @@ HRESULT STDMETHODCALLTYPE FakeContext::InWriteSession(TfClientId, BOOL* value) {
   return S_OK;
 }
 
-HRESULT STDMETHODCALLTYPE FakeContext::GetSelection(TfEditCookie,
-                                                    ULONG,
-                                                    ULONG,
-                                                    TF_SELECTION*,
-                                                    ULONG*) {
-  return NotImpl();
+void FakeContext::DrainEdits() {
+  auto edits = std::move(delayed_edits);
+  delayed_edits.clear();
+  for (auto* edit : edits) {
+    edit->DoEditSession(1);
+    edit->Release();
+  }
+}
+HRESULT STDMETHODCALLTYPE FakeContext::GetSelection(TfEditCookie, ULONG, ULONG,
+                                                    TF_SELECTION* selection,
+                                                    ULONG* fetched) {
+  if (!selection || !fetched) return E_POINTER;
+  selection->range = new (std::nothrow)
+      FakeRange(document_, static_cast<LONG>(document_->text.size()), 0);
+  selection->style = {TF_AE_NONE, FALSE};
+  *fetched = selection->range ? 1 : 0;
+  return selection->range ? S_OK : E_OUTOFMEMORY;
 }
 
-HRESULT STDMETHODCALLTYPE FakeContext::SetSelection(TfEditCookie,
-                                                    ULONG,
+HRESULT STDMETHODCALLTYPE FakeContext::SetSelection(TfEditCookie, ULONG,
                                                     const TF_SELECTION*) {
   return S_OK;
 }
 
-HRESULT STDMETHODCALLTYPE FakeContext::GetStart(TfEditCookie, ITfRange** range) {
+HRESULT STDMETHODCALLTYPE FakeContext::GetStart(TfEditCookie,
+                                                ITfRange** range) {
   if (range == nullptr) {
     return E_POINTER;
   }
-  *range = static_cast<ITfRange*>(
-      new (std::nothrow) FakeRange(document_, 0, 0));
+  *range =
+      static_cast<ITfRange*>(new (std::nothrow) FakeRange(document_, 0, 0));
   return *range != nullptr ? S_OK : E_OUTOFMEMORY;
 }
 
@@ -243,11 +258,14 @@ HRESULT STDMETHODCALLTYPE FakeContext::EnumViews(IEnumTfContextViews**) {
 HRESULT STDMETHODCALLTYPE FakeContext::GetDocumentMgr(ITfDocumentMgr**) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeContext::GetStatus(TS_STATUS*) {
-  return NotImpl();
+HRESULT STDMETHODCALLTYPE FakeContext::GetStatus(TS_STATUS* value) {
+  if (!value) return E_POINTER;
+  *value = {0, read_only ? TS_SD_READONLY : 0U};
+  return S_OK;
 }
 
-HRESULT STDMETHODCALLTYPE FakeContext::GetProperty(REFGUID, ITfProperty** property) {
+HRESULT STDMETHODCALLTYPE FakeContext::GetProperty(REFGUID,
+                                                   ITfProperty** property) {
   if (property == nullptr) {
     return E_POINTER;
   }
@@ -260,10 +278,8 @@ HRESULT STDMETHODCALLTYPE FakeContext::GetAppProperty(REFGUID,
                                                       ITfReadOnlyProperty**) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeContext::TrackProperties(const GUID**,
-                                                       ULONG,
-                                                       const GUID**,
-                                                       ULONG,
+HRESULT STDMETHODCALLTYPE FakeContext::TrackProperties(const GUID**, ULONG,
+                                                       const GUID**, ULONG,
                                                        ITfReadOnlyProperty**) {
   return NotImpl();
 }
@@ -276,16 +292,19 @@ HRESULT STDMETHODCALLTYPE FakeContext::CreateRangeBackup(TfEditCookie,
   return NotImpl();
 }
 
-HRESULT STDMETHODCALLTYPE FakeContext::InsertTextAtSelection(
-    TfEditCookie, DWORD flags, const WCHAR* text, LONG count, ITfRange** range) {
+HRESULT STDMETHODCALLTYPE FakeContext::InsertTextAtSelection(TfEditCookie,
+                                                             DWORD flags,
+                                                             const WCHAR* text,
+                                                             LONG count,
+                                                             ITfRange** range) {
   if (range != nullptr) {
     *range = nullptr;
   }
   if ((flags & TF_IAS_QUERYONLY) != 0) {
     const LONG start = static_cast<LONG>(document_->text.size());
     if (range != nullptr) {
-      *range = static_cast<ITfRange*>(
-          new (std::nothrow) FakeRange(document_, start, 0));
+      *range = static_cast<ITfRange*>(new (std::nothrow)
+                                          FakeRange(document_, start, 0));
       if (*range == nullptr) {
         return E_OUTOFMEMORY;
       }
@@ -299,8 +318,8 @@ HRESULT STDMETHODCALLTYPE FakeContext::InsertTextAtSelection(
   if (range != nullptr) {
     const LONG start =
         static_cast<LONG>(document_->text.size() - (count > 0 ? count : 0));
-    *range = static_cast<ITfRange*>(
-        new (std::nothrow) FakeRange(document_, start, count));
+    *range = static_cast<ITfRange*>(new (std::nothrow)
+                                        FakeRange(document_, start, count));
     if (*range == nullptr) {
       return E_OUTOFMEMORY;
     }
@@ -324,8 +343,8 @@ HRESULT STDMETHODCALLTYPE FakeContext::StartComposition(
   *composition = nullptr;
   auto* typed = static_cast<FakeRange*>(range);
   if (typed == nullptr) {
-    typed = new (std::nothrow) FakeRange(
-        document_, static_cast<LONG>(document_->text.size()), 0);
+    typed = new (std::nothrow)
+        FakeRange(document_, static_cast<LONG>(document_->text.size()), 0);
     if (typed == nullptr) {
       return E_OUTOFMEMORY;
     }
@@ -342,13 +361,12 @@ HRESULT STDMETHODCALLTYPE FakeContext::StartComposition(
   return S_OK;
 }
 
-HRESULT STDMETHODCALLTYPE FakeContext::EnumCompositions(
-    IEnumITfCompositionView**) {
+HRESULT STDMETHODCALLTYPE
+FakeContext::EnumCompositions(IEnumITfCompositionView**) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeContext::FindComposition(TfEditCookie,
-                                                       ITfRange*,
-                                                       IEnumITfCompositionView**) {
+HRESULT STDMETHODCALLTYPE FakeContext::FindComposition(
+    TfEditCookie, ITfRange*, IEnumITfCompositionView**) {
   return NotImpl();
 }
 HRESULT STDMETHODCALLTYPE FakeContext::TakeOwnership(TfEditCookie,
@@ -359,16 +377,13 @@ HRESULT STDMETHODCALLTYPE FakeContext::TakeOwnership(TfEditCookie,
 }
 
 HRESULT STDMETHODCALLTYPE FakeContext::GetRangeFromPoint(TfEditCookie,
-                                                         const POINT*,
-                                                         DWORD,
+                                                         const POINT*, DWORD,
                                                          ITfRange**) {
   return NotImpl();
 }
 
-HRESULT STDMETHODCALLTYPE FakeContext::GetTextExt(TfEditCookie,
-                                                  ITfRange*,
-                                                  RECT* rect,
-                                                  BOOL* clipped) {
+HRESULT STDMETHODCALLTYPE FakeContext::GetTextExt(TfEditCookie, ITfRange*,
+                                                  RECT* rect, BOOL* clipped) {
   if (rect == nullptr) {
     return E_POINTER;
   }
@@ -410,33 +425,27 @@ HRESULT STDMETHODCALLTYPE FakeContext::GetContext(ITfContext** context) {
   return S_OK;
 }
 
-HRESULT STDMETHODCALLTYPE FakeContext::EnumRanges(TfEditCookie,
-                                                  IEnumTfRanges**,
+HRESULT STDMETHODCALLTYPE FakeContext::EnumRanges(TfEditCookie, IEnumTfRanges**,
                                                   ITfRange*) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeContext::GetValue(TfEditCookie,
-                                                ITfRange*,
+HRESULT STDMETHODCALLTYPE FakeContext::GetValue(TfEditCookie, ITfRange*,
                                                 VARIANT*) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeContext::SetValue(TfEditCookie,
-                                                ITfRange*,
+HRESULT STDMETHODCALLTYPE FakeContext::SetValue(TfEditCookie, ITfRange*,
                                                 const VARIANT*) {
   return S_OK;
 }
-HRESULT STDMETHODCALLTYPE FakeContext::SetValueStore(TfEditCookie,
-                                                     ITfRange*,
+HRESULT STDMETHODCALLTYPE FakeContext::SetValueStore(TfEditCookie, ITfRange*,
                                                      ITfPropertyStore*) {
   return S_OK;
 }
 HRESULT STDMETHODCALLTYPE FakeContext::Clear(TfEditCookie, ITfRange*) {
   return S_OK;
 }
-HRESULT STDMETHODCALLTYPE FakeContext::FindRange(TfEditCookie,
-                                                 ITfRange*,
-                                                 ITfRange**,
-                                                 TfAnchor) {
+HRESULT STDMETHODCALLTYPE FakeContext::FindRange(TfEditCookie, ITfRange*,
+                                                 ITfRange**, TfAnchor) {
   return NotImpl();
 }
 FakeRange::FakeRange(FakeDocument* document, LONG start, LONG length) noexcept
@@ -472,13 +481,10 @@ ULONG STDMETHODCALLTYPE FakeRange::Release() {
   return remaining;
 }
 
-HRESULT STDMETHODCALLTYPE FakeRange::GetText(TfEditCookie,
-                                             DWORD,
-                                             WCHAR* buffer,
-                                             ULONG buffer_size,
-                                             ULONG* copied) {
-  const std::wstring& text = document_->composing ? document_->composition
-                                                  : document_->text;
+HRESULT STDMETHODCALLTYPE FakeRange::GetText(TfEditCookie, DWORD, WCHAR* buffer,
+                                             ULONG buffer_size, ULONG* copied) {
+  const std::wstring& text =
+      document_->composing ? document_->composition : document_->text;
   const ULONG n = static_cast<ULONG>(
       (std::min)(static_cast<std::size_t>(buffer_size), text.size()));
   if (buffer != nullptr && n > 0) {
@@ -490,10 +496,8 @@ HRESULT STDMETHODCALLTYPE FakeRange::GetText(TfEditCookie,
   return S_OK;
 }
 
-HRESULT STDMETHODCALLTYPE FakeRange::SetText(TfEditCookie,
-                                             DWORD,
-                                             const WCHAR* text,
-                                             LONG count) {
+HRESULT STDMETHODCALLTYPE FakeRange::SetText(TfEditCookie, DWORD,
+                                             const WCHAR* text, LONG count) {
   if (text == nullptr || count < 0) {
     document_->composition.clear();
     return S_OK;
@@ -508,46 +512,35 @@ HRESULT STDMETHODCALLTYPE FakeRange::GetFormattedText(TfEditCookie,
                                                       IDataObject**) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeRange::GetEmbedded(TfEditCookie,
-                                                 REFGUID,
-                                                 REFIID,
+HRESULT STDMETHODCALLTYPE FakeRange::GetEmbedded(TfEditCookie, REFGUID, REFIID,
                                                  IUnknown**) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeRange::InsertEmbedded(TfEditCookie,
-                                                    DWORD,
+HRESULT STDMETHODCALLTYPE FakeRange::InsertEmbedded(TfEditCookie, DWORD,
                                                     IDataObject*) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeRange::ShiftStart(TfEditCookie,
-                                                LONG,
-                                                LONG*,
+HRESULT STDMETHODCALLTYPE FakeRange::ShiftStart(TfEditCookie, LONG, LONG*,
                                                 const TF_HALTCOND*) {
   return S_OK;
 }
-HRESULT STDMETHODCALLTYPE FakeRange::ShiftEnd(TfEditCookie,
-                                              LONG,
-                                              LONG*,
+HRESULT STDMETHODCALLTYPE FakeRange::ShiftEnd(TfEditCookie, LONG, LONG*,
                                               const TF_HALTCOND*) {
   return S_OK;
 }
-HRESULT STDMETHODCALLTYPE FakeRange::ShiftStartToRange(TfEditCookie,
-                                                       ITfRange*,
+HRESULT STDMETHODCALLTYPE FakeRange::ShiftStartToRange(TfEditCookie, ITfRange*,
                                                        TfAnchor) {
   return S_OK;
 }
-HRESULT STDMETHODCALLTYPE FakeRange::ShiftEndToRange(TfEditCookie,
-                                                     ITfRange*,
+HRESULT STDMETHODCALLTYPE FakeRange::ShiftEndToRange(TfEditCookie, ITfRange*,
                                                      TfAnchor) {
   return S_OK;
 }
-HRESULT STDMETHODCALLTYPE FakeRange::ShiftStartRegion(TfEditCookie,
-                                                      TfShiftDir,
+HRESULT STDMETHODCALLTYPE FakeRange::ShiftStartRegion(TfEditCookie, TfShiftDir,
                                                       BOOL*) {
   return S_OK;
 }
-HRESULT STDMETHODCALLTYPE FakeRange::ShiftEndRegion(TfEditCookie,
-                                                    TfShiftDir,
+HRESULT STDMETHODCALLTYPE FakeRange::ShiftEndRegion(TfEditCookie, TfShiftDir,
                                                     BOOL*) {
   return S_OK;
 }
@@ -561,40 +554,30 @@ HRESULT STDMETHODCALLTYPE FakeRange::Collapse(TfEditCookie, TfAnchor) {
   length_ = 0;
   return S_OK;
 }
-HRESULT STDMETHODCALLTYPE FakeRange::IsEqualStart(TfEditCookie,
-                                                  ITfRange*,
-                                                  TfAnchor,
-                                                  BOOL*) {
+HRESULT STDMETHODCALLTYPE FakeRange::IsEqualStart(TfEditCookie, ITfRange*,
+                                                  TfAnchor, BOOL*) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeRange::IsEqualEnd(TfEditCookie,
-                                                ITfRange*,
-                                                TfAnchor,
-                                                BOOL*) {
+HRESULT STDMETHODCALLTYPE FakeRange::IsEqualEnd(TfEditCookie, ITfRange*,
+                                                TfAnchor, BOOL*) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeRange::CompareStart(TfEditCookie,
-                                                  ITfRange*,
-                                                  TfAnchor,
-                                                  LONG*) {
+HRESULT STDMETHODCALLTYPE FakeRange::CompareStart(TfEditCookie, ITfRange*,
+                                                  TfAnchor, LONG*) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeRange::CompareEnd(TfEditCookie,
-                                                ITfRange*,
-                                                TfAnchor,
-                                                LONG*) {
+HRESULT STDMETHODCALLTYPE FakeRange::CompareEnd(TfEditCookie, ITfRange*,
+                                                TfAnchor, LONG*) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeRange::AdjustForInsert(TfEditCookie,
-                                                     ULONG,
+HRESULT STDMETHODCALLTYPE FakeRange::AdjustForInsert(TfEditCookie, ULONG,
                                                      BOOL*) {
   return S_OK;
 }
 HRESULT STDMETHODCALLTYPE FakeRange::GetGravity(TfGravity*, TfGravity*) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeRange::SetGravity(TfEditCookie,
-                                                TfGravity,
+HRESULT STDMETHODCALLTYPE FakeRange::SetGravity(TfEditCookie, TfGravity,
                                                 TfGravity) {
   return S_OK;
 }
@@ -603,8 +586,8 @@ HRESULT STDMETHODCALLTYPE FakeRange::Clone(ITfRange** range) {
   if (range == nullptr) {
     return E_POINTER;
   }
-  *range = static_cast<ITfRange*>(
-      new (std::nothrow) FakeRange(document_, start_, length_));
+  *range = static_cast<ITfRange*>(new (std::nothrow)
+                                      FakeRange(document_, start_, length_));
   return *range != nullptr ? S_OK : E_OUTOFMEMORY;
 }
 
@@ -675,8 +658,8 @@ HRESULT STDMETHODCALLTYPE FakeComposition::GetRange(ITfRange** range) {
     return E_POINTER;
   }
   if (range_ == nullptr) {
-    *range = static_cast<ITfRange*>(
-        new (std::nothrow) FakeRange(document_, 0, 0));
+    *range =
+        static_cast<ITfRange*>(new (std::nothrow) FakeRange(document_, 0, 0));
     return *range != nullptr ? S_OK : E_OUTOFMEMORY;
   }
   range_->AddRef();
