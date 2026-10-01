@@ -1,0 +1,17 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(rimes_android LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 17)
+add_library(rimes_jni SHARED rime_jni.cpp)
+target_include_directories(rimes_jni PRIVATE ${RIME_SOURCE}/src)
+target_link_libraries(rimes_jni PRIVATE -Wl,--whole-archive ${RIME_BUILD}/lib/librime.a -Wl,--no-whole-archive
+    ${RIME_DEPS}/lib/libopencc.a ${RIME_DEPS}/lib/libmarisa.a ${RIME_DEPS}/lib/libleveldb.a ${RIME_DEPS}/lib/libyaml-cpp.a)
+target_link_options(rimes_jni PRIVATE -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384)
+add_executable(engine_contract engine_contract.cpp)
+target_include_directories(engine_contract PRIVATE ${RIME_SOURCE}/src)
+target_link_libraries(engine_contract PRIVATE -Wl,--whole-archive ${RIME_BUILD}/lib/librime.a -Wl,--no-whole-archive
+    ${RIME_DEPS}/lib/libopencc.a ${RIME_DEPS}/lib/libmarisa.a ${RIME_DEPS}/lib/libleveldb.a ${RIME_DEPS}/lib/libyaml-cpp.a)
+target_link_options(engine_contract PRIVATE -static -Wl,-z,max-page-size=16384)
+add_executable(library_contract library_contract.cpp)
+target_include_directories(library_contract PRIVATE ${RIME_SOURCE}/src)
+target_link_libraries(library_contract PRIVATE dl)
+target_link_options(library_contract PRIVATE -Wl,-z,max-page-size=16384)
