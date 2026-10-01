@@ -890,6 +890,7 @@ HRESULT TextService::HandleKey(BrokerKeyPhase phase, ITfContext* context,
     }
     return S_OK;
   }
+  RefreshBrokerConnection();
   if (!context || !BindContext(context)) return S_OK;
   // Read-only locks never enqueue keystrokes or expose sensitive text to IPC.
   auto* scope = new (std::nothrow) ScopeRead(context);
@@ -1262,13 +1263,14 @@ HRESULT STDMETHODCALLTYPE TextService::OnEndEdit(ITfContext* context,
                                                  TfEditCookie,
                                                  ITfEditRecord* record) {
   if (context != active_context_ || !record) return S_OK;
+  // A host may accept an insertion without moving selection. Consume the
+  // origin marker on that edit too, so a later user click is never mistaken
+  // for our own insertion and allowed to retarget a Buffer delivery.
+  const bool own_edit = std::exchange(own_buffer_edit_, false);
   BOOL changed = FALSE;
   if (SUCCEEDED(record->GetSelectionStatus(&changed)) && changed &&
-      broker_client_->Capturing()) {
-    if (own_buffer_edit_)
-      own_buffer_edit_ = false;
-    else
-      RevokeContext();
+      broker_client_->Capturing() && !own_edit) {
+    RevokeContext();
   }
   return S_OK;
 }
@@ -1312,8 +1314,18 @@ void TextService::SetCapture(bool enabled) {
   candidate_window_.Hide();
   last_state_ = {};
 }
+void TextService::RefreshBrokerConnection() noexcept {
+  const auto generation = broker_client_->ConnectionGeneration();
+  if (generation == broker_generation_) return;
+  broker_generation_ = generation;
+  last_delivery_ = 0;
+  RevokeContext();
+}
 void TextService::OnBrokerNotification() {
+  RefreshBrokerConnection();
   while (auto message = broker_client_->TakeNotification()) {
+    if (message->value("connectionGeneration", 0ULL) != broker_generation_)
+      continue;
     const auto kind = message->value("kind", "");
     if (message->value("context", 0ULL) != context_generation_) continue;
     if (kind == "capture") {
@@ -1368,13 +1380,18 @@ void TextService::OnBrokerNotification() {
     }
     auto* session = new (std::nothrow) CommitEditSession(
         active_context_, std::move(wide), edit_valid_,
-        [this, request](bool accepted) {
+        [this, request, generation = broker_generation_,
+         context = context_generation_](bool accepted) {
+          if (generation != broker_client_->ConnectionGeneration() ||
+              context != context_generation_) return;
           own_buffer_edit_ = accepted;
           broker_client_->Control(
               {{"op", "ack"}, {"request", request}, {"accepted", accepted}});
         },
         static_cast<ITfTextInputProcessorEx*>(this),
-        [this](TfEditCookie) {
+        [this, generation = broker_generation_](TfEditCookie) {
+          if (generation != broker_client_->ConnectionGeneration())
+            return false;
           DWORD process = 0;
           GetWindowThreadProcessId(GetForegroundWindow(), &process);
           if (process != GetCurrentProcessId() || !broker_client_->Capturing())

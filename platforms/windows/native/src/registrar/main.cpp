@@ -732,6 +732,33 @@ bool LoadClassFactory() {
 
 bool VerifyTsf(const std::wstring& dll_path);
 
+bool VerifyTsfInFreshProcess(const std::wstring& dll_path) {
+  // On Windows 11 CategoryMgr retains the first EnumItemsInCategory result
+  // across COM instances in a process. Verification must observe the state
+  // after RegisterCategory, not the preflight enumeration cached above.
+  std::vector<wchar_t> executable(32768);
+  const DWORD length = GetModuleFileNameW(nullptr, executable.data(),
+                                         static_cast<DWORD>(executable.size()));
+  if (!length || length >= executable.size()) return false;
+  std::wstring command = L"\"" + std::wstring(executable.data(), length) +
+                         L"\" verify --dll \"" + dll_path + L"\"";
+  STARTUPINFOW startup{sizeof(startup)};
+  PROCESS_INFORMATION process{};
+  if (!CreateProcessW(executable.data(), command.data(), nullptr, nullptr,
+                      TRUE, 0, nullptr, nullptr, &startup, &process)) {
+    return PrintWin32Failure("Start registration verification", GetLastError());
+  }
+  ScopedHandle thread(process.hThread);
+  ScopedHandle child(process.hProcess);
+  if (WaitForSingleObject(child.Get(), 30000) != WAIT_OBJECT_0) {
+    TerminateProcess(child.Get(), 1);
+    std::cerr << "Registration verification timed out.\n";
+    return false;
+  }
+  DWORD code = 1;
+  return GetExitCodeProcess(child.Get(), &code) && code == 0;
+}
+
 bool RollBackRegistration(const std::wstring& dll_path,
                           ITfInputProcessorProfiles* profiles,
                           ITfCategoryMgr* categories,
@@ -855,7 +882,7 @@ bool RegisterTsf(const std::wstring& dll_path) {
   // observed as absent before this invocation.  This is critical when the
   // other architecture, or a previous same-architecture install, already owns
   // some of the shared TSF state.
-  if (!VerifyTsf(dll_path)) {
+  if (!VerifyTsfInFreshProcess(dll_path)) {
     std::cerr << "Registration verification failed; rolling back only state "
                  "created by this invocation.\n";
     goto rollback;
@@ -993,7 +1020,9 @@ bool VerifyTsf(const std::wstring& dll_path) {
               << ", language-profile="
               << (profile_exists ? "present" : "missing")
               << ", keyboard-category="
-              << (category_exists ? "present" : "missing") << ".\n";
+              << (category_exists ? "present" : "missing")
+              << ", display-category="
+              << (display_exists ? "present" : "missing") << ".\n";
     return false;
   }
   if (!LoadClassFactory()) {

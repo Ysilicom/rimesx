@@ -98,9 +98,11 @@ class TextService final : public ITfTextInputProcessorEx,
   void SetCapture(bool enabled);
   bool capture_active_ = false;
   void OnBrokerNotification();
+  void RefreshBrokerConnection() noexcept;
   static LRESULT CALLBACK NotificationProcedure(HWND, UINT, WPARAM, LPARAM);
   HWND notification_window_ = nullptr;
   std::uint64_t last_delivery_ = 0;
+  std::uint64_t broker_generation_ = 0;
   bool return_owned_ = false;
   void RevokeContext() noexcept;
   ITfContext* active_context_ = nullptr;

@@ -681,6 +681,9 @@ class NamedPipeBrokerClient final : public BrokerClient {
     notification_window_.store(window);
   }
   bool Capturing() const noexcept override { return capturing_.load(); }
+  std::uint64_t ConnectionGeneration() const noexcept override {
+    return connection_generation_.load();
+  }
   std::optional<core::Json> TakeNotification() override {
     std::lock_guard lock(notification_mutex_);
     if (notifications_.empty()) return {};
@@ -695,16 +698,20 @@ class NamedPipeBrokerClient final : public BrokerClient {
         return false;
       message["session"] = input_session_id_;
       protocol::Frame response;
-      return RequestResponse(pipe_, protocol::MessageType::kControl,
+      if (!RequestResponse(pipe_, protocol::MessageType::kControl,
                              next_request_id_++, core::EncodeControl(message),
                              GetTickCount64() + kKeyBudgetMillis, stop_event_,
-                             &response, nullptr) &&
-             IsExpectedResponse(response,
-                                protocol::MessageType::kControlState) &&
-             core::DecodeControl(response.payload)
-                     .value_or(core::Json::object())
-                     .value("kind", "") == "ok";
+                             &response, nullptr) ||
+          !IsExpectedResponse(response, protocol::MessageType::kControlState)) {
+        // An overdue reply must never become the next key's response.
+        FailConnectionLocked();
+        return false;
+      }
+      const auto decoded = core::DecodeControl(response.payload);
+      if (!decoded) { FailConnectionLocked(); return false; }
+      return decoded->value("kind", "") == "ok";
     } catch (...) {
+      FailConnection();
       return false;
     }
   }
@@ -718,7 +725,10 @@ class NamedPipeBrokerClient final : public BrokerClient {
         return false;
       }
       if (context_id == context_id_) return true;
-      BestEffortCloseSessionLocked();
+      if (!BestEffortCloseSessionLocked()) {
+        FailConnectionLocked();
+        return false;
+      }
       input_session_id_ = 0;
       capturing_.store(false);
       {
@@ -747,12 +757,16 @@ class NamedPipeBrokerClient final : public BrokerClient {
       input_session_id_ = opened.session_id;
       if (control_capable_.load()) {
         protocol::Frame focused;
-        RequestResponse(pipe_, protocol::MessageType::kControl,
+        if (!RequestResponse(pipe_, protocol::MessageType::kControl,
                         next_request_id_++,
                         core::EncodeControl(
                             {{"op", "focus"}, {"session", input_session_id_}}),
                         GetTickCount64() + kKeyBudgetMillis, stop_event_,
-                        &focused, nullptr);
+                        &focused, nullptr) ||
+            !IsExpectedResponse(focused, protocol::MessageType::kControlState)) {
+          FailConnectionLocked();
+          return false;
+        }
       }
       next_sequence_id_ = 1;
       last_revision_ = 0;
@@ -1262,6 +1276,7 @@ class NamedPipeBrokerClient final : public BrokerClient {
       std::uint32_t request = 1;
       while (!stopping_.load()) {
         std::uint64_t session = 0;
+        const auto generation = connection_generation_.load();
         {
           std::lock_guard lock(io_mutex_);
           if (connected_.load() && control_capable_.load())
@@ -1322,6 +1337,11 @@ class NamedPipeBrokerClient final : public BrokerClient {
             !IsExpectedResponse(response,
                                 protocol::MessageType::kControlState)) {
           channel.reset();
+          // Drop the key connection too when the broker disappears. This
+          // schedules reconnect without waiting for the user's first letter.
+          std::lock_guard lock(io_mutex_);
+          if (connection_generation_.load() == generation)
+            FailConnectionLocked();
           continue;
         }
         auto message = core::DecodeControl(response.payload);
@@ -1329,19 +1349,21 @@ class NamedPipeBrokerClient final : public BrokerClient {
           channel.reset();
           return;
         }
-        {
-          std::lock_guard lock(io_mutex_);
-          if (input_session_id_ != session) continue;
-        }
         auto kind = message->value("kind", "");
-        if (kind == "capture")
-          capturing_.store(message->value("enabled", false));
-        if (kind == "capture" || kind == "deliver") {
-          {
+        {
+          std::lock_guard state_lock(io_mutex_);
+          if (input_session_id_ != session ||
+              connection_generation_.load() != generation) continue;
+          if (kind == "capture")
+            capturing_.store(message->value("enabled", false));
+          if (kind == "capture" || kind == "deliver") {
+            (*message)["connectionGeneration"] = generation;
             std::lock_guard lock(notification_mutex_);
             if (notifications_.size() >= 128) return;
             notifications_.push_back(std::move(*message));
           }
+        }
+        if (kind == "capture" || kind == "deliver") {
           const auto window = notification_window_.load();
           if (window) PostMessageW(window, kBrokerNotification, 0, 0);
         } else if (kind == "disconnected")
@@ -1352,27 +1374,35 @@ class NamedPipeBrokerClient final : public BrokerClient {
     }
   }
 
-  void BestEffortCloseSessionLocked() noexcept {
-    if (input_session_id_ == 0 || next_request_id_ == 0 ||
+  bool BestEffortCloseSessionLocked() noexcept {
+    if (input_session_id_ == 0) return true;
+    if (next_request_id_ == 0 ||
         next_request_id_ == std::numeric_limits<std::uint32_t>::max()) {
-      return;
+      return false;
     }
     try {
       protocol::CloseInputSession close{input_session_id_};
       std::vector<std::byte> payload;
       protocol::Frame response;
       if (!protocol::EncodeCloseInputSession(close, &payload)) {
-        return;
+        return false;
       }
-      RequestResponse(pipe_, protocol::MessageType::kCloseInputSession,
+      return RequestResponse(pipe_, protocol::MessageType::kCloseInputSession,
                       next_request_id_++, std::move(payload),
                       GetTickCount64() + kCloseBudgetMillis, nullptr, &response,
-                      nullptr);
+                      nullptr) &&
+             IsExpectedResponse(response, protocol::MessageType::kInputSessionClosed);
     } catch (...) {
+      return false;
     }
   }
 
   void ResetSessionLocked() noexcept {
+    ++connection_generation_;
+    {
+      std::lock_guard pending(notification_mutex_);
+      notifications_.clear();
+    }
     context_id_ = 0;
     capturing_.store(false);
     input_session_id_ = 0;
@@ -1384,6 +1414,8 @@ class NamedPipeBrokerClient final : public BrokerClient {
     for (auto& pressed : pressed_keys_) {
       pressed.store(false, std::memory_order_release);
     }
+    if (const auto window = notification_window_.load())
+      PostMessageW(window, kBrokerNotification, 0, 0);
   }
 
   void ScheduleReconnectLocked() noexcept {
@@ -1422,6 +1454,7 @@ class NamedPipeBrokerClient final : public BrokerClient {
 
   std::atomic<HWND> notification_window_{nullptr};
   std::atomic_bool capturing_{false}, control_capable_{false};
+  std::atomic<std::uint64_t> connection_generation_{0};
   std::mutex notification_mutex_;
   std::deque<core::Json> notifications_;
   std::thread control_thread_;

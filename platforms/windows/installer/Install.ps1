@@ -10,7 +10,9 @@ $previous=$null
 $legacy=@()
 $requiresRestart=$false
 $runKey='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-$oldAutostart=(Get-ItemProperty -LiteralPath $runKey -Name RimesBroker -ErrorAction SilentlyContinue | Select-Object -ExpandProperty RimesBroker -ErrorAction SilentlyContinue)
+$oldAutostart=$null
+$runHandle=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Run')
+if($runHandle){$oldAutostart=$runHandle.GetValue('RimesBroker',$null);$runHandle.Dispose()}
 if (Test-Path -LiteralPath "$InstallRoot\state.json") {
     $previous=Get-Content -LiteralPath "$InstallRoot\state.json" -Raw | ConvertFrom-Json
     Assert-OwnedVersion $InstallRoot $previous.active | Out-Null
@@ -45,15 +47,18 @@ try {
     foreach($arch in @('x64','x86')) {Invoke-Registrar $target $arch 'register'; $registered+=$arch}
     foreach($arch in @('x64','x86')) {Invoke-Registrar $target $arch 'verify'}
     if(-not $NoAutostart){ & "$target\x64\RimesBroker.exe" --install-autostart; if($LASTEXITCODE){throw 'Autostart registration failed'} }
+    else{Remove-ItemProperty -LiteralPath $runKey -Name RimesBroker -ErrorAction SilentlyContinue}
     $oldPath=if($previous){$previous.active}else{''}
     Write-InstallState $InstallRoot ([ordered]@{active=$target;previous=$oldPath;version=$manifest.version;commit=$manifest.commit;requiresSignOut=$requiresRestart;legacy=$legacy;previousAutostart=$oldAutostart;installedAt=(Get-Date).ToString('o')})
 } catch {
     $failure=$_
-    foreach($arch in $registered){try{Invoke-Registrar $target $arch 'unregister'}catch{Write-Warning $_}}
-    if($previous){foreach($arch in @('x64','x86')){Invoke-Registrar $previous.active $arch 'register'}; & "$($previous.active)\x64\RimesBroker.exe" --install-autostart}
-    if(-not $previous){foreach($entry in $legacy){Invoke-LegacyRegistrar $target $entry 'register'}}
-    if($oldAutostart){Set-ItemProperty -LiteralPath $runKey -Name RimesBroker -Value $oldAutostart}else{Remove-ItemProperty -LiteralPath $runKey -Name RimesBroker -ErrorAction SilentlyContinue}
-    throw "Installation failed; rollback attempted. Verify the previous installation before use. $failure"
+    $rollbackFailures=@()
+    foreach($arch in $registered){try{Invoke-Registrar $target $arch 'unregister'}catch{$rollbackFailures+=$_.ToString()}}
+    if($previous){foreach($arch in @('x64','x86')){try{Invoke-Registrar $previous.active $arch 'register'}catch{$rollbackFailures+=$_.ToString()}}}
+    else{foreach($entry in $legacy){try{Invoke-LegacyRegistrar $target $entry 'register'}catch{$rollbackFailures+=$_.ToString()}}}
+    try{if($null -ne $oldAutostart){Set-ItemProperty -LiteralPath $runKey -Name RimesBroker -Value $oldAutostart}else{Remove-ItemProperty -LiteralPath $runKey -Name RimesBroker -ErrorAction SilentlyContinue}}catch{$rollbackFailures+=$_.ToString()}
+    if($rollbackFailures.Count){throw "Installation failed: $failure. Recovery is incomplete: $($rollbackFailures -join '; '). Recovery records and all prior DLLs are retained."}
+    throw "Installation failed; prior registration and startup setting restored. $failure"
 }
 if($requiresRestart){Write-Output 'Registered the new immutable version. SIGN-OUT REQUIRED before daily use; running hosts may still use the previous DLL. No old DLL was overwritten.'}
 else{Write-Output 'Installed and verified both TSF architectures. Select RIMES with Win+Space. User data was retained.'}
