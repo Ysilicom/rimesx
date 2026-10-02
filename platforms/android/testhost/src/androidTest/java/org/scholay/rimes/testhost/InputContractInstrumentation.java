@@ -38,6 +38,7 @@ public final class InputContractInstrumentation extends Instrumentation {
             if("chord".equals(arguments.getString("mode"))) chordContract();
             else if("benchmark".equals(arguments.getString("mode"))) benchmark();
             else if("layout".equals(arguments.getString("mode"))) layoutContract();
+            else if("plugins".equals(arguments.getString("mode"))) pluginsContract();
             else if(!"soak".equals(arguments.getString("mode"))) contract();
             else soak(Long.parseLong(arguments.getString("seconds","1800")));
             result.putString("stream","PASS input contract; assertions="+assertions+"\n"); finish(-1,result);
@@ -77,6 +78,50 @@ public final class InputContractInstrumentation extends Instrumentation {
         }
         return null;
     }
+    private AccessibilityNodeInfo searchLabel(AccessibilityNodeInfo node,String value,boolean description,boolean visible) {
+        if(node==null) return null;
+        CharSequence label=description?node.getContentDescription():node.getText();
+        if(IME.contentEquals(node.getPackageName()==null?"":node.getPackageName())
+                && value.contentEquals(label==null?"":label) && (!visible || node.isVisibleToUser())) return node;
+        for(int i=0;i<node.getChildCount();i++) {
+            AccessibilityNodeInfo found=searchLabel(node.getChild(i),value,description,visible); if(found!=null) return found;
+        }
+        return null;
+    }
+    /** Output and source rows intentionally are not clickable. */
+    private AccessibilityNodeInfo findLabel(String value,boolean description) {
+        for(AccessibilityWindowInfo window:getUiAutomation().getWindows()) {
+            AccessibilityNodeInfo found=searchLabel(window.getRoot(),value,description,true); if(found!=null) return found;
+        }
+        return null;
+    }
+    private AccessibilityNodeInfo waitLabel(String value,boolean description) {
+        long deadline=SystemClock.uptimeMillis()+5000;
+        do { AccessibilityNodeInfo node=findLabel(value,description); if(node!=null) return node; SystemClock.sleep(30); } while(SystemClock.uptimeMillis()<deadline);
+        throw new AssertionError("Missing keyboard label: "+value);
+    }
+    private AccessibilityNodeInfo searchPluginPanelButton(AccessibilityNodeInfo node,String value) {
+        if(node==null) return null;
+        if("android.widget.ScrollView".contentEquals(node.getClassName()==null?"":node.getClassName())
+                && node.isVisibleToUser() && searchLabel(node,"Buffer 插件设置",false,true)!=null)
+            return search(node,value,true);
+        for(int i=0;i<node.getChildCount();i++) {
+            AccessibilityNodeInfo found=searchPluginPanelButton(node.getChild(i),value); if(found!=null) return found;
+        }
+        return null;
+    }
+    private void clickPluginPanel(String value) {
+        AccessibilityNodeInfo button=null; long deadline=SystemClock.uptimeMillis()+5000;
+        do {
+            for(AccessibilityWindowInfo window:getUiAutomation().getWindows()) {
+                button=searchPluginPanelButton(window.getRoot(),value); if(button!=null) break;
+            }
+            if(button!=null && button.isEnabled()) break;
+            SystemClock.sleep(30);
+        } while(SystemClock.uptimeMillis()<deadline);
+        check(button!=null && button.isEnabled() && button.performAction(AccessibilityNodeInfo.ACTION_CLICK),"click panel "+value);
+        SystemClock.sleep(120);
+    }
     private AccessibilityNodeInfo waitButton(String value) {
         long deadline=SystemClock.uptimeMillis()+5000;
         do { AccessibilityNodeInfo node=find(value,false); if(node!=null && node.isEnabled()) return node; SystemClock.sleep(30); } while(SystemClock.uptimeMillis()<deadline);
@@ -91,9 +136,44 @@ public final class InputContractInstrumentation extends Instrumentation {
         for(int i=0;i<node.getChildCount();i++) if(scrollChooser(node.getChild(i))) return true;
         return false;
     }
+    private boolean scrollPluginBar(AccessibilityNodeInfo node,String label,int action) {
+        if(node==null) return false;
+        if(IME.contentEquals(node.getPackageName()==null?"":node.getPackageName())
+                && "android.widget.HorizontalScrollView".contentEquals(node.getClassName()==null?"":node.getClassName())
+                && node.isVisibleToUser() && node.isScrollable() && searchLabel(node,label,true,false)!=null)
+            return node.performAction(action);
+        for(int i=0;i<node.getChildCount();i++) if(scrollPluginBar(node.getChild(i),label,action)) return true;
+        return false;
+    }
     private void tap(String value) {
         if((value.equals("拼音") || value.equals("自然码") || value.equals("五笔")) && modern()) {
             schema(value.equals("拼音")?"自然码":value.equals("自然码")?"五笔":"拼音"); return;
+        }
+        if(value.equals("Insert all") && modern() && find(value,false)==null) {
+            AccessibilityNodeInfo send=find("Insert next",false);
+            if(send==null) send=waitButton("Insert");
+            check(send.isEnabled() && send.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK),"long click Insert next sends all");
+            SystemClock.sleep(120); return;
+        }
+        // Idle candidate space is now the plugin bar. QWERTY punctuation lives on 123;
+        // nine-key has its explicit selector, while the chord comma remains a direct key.
+        if((value.equals(",") || value.equals(".")) && modern() && find(value,false)==null) {
+            if(find("q",false)!=null) {
+                click("123"); click(value); click("ABC"); return;
+            }
+            if(find("中文标点",false)!=null) { click("中文标点"); click(value); return; }
+        }
+        if(value.startsWith("Buffer 插件：")) {
+            for(int action:new int[]{AccessibilityNodeInfo.ACTION_SCROLL_FORWARD,AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD}) {
+                for(int attempt=0;find(value,false)==null && attempt<8;attempt++) {
+                    boolean moved=false;
+                    for(AccessibilityWindowInfo window:getUiAutomation().getWindows())
+                        if(scrollPluginBar(window.getRoot(),value,action)) { moved=true; break; }
+                    if(!moved) break;
+                    SystemClock.sleep(120);
+                }
+                if(find(value,false)!=null) break;
+            }
         }
         // The appearance panel scrolls independently; large fonts can place palettes below its viewport.
         if(value.startsWith("配色 ")) {
@@ -105,6 +185,10 @@ public final class InputContractInstrumentation extends Instrumentation {
                 SystemClock.sleep(120);
             }
         }
+        click(value);
+    }
+    /** Direct click avoids re-entering schema, symbol-page or plugin routing in tap(). */
+    private void click(String value) {
         AccessibilityNodeInfo node=waitButton(value);
         check(node.performAction(AccessibilityNodeInfo.ACTION_CLICK),"click "+value);
         SystemClock.sleep(120);
@@ -171,6 +255,88 @@ public final class InputContractInstrumentation extends Instrumentation {
                 .put("p50",samples.get((samples.size()-1)/2)/1e6)
                 .put("p95",samples.get((int)Math.ceil(samples.size()*.95)-1)/1e6)
                 .put("max",samples.get(samples.size()-1)/1e6);
+    }
+    private void pluginSource(String wanted,String label) {
+        check(waitLabel("Buffer "+wanted,true)!=null,label+" retains source in keyboard");
+        expect(host.first,"",label+" does not change host");
+    }
+    private void pluginPanel(String name) {
+        waitLabel("Buffer 插件设置",false);
+        check(waitLabel(name+"服务尚未接通\n原文保留在本机，当前不会发送到服务或输入框。",false)!=null,
+                name+" settings honestly report unavailable execution");
+        expect(host.first,"",name+" settings never insert raw source");
+    }
+    /** The actual IME owns entries, selection and drafts; no test-side plugin execution. */
+    private void pluginsContract() throws Exception {
+        final String[] names={"翻译","快问","润色","作诗","画画"};
+        focusAny(host.first); layout("26"); pinyin();
+        tap("Buffer off"); type("nihao"); tap("Space"); pluginSource("你好","plain Buffer");
+        for(String name:names) {
+            String shortcut="Buffer 插件："+name;
+            tap(shortcut);
+            check(waitButton("Buffer on").isEnabled(),name+" enables Buffer");
+            check(waitButton(shortcut).isSelected(),name+" shortcut selected");
+            AccessibilityNodeInfo output=waitLabel("插件输出："+name,true);
+            check((name+"服务尚未接通").contentEquals(output.getText()),name+" output is honest placeholder");
+            pluginSource("你好",name+" activation");
+            android.graphics.Rect outputBounds=new android.graphics.Rect(),sourceBounds=new android.graphics.Rect();
+            output.getBoundsInScreen(outputBounds); waitLabel("Buffer 你好",true).getBoundsInScreen(sourceBounds);
+            check(outputBounds.bottom<=sourceBounds.top,name+" output above original Buffer row");
+            AccessibilityNodeInfo send=find("Insert",false);
+            if(send==null) send=find("Insert next",false);
+            check(send!=null && !send.isEnabled(),name+" cannot send raw source through Insert");
+            tap("执行"+name); pluginPanel(name);
+            if(name.equals("快问")) {
+                clickPluginPanel(shortcut); pluginPanel(name);
+            }
+            tap("返回键盘"); pluginSource("你好",name+" execution entry");
+            check(waitButton(shortcut).isSelected(),name+" settings selection remains active");
+            tap("Enter"); pluginPanel(name); tap("返回键盘"); pluginSource("你好",name+" Return entry");
+            tap(shortcut);
+            check(!waitButton(shortcut).isSelected(),name+" same shortcut returns ordinary Buffer");
+            check(findLabel("插件输出："+name,true)==null,name+" ordinary Buffer removes plugin output");
+            check(find("执行"+name,false)==null,name+" ordinary Buffer removes execution control");
+            pluginSource("你好",name+" deactivation");
+        }
+        tap("Buffer 插件：翻译"); type("ni");
+        for(String name:names) check(find("Buffer 插件："+name,false)==null,"composition hides shortcut "+name);
+        check(waitLabel("Buffer 你好ni",true)!=null,"plugin composition remains in source Buffer");
+        expect(host.first,"","plugin composition never reaches host");
+        String selected=candidate(0); tap("Space"); String source="你好"+selected;
+        pluginSource(source,"plugin candidate confirmation");
+        tap("Buffer 插件：润色");
+        check(waitButton("Buffer 插件：润色").isSelected(),"different plugin becomes selected");
+        check(findLabel("插件输出：翻译",true)==null,"switch removes previous plugin output");
+        pluginSource(source,"switching plugins");
+        tap("Buffer 插件设置"); waitLabel("Buffer 插件设置",false); tap("普通 Buffer");
+        check(!waitButton("Buffer 插件：润色").isSelected(),"settings returns ordinary Buffer");
+        pluginSource(source,"ordinary Buffer settings action");
+        tap("Buffer 插件：翻译"); tap("Buffer on");
+        check(!waitButton("Buffer 插件：翻译").isSelected(),"Buffer off clears plugin selection");
+        check(findLabel("插件输出：翻译",true)==null,"Buffer off hides plugin output");
+        expect(host.first,"","Buffer off does not send source");
+        tap("Buffer off"); pluginSource(source,"Buffer reopened");
+        check(!waitButton("Buffer 插件：翻译").isSelected(),"reopened Buffer is ordinary");
+        tap("Buffer 插件：翻译"); focus(host.second);
+        check(waitButton("Buffer off").isEnabled(),"new target starts with ordinary Buffer off");
+        check(!waitButton("Buffer 插件：翻译").isSelected(),"target retirement clears plugin selection");
+        check(findLabel("插件输出：翻译",true)==null && findLabel("Buffer "+source,true)==null,
+                "target retirement removes plugin output and source projection");
+        expect(host.first,"","retired host receives no unexecuted source"); expect(host.second,"","new host receives no unexecuted source");
+        type("nihao"); tap("Space"); expect(host.second,"你好","new target receives only its own confirmed text");
+        focus(host.privateInput);
+        for(String name:names) {
+            AccessibilityNodeInfo shortcut=find("Buffer 插件："+name,false);
+            check(shortcut==null || !shortcut.isEnabled(),"private field denies shortcut "+name);
+        }
+        check(!waitLabel("Buffer off",true).isEnabled(),"private field denies Buffer");
+        check(findLabel("插件输出：翻译",true)==null,"private field has no retained plugin output");
+        expect(host.privateInput,"","private field receives no plugin source");
+        focus(host.first); layout("9"); pinyin(); nine("64426"); tap("Space");
+        expect(host.first,"你好","nine-key independent input"); tap(",");
+        expect(host.first,"你好，","nine-key explicit punctuation selector remains available");
+        layout("26"); focus(host.first);
+        report("PASS five plugin entries, Buffer source preservation, output row placement, unavailable execution, composition, privacy and target retirement");
     }
     private void contract() throws Exception {
         focus(host.first); pinyin(); type("nihao");

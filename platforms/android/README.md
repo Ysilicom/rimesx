@@ -10,8 +10,8 @@ Current evidence and remaining acceptance are in [VALIDATION.md](VALIDATION.md).
 - Offline librime 1.17.0: simplified Pinyin, natural-code Shuangpin and Wubi 86.
   Default Pinyin; the last Chinese schema is remembered. English and numeric
   input remain available while Chinese resources initialize; failures show Retry.
-- The footer 中/英 control changes language. The candidate row's left ⚙ opens
-  layout, Chinese schema and palette choices; its right ▤ toggles Buffer. There
+- The footer 中/英 control changes language. The candidate row's left settings icon opens
+  layout, Chinese schema and palette choices; its right layers icon toggles Buffer. There
   are nine candidates per page, with tap selection and previous/next buttons.
   Composing text is displayed through the host's `InputConnection` when Buffer
   is off, and in the Buffer input rail when it is on.
@@ -33,8 +33,8 @@ Current evidence and remaining acceptance are in [VALIDATION.md](VALIDATION.md).
 
 ## Keyboard layouts and appearance
 
-The candidate-row ⚙, Buffer pet/settings buttons and Setup open the layout and
-appearance chooser. The layout and theme are stored with the existing
+The candidate-row settings icon, Buffer appearance button and Setup open the
+layout and appearance chooser. The layout and theme are stored with the existing
 schema/learning preferences; changing colors does not settle composition or reset
 Buffer. The chooser also exposes schema selection, Clear Buffer and the system
 keyboard picker. There is no persistent toolbar or separate 20 dp preedit row.
@@ -83,18 +83,26 @@ independent of their hit areas. Nine-key Return spans two visible rows (98 / 69 
 - **18 palettes** mirror iOS: native, Rhino, hermit crab, kitten, puppy, piglet,
   dog, poodle, pig, rabbit, crab, penguin, fox, panda, turtle, octopus, frog and
   chick. Every palette has light/dark colors, functional caps and visible press
-  feedback. Pet glyphs use system emoji; animated pets are not included.
-- **Buffer's two rows** place the pet, scrollable block/preedit rail and next-block
-  send above settings, character/block counts and Send all. The second row's
-  counters and Send all are Android functions; they do not implement iOS's plugin
-  result/AI row. A confirmed block has its own rounded chip, and preedit stays in
-  the active chip. Visual block gaps never become spaces in delivered text. Near
+  feedback. Palette names and colors are retained; controls use one pinned Lucide vector family. Animated pets are not included.
+- **Buffer's two rows** match the iOS source/output positions: ordinary Buffer
+  has source above statistics; a selected plugin has output above source. Send
+  stays at the upper right; settings, the optional Run button and plugin selector
+  occupy the lower row. Long-press Send inserts all ordinary Buffer blocks.
+  A confirmed block has its own rounded chip, and preedit stays in the active chip. Visual block gaps never become spaces in delivered text. Near
   the 16,384-unit limit only visible chips are drawn; unchanged confirmed blocks
   are not remeasured when composition changes. Target loss clears both drawing
   and accessibility projections.
 - Candidate refreshes reuse the keyboard surface. Candidates are plain text with
-  press feedback, natural widths and horizontal scrolling; idle punctuation uses
-  the same stable row. Key labels size within fixed touch cells for system fonts.
+  press feedback, natural widths and horizontal scrolling. With no composition,
+  candidates or held chord, this row shows the five iOS Buffer plugin shortcuts:
+  翻译, 快问, 润色, 作诗 and 画画. Each is 68 × 30 dp with a 6 dp gap.
+  Tap enables Buffer and selects the plugin; tapping it again returns to ordinary
+  Buffer. Long-press opens its settings; switching keeps source blocks intact.
+  The Android plugin executors remain deferred: output explicitly says the service
+  is not connected, and Run opens that explanation. Plugin Send/Return never send
+  raw source as a result. Private/password fields have no plugin entries.
+  Punctuation remains on the numeric/symbol page and nine-key punctuation control.
+  Key labels size within fixed touch cells for system fonts.
 
 During a Chinese chord, each hand has one finger with a fixed start and movable
 endpoint. Held keys and eligible next keys are highlighted; the candidate row
@@ -121,7 +129,7 @@ are held; opening settings cancels the held gesture.
 These are iOS-derived logical dimensions and keycap styles, not a pixel-perfect
 claim across platforms. Android dp/sp density and font scale, system fonts and
 emoji, navigation insets and rasterization differ from iOS pt and Apple fonts.
-The Android Buffer second-row functions and system keyboard actions also differ.
+Plugin execution, full Buffer editing and system keyboard actions also differ.
 Compare cropped key/Buffer regions at the same logical width, and keep system
 bottom rows and host chrome out of the geometry comparison.
 
@@ -177,7 +185,8 @@ Never uninstall or clear application data during an ordinary upgrade.
 The APK includes third-party licenses in `assets/licenses/`. Dictionary sources
 are pinned by URL and SHA-256 in `platforms/ios/dependencies.lock.json`; Wubi data
 is LGPL-3.0 and Pinyin data Apache-2.0. librime and every linked dependency retain
-their original license notices. No iOS executable code or Apple framework is linked.
+their original license notices. The official Lucide icon subset is pinned and hash-verified; its complete ISC/MIT
+notice is packaged too. No iOS executable code or Apple framework is linked.
 
 ## Checks
 
@@ -185,7 +194,7 @@ their original license notices. No iOS executable code or Apple framework is lin
 revocation, immutable snapshots, touch/cap geometry, nine-key spelling constraints,
 all 427 chord encodings, gesture resolution and cancellation. `app` instrumentation
 checks the real JNI Unicode bridge, nine-key schemas, all 18 keycap palettes,
-chord touch-stream contracts, Buffer glyph/chip rendering and near-capacity
+chord touch-stream contracts, vector icon visibility/tint/accessibility, Buffer glyph/chip rendering and near-capacity
 viewport/cache behavior, plus Android editor policies. Its rendering timings are
 component bitmap measurements, not hardware frame latency. `native/engine_contract.cpp`
 checks actual schemas, paging, punctuation, learning/restart and disabled learning.
@@ -222,6 +231,9 @@ adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w -e mode layout \
 # Actual injected multi-touch: held/released hands, cancellation, split, Buffer,
 # private fields, target changes and orientation.
 adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w -e mode chord \
+  org.scholay.rimes.testhost.test/org.scholay.rimes.testhost.InputContractInstrumentation
+# Idle/plugin shortcuts, retained source, private targets and unavailable execution.
+adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w -e mode plugins \
   org.scholay.rimes.testhost.test/org.scholay.rimes.testhost.InputContractInstrumentation
 # Continuous mixed QWERTY/chord input; the runner reports every minute.
 adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w -e mode soak -e seconds 1800 -e chords true \

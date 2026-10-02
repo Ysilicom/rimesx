@@ -40,6 +40,8 @@ final class KeyboardSurface extends ViewGroup {
             int font=letter?(mode==KeyboardLayout.Mode.NINE_KEY?20:system?24:21)
                     :key.action==KeyboardLayout.Action.LANGUAGE?18:system?18:14;
             button.fontStyle(letter && !system && mode!=KeyboardLayout.Mode.EMOJI,font,!system || key.action==KeyboardLayout.Action.LANGUAGE);
+            button.icon(key.action==KeyboardLayout.Action.SHIFT?(handler.selected(key)?KeyboardIcon.SHIFT_FILL:KeyboardIcon.SHIFT)
+                    :key.action==KeyboardLayout.Action.DELETE?KeyboardIcon.DELETE:key.action==KeyboardLayout.Action.EMOJI && mode!=KeyboardLayout.Mode.EMOJI?KeyboardIcon.SMILE:null);
             String label=handler.label(key); if(!android.text.TextUtils.equals(button.getText(),label)) button.setText(label);
             String description=handler.description(key);
             if(!android.text.TextUtils.equals(button.getContentDescription(),description)) button.setContentDescription(description);

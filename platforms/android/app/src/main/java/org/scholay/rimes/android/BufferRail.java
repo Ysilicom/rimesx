@@ -25,6 +25,8 @@ final class BufferRail extends HorizontalScrollView {
     private int lastMode;
     private boolean lastLandscape;
     private boolean followPending;
+    private String placeholder="输入内容暂存于此";
+    void placeholder(String value) { if(!placeholder.equals(value)) { placeholder=value; content.invalidate(); } }
     private float lastScaledDensity;
     private final Runnable followCaret=() -> { if(followPending && !isLayoutRequested()) { followPending=false; fullScroll(FOCUS_RIGHT); } };
     BufferRail(Context context) {
@@ -70,7 +72,7 @@ final class BufferRail extends HorizontalScrollView {
     /** Scrub old-target text, drawing caches and accessibility together. */
     void clearProjection() {
         removeCallbacks(followCaret); followPending=false; lastBlocks=Collections.emptyList(); lastSource=null; lastComposition=""; lastTheme=null;
-        content.clear(); setContentDescription(null); scrollTo(0,0); content.requestLayout(); content.invalidate();
+        placeholder="输入内容暂存于此"; content.clear(); setContentDescription(null); scrollTo(0,0); content.requestLayout(); content.invalidate();
     }
     int visibleChipCount() { return content.visibleChips; }
     String drawingState() {
@@ -168,7 +170,7 @@ final class BufferRail extends HorizontalScrollView {
                 canvas.drawRect(confirmedEnd-scroll,baseline+dp(2),end-scroll,baseline+dp(3),textPaint);
             }
             if(displayBlocks.isEmpty() && composition.isEmpty()) {
-                textPaint.setColor((palette.ink&0xffffff)|0x66000000); canvas.drawText("输入内容暂存于此",dp(12)-scroll,baseline,textPaint);
+                textPaint.setColor((palette.ink&0xffffff)|0x66000000); canvas.drawText(placeholder,dp(12)-scroll,baseline,textPaint);
             }
             float caretHeight=Math.min(getHeight()-dp(8),fm.descent-fm.ascent+dp(2));
             decoration.setColor(palette.accent);

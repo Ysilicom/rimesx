@@ -6,6 +6,7 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.view.HapticFeedbackConstants;
 import android.widget.Button;
@@ -13,11 +14,16 @@ import android.widget.Button;
 /** A native accessible button with a full touch cell and an inset, visibly pressed keycap. */
 final class KeyButton extends Button {
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+    private Drawable iconDrawable;
+    private int iconTint;
     private final RectF cap=new RectF();
     private KeyboardTheme.Palette palette;
     private KeyboardTheme currentTheme;
     private int currentUiMode=-1;
-    private boolean functional,compact,accent,plain,classic;
+    private boolean functional,compact,accent,plain,classic,shortcut;
+    private KeyboardIcon icon;
+    private float iconSize=20;
+    private boolean iconWithText;
     private float frameX,frameY,frameWidth=-1,frameHeight=-1;
     KeyButton(Context context) {
         super(context);
@@ -42,6 +48,17 @@ final class KeyButton extends Button {
     }
     /** Candidates are plain text with transient press feedback, without a persistent cap. */
     void plain(boolean value) { if(plain!=value) { plain=value; updateTextColors(); invalidate(); } }
+    /** Flat plugin entry: rounded system fill, with neither a keycap shadow nor a border. */
+    void shortcut(boolean value) { if(shortcut!=value) { shortcut=value; updateTextColors(); invalidate(); } }
+    void icon(KeyboardIcon value) { icon(value,20,false); }
+    void icon(KeyboardIcon value,float sizeDp) { icon(value,sizeDp,false); }
+    /** Preserve native text/AX labels while painting either a glyph or a glyph-and-label tile. */
+    void icon(KeyboardIcon value,float sizeDp,boolean withText) {
+        if(!Float.isFinite(sizeDp) || sizeDp<=0) throw new IllegalArgumentException("Icon size must be positive");
+        if(icon==value && iconSize==sizeDp && iconWithText==withText) return;
+        if(icon!=value) { iconDrawable=value==null?null:value.drawable(getContext()); iconTint=0; }
+        icon=value; iconSize=sizeDp; iconWithText=withText; requestLayout(); invalidate();
+    }
     void theme(KeyboardTheme theme) {
         int uiMode=getResources().getConfiguration().uiMode;
         if(currentTheme==theme && currentUiMode==uiMode) return;
@@ -52,11 +69,11 @@ final class KeyButton extends Button {
     }
     private void updateTextColors() {
         if(palette==null) return;
-        int selectedInk=systemCaps() && !accent?palette.ink:palette.accentInk;
+        int selectedInk=systemCaps() && !accent && !shortcut?palette.ink:palette.accentInk;
         setTextColor(new ColorStateList(new int[][]{new int[]{-android.R.attr.state_enabled},
                 new int[]{android.R.attr.state_pressed,android.R.attr.state_selected},new int[]{android.R.attr.state_pressed},
                 new int[]{android.R.attr.state_selected},new int[]{}},
-                new int[]{plain?palette.ink:(palette.ink&0xFFFFFF)|0x66000000,(!systemCaps() || accent)?palette.pressedSelectedInk:palette.accentInk,
+                new int[]{plain?palette.ink:(palette.ink&0xFFFFFF)|0x66000000,(!systemCaps() || accent || shortcut)?palette.pressedSelectedInk:palette.accentInk,
                     palette.accentInk,selectedInk,palette.ink}));
     }
     void font(int size) { setAutoSizeTextTypeUniformWithConfiguration(10,size,1,android.util.TypedValue.COMPLEX_UNIT_SP); }
@@ -74,6 +91,15 @@ final class KeyButton extends Button {
         if(fontLimit!=size) { fontLimit=size; font(size); }
     }
     private int fontLimit=-1,fontStyle=-1;
+    @Override protected void onMeasure(int widthSpec,int heightSpec) {
+        super.onMeasure(widthSpec,heightSpec);
+        if(icon!=null && iconWithText && MeasureSpec.getMode(widthSpec)!=MeasureSpec.EXACTLY) {
+            float density=getResources().getDisplayMetrics().density;
+            float textWidth=getPaint().measureText(getText().toString());
+            int desired=(int)Math.ceil(iconSize*density+(getText().length()>0?3*density:0)+textWidth+getPaddingLeft()+getPaddingRight());
+            setMeasuredDimension(resolveSize(Math.max(getSuggestedMinimumWidth(),desired),widthSpec),getMeasuredHeight());
+        }
+    }
     @Override public boolean performClick() { performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); return super.performClick(); }
     @Override protected void drawableStateChanged() { super.drawableStateChanged(); invalidate(); }
     @Override protected void onDraw(Canvas canvas) {
@@ -85,7 +111,12 @@ final class KeyButton extends Button {
         float width=frameWidth<0?getWidth():frameWidth*density,height=frameHeight<0?getHeight():frameHeight*density;
         boolean pressed=isPressed(),selected=isSelected(); int alpha=isEnabled()?255:102;
         float radius=(systemCaps()?5:compact?3:6)*density;
-        if(plain) {
+        if(shortcut) {
+            cap.set(x,y,x+width,y+height);
+            paint.setColor(pressed || selected?palette.accent:(palette.ink&0xffffff)|(palette.dark?0x1a000000:0x10000000));
+            if(!isEnabled()) paint.setAlpha(Math.round(paint.getAlpha()*0.4f));
+            canvas.drawRoundRect(cap,7*density,7*density,paint);
+        } else if(plain) {
             if(pressed) {
                 cap.set(x,y,x+width,y+height); paint.setColor(palette.accent); paint.setAlpha(alpha);
                 canvas.drawRoundRect(cap,4*density,4*density,paint);
@@ -116,13 +147,35 @@ final class KeyButton extends Button {
         // Button text/content descriptions still provide native accessibility and keyboard focus.
         String text=getText().toString(); Paint textPaint=getPaint(); float originalSize=textPaint.getTextSize();
         float dx=(compact?0:0.5f)*density,dy=(compact?0.75f:1.5f)*density;
-        float centreY=y+height/2+(plain?0:pressed?(compact?0.75f:1.5f):(compact?-0.25f:-0.5f))*density;
-        float textWidth=textPaint.measureText(text),availableWidth=Math.max(1,plain?width-getPaddingLeft()-getPaddingRight():width-2*dx-2*density);
+        float centreY=y+height/2+(plain || shortcut?0:pressed?(compact?0.75f:1.5f):(compact?-0.25f:-0.5f))*density;
+        float textWidth=textPaint.measureText(text),availableWidth=Math.max(1,plain || shortcut?width-getPaddingLeft()-getPaddingRight():width-2*dx-2*density);
         Paint.FontMetrics metrics=textPaint.getFontMetrics(); float availableHeight=Math.max(1,height-2*dy);
+        if(icon!=null) {
+            float glyphSize=Math.max(1,Math.min(iconSize*density,Math.min(availableWidth,availableHeight-2*density)));
+            float gap=iconWithText && !text.isEmpty()?3*density:0;
+            if(iconWithText && !text.isEmpty()) {
+                float scale=Math.min(1,Math.min(Math.max(1,availableWidth-glyphSize-gap)/Math.max(1,textWidth),availableHeight/(metrics.descent-metrics.ascent)));
+                if(scale<1) textPaint.setTextSize(originalSize*scale);
+                textWidth=textPaint.measureText(text); metrics=textPaint.getFontMetrics();
+                float left=x+(width-glyphSize-gap-textWidth)/2;
+                drawIcon(canvas,left,centreY-glyphSize/2,glyphSize);
+                textPaint.setColor(getCurrentTextColor());
+                canvas.drawText(text,left+glyphSize+gap,centreY-(metrics.ascent+metrics.descent)/2,textPaint);
+            } else {
+                drawIcon(canvas,x+(width-glyphSize)/2,centreY-glyphSize/2,glyphSize);
+            }
+            textPaint.setTextSize(originalSize); canvas.restoreToCount(saved); return;
+        }
         float scale=Math.min(1,Math.min(availableWidth/Math.max(1,textWidth),availableHeight/(metrics.descent-metrics.ascent)));
         if(scale<1) textPaint.setTextSize(originalSize*scale);
         metrics=textPaint.getFontMetrics(); textPaint.setColor(getCurrentTextColor());
         canvas.drawText(text,x+(width-textPaint.measureText(text))/2,centreY-(metrics.ascent+metrics.descent)/2,textPaint);
         textPaint.setTextSize(originalSize); canvas.restoreToCount(saved);
+    }
+    private void drawIcon(Canvas canvas,float left,float top,float size) {
+        int color=getCurrentTextColor();
+        if(iconTint!=color) { iconTint=color; iconDrawable.setTint(color); }
+        iconDrawable.setBounds(Math.round(left),Math.round(top),Math.round(left+size),Math.round(top+size));
+        iconDrawable.draw(canvas);
     }
 }

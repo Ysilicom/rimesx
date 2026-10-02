@@ -157,6 +157,7 @@ final class ChordSurface extends ViewGroup {
                 float alpha=resolves && gesture.active() && !pressed && (eligible&ChordProfile.mask(key.text))==0?0.3f:1;
                 if(button.getAlpha()!=alpha) button.setAlpha(alpha);
             } else {
+                button.icon(key.action==ChordLayout.Action.DELETE?KeyboardIcon.DELETE:KeyboardIcon.SMILE);
                 String label=handler.label(key.action);
                 if(!android.text.TextUtils.equals(button.getText(),label)) button.setText(label);
                 button.setContentDescription(handler.description(key.action));

@@ -30,8 +30,8 @@ final class KeyboardAppearancePanel extends ScrollView {
         for(int i=0;i<KeyboardTheme.ALL.length;i++) {
             if(i%3==0) current=row(column);
             KeyboardTheme option=KeyboardTheme.ALL[i];
-            KeyButton item=button(current,option.glyph+" "+option.title,() -> theme.accept(option.id));
-            item.setContentDescription("配色 "+option.title); themes.add(item);
+            KeyButton item=button(current,option.title,() -> theme.accept(option.id));
+            item.icon(KeyboardIcon.APPEARANCE,16,true); item.setContentDescription("配色 "+option.title); themes.add(item);
         }
     }
     void render(String layout,KeyboardTheme theme) {
@@ -54,7 +54,8 @@ final class KeyboardAppearancePanel extends ScrollView {
         for(int i=0;i<ids.length;i++) { final String id=ids[i]; KeyButton key=button(row,names[i],() -> choose.accept(id)); key.setContentDescription("中文方案 "+names[i]); schemas.add(key); }
     }
     void action(String title,String description,Runnable perform) {
-        LinearLayout column=(LinearLayout)getChildAt(0); KeyButton button=button(row(column),title,perform); button.setContentDescription(description); actions.add(button);
+        LinearLayout column=(LinearLayout)getChildAt(0); KeyButton button=button(row(column),title,perform); button.setContentDescription(description); button.icon(description.equals(getResources().getString(R.string.switch_keyboard))?KeyboardIcon.GLOBE
+                :description.equals(getResources().getString(R.string.insert_all))?KeyboardIcon.SEND_ALL:KeyboardIcon.CLEAR,18,true); actions.add(button);
     }
     private LinearLayout row(LinearLayout column) {
         LinearLayout row=new LinearLayout(getContext()); column.addView(row,new LinearLayout.LayoutParams(-1,dp(48))); return row;

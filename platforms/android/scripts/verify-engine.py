@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Fail closed on absent/corrupted data, forbidden runtime inputs or native alignment."""
-import hashlib,json,pathlib,struct,re
+import hashlib,json,pathlib,struct,re,subprocess,sys
 ROOT=pathlib.Path(__file__).resolve().parents[1]
+subprocess.run([sys.executable,str(ROOT/'resources/icons/convert-lucide.py'),'--check'],check=True)
 assets=ROOT/'app/build/generated/rime/assets'
 receipt=json.loads((ROOT/'app/build/generated/rime/build-receipt.json').read_text())
 assert receipt['ndk']=='29.0.14206865' and receipt['cmake']=='3.22.1'
