@@ -69,7 +69,7 @@ ClientAction BrokerConnection::Handle(const core::Frame& request,
     return HandleHello(request, verified_client_process_id, response);
   }
 
-  if (request.header.message_type == core::MessageType::kControl && runtime_) {
+  if (request.header.message_type == core::MessageType::kControl) {
     auto message = core::DecodeControl(request.payload);
     if (!message) {
       MakeError(request, core::BrokerErrorCode::kMalformedPayload,
@@ -89,6 +89,13 @@ ClientAction BrokerConnection::Handle(const core::Frame& request,
                      core::EncodeControl({{"kind", valid ? "ok" : "stale"}}),
                      response);
         return ClientAction::kContinue;
+      }
+      // Candidate validation belongs to the engine session and is available
+      // in the headless integration Broker as well. Other controls need UI.
+      if (!runtime_) {
+        MakeError(request, core::BrokerErrorCode::kUnsupportedMessage,
+                  "workbench controls require an interactive Broker", response);
+        return ClientAction::kCloseAfterResponse;
       }
       auto output = runtime_->Control(*message, verified_client_process_id);
       MakeResponse(request, core::MessageType::kControlState,
@@ -313,13 +320,14 @@ ClientAction BrokerConnection::HandleKeyEvent(const core::Frame& request,
     return ClientAction::kCloseAfterResponse;
   }
   session.last_sequence_id = key.sequence_id;
+  if (session.candidate_guard) {
+    const auto revision = runtime_ ? runtime_->Configuration().revision : 0;
+    const bool valid = *session.candidate_guard == revision;
+    session.candidate_guard.reset();
+    if (!valid) return RespondPassThrough(request, key, session, response);
+  }
   if (runtime_) {
     const auto config = runtime_->Configuration();
-    if (session.candidate_guard) {
-      const bool valid = *session.candidate_guard == config.revision;
-      session.candidate_guard.reset();
-      if (!valid) return RespondPassThrough(request, key, session, response);
-    }
     const bool capture = runtime_->Capturing(session.target);
     if (session.settings_revision != config.revision ||
         session.capture != capture) {
