@@ -428,7 +428,10 @@ ClientAction BrokerConnection::HandleKeyEvent(const core::Frame& request,
   if (runtime_ && runtime_->Capturing(session.target))
     state.state_flags |= StateFlag(core::InputStateFlags::kBufferCapture);
   session.revision = next_revision;
-  session.composing = snapshot.composing;
+  // An unhandled event has no authoritative snapshot (notably letter KeyUp).
+  // Preserve the displayed composition just as BrokerClient does, otherwise
+  // candidate_guard rejects every mouse selection after the final key release.
+  if (snapshot.handled) session.composing = snapshot.composing;
   if (key_down && snapshot.handled) {
     session.handled_key_downs.set(key.virtual_key);
   } else if (!key_down) {

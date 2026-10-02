@@ -119,6 +119,51 @@ void ResetDocument(rimes::windows::e2e::FakeDocument* document) {
   *document = rimes::windows::e2e::FakeDocument{};
 }
 
+void CheckCandidateGuardAfterKeyRelease() {
+  using namespace rimes::windows::tsf;
+  auto client = CreateBrokerClient();
+  Expect(client != nullptr, "candidate regression client created");
+  if (!client) return;
+  client->BeginConnect();
+  const auto started = GetTickCount64();
+  while (!client->IsConnected() && GetTickCount64() - started < 15000)
+    Sleep(50);
+  Expect(client->IsConnected(), "candidate regression client connected");
+  if (!client->IsConnected()) return;
+  Expect(client->SetContext(1), "candidate regression context bound");
+  BrokerInputState shown;
+  for (const auto key : {'N', 'I'}) {
+    BrokerInputState down, up;
+    Expect(client->HandleKey({BrokerKeyPhase::kKeyDown,
+                             static_cast<WPARAM>(key), 1}, &down) ==
+               BrokerKeyResult::kConsumed,
+           "candidate regression letter consumed");
+    if (down.has_snapshot) shown = down;
+    Expect(client->HandleKey({BrokerKeyPhase::kKeyUp,
+                             static_cast<WPARAM>(key), 0}, &up) ==
+               BrokerKeyResult::kConsumed,
+           "candidate regression matching release consumed");
+    if (up.has_snapshot) shown = up;
+  }
+  Expect(shown.composing && !shown.candidates.empty(),
+         "candidate remains displayed after letter release");
+  Expect(client->Control({{"op", "candidate_guard"},
+                          {"revision", shown.revision}, {"index", 0}}),
+         "current mouse candidate accepted after unhandled KeyUp");
+  BrokerInputState selected, released;
+  Expect(client->HandleKey({BrokerKeyPhase::kKeyDown, '1', 1}, &selected) ==
+             BrokerKeyResult::kConsumed,
+         "guarded candidate selection consumed");
+  if (!shown.candidates.empty())
+    Expect(selected.commit_text == shown.candidates[0].text,
+           "guarded candidate commits exactly the displayed item");
+  client->HandleKey({BrokerKeyPhase::kKeyUp, '1', 0}, &released);
+  Expect(!client->Control({{"op", "candidate_guard"},
+                           {"revision", shown.revision}, {"index", 0}}),
+         "old candidate rejected after commit");
+  client->Disconnect();
+}
+
 int RunTypingScenarios() {
   using rimes::windows::e2e::FakeContext;
   using rimes::windows::e2e::FakeDocument;
@@ -167,6 +212,8 @@ int RunTypingScenarios() {
   ClearCapsLockIfLatched();
   std::cerr << "caps_lock=" << ((GetKeyState(VK_CAPITAL) & 1) != 0)
             << " shift=" << ((GetKeyState(VK_SHIFT) & 0x8000) != 0) << '\n';
+
+  CheckCandidateGuardAfterKeyRelease();
 
   TypeLatin(service, context, "nihao", &document);
   DumpDocument("after nihao", document);
