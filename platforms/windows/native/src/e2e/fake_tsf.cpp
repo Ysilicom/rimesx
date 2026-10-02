@@ -213,6 +213,18 @@ void FakeContext::DrainEdits() {
     edit->Release();
   }
 }
+
+void FakeContext::TerminateComposition() {
+  auto* composition = document_->active_composition;
+  auto* sink = document_->composition_sink;
+  if (!composition || !sink) return;
+  composition->AddRef();
+  sink->AddRef();
+  sink->OnCompositionTerminated(1, composition);
+  composition->EndComposition(1);
+  sink->Release();
+  composition->Release();
+}
 HRESULT STDMETHODCALLTYPE FakeContext::GetSelection(TfEditCookie, ULONG, ULONG,
                                                     TF_SELECTION* selection,
                                                     ULONG* fetched) {
@@ -335,7 +347,7 @@ HRESULT STDMETHODCALLTYPE FakeContext::InsertEmbeddedAtSelection(TfEditCookie,
 }
 
 HRESULT STDMETHODCALLTYPE FakeContext::StartComposition(
-    TfEditCookie, ITfRange* range, ITfCompositionSink*,
+    TfEditCookie, ITfRange* range, ITfCompositionSink* sink,
     ITfComposition** composition) {
   if (composition == nullptr) {
     return E_POINTER;
@@ -358,6 +370,8 @@ HRESULT STDMETHODCALLTYPE FakeContext::StartComposition(
     return E_OUTOFMEMORY;
   }
   *composition = created;
+  document_->active_composition = created;
+  document_->composition_sink = sink;
   return S_OK;
 }
 
@@ -620,6 +634,10 @@ FakeComposition::FakeComposition(FakeDocument* document,
 }
 
 FakeComposition::~FakeComposition() {
+  if (document_->active_composition == this) {
+    document_->active_composition = nullptr;
+    document_->composition_sink = nullptr;
+  }
   if (range_ != nullptr) {
     range_->Release();
   }
@@ -676,6 +694,10 @@ HRESULT STDMETHODCALLTYPE FakeComposition::ShiftEnd(TfEditCookie, ITfRange*) {
 
 HRESULT STDMETHODCALLTYPE FakeComposition::EndComposition(TfEditCookie) {
   if (document_ != nullptr) {
+    if (document_->active_composition == this) {
+      document_->active_composition = nullptr;
+      document_->composition_sink = nullptr;
+    }
     if (!document_->composition.empty()) {
       document_->last_commit = document_->composition;
       document_->text.append(document_->composition);

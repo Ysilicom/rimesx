@@ -15,6 +15,9 @@ struct FakeDocument {
   std::wstring last_commit;
   std::wstring composition;
   bool composing = false;
+  // Non-owning pointers, valid only while the fake host has a composition.
+  ITfComposition* active_composition = nullptr;
+  ITfCompositionSink* composition_sink = nullptr;
   RECT caret_rect{120, 180, 122, 204};
 };
 
@@ -80,6 +83,7 @@ class FakeContext final : public ITfContext,
   explicit FakeContext(FakeDocument* document) noexcept;
   bool defer_edits = false, read_only = false;
   void DrainEdits();
+  void TerminateComposition();
   std::vector<ITfEditSession*> delayed_edits;
 
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interface_id,

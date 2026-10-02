@@ -226,6 +226,18 @@ int RunTypingScenarios() {
          "Escape during preedit should not commit");
   Expect(!document.composing, "Escape should clear composing state");
 
+  // Native Edit controls may terminate preedit before notifying focus loss.
+  ResetDocument(&document);
+  TypeLatin(service, context, "ni");
+  context->TerminateComposition();
+  Expect(document.text.empty() && document.composition.empty() &&
+             !document.composing,
+         "host termination must erase preedit before it becomes raw text");
+  TypeLatin(service, context, "hao");
+  TypeVirtualKey(service, context, VK_SPACE, true);
+  Expect(document.text == L"好",
+         "host termination must reset the old engine context too");
+
   // An asynchronous edit accepted by RequestEditSession is still revocable.
   ResetDocument(&document);
   context->defer_edits = true;

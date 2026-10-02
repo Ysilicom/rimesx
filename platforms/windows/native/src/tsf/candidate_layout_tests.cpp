@@ -42,6 +42,20 @@ void TestDpiScale() {
   Check(ScaleForDpi(16, 144) == 24, "150% DPI should scale by 1.5");
 }
 
+void TestCollapsedCaretAndSelectionLabels() {
+  const auto origin = PlaceCandidateWindow({120, 180, 120, 204}, 320, 180,
+                                           {0, 0, 1920, 1080});
+  Check(origin.x == 120 && origin.y == 208,
+        "zero-width TSF caret must remain anchored at the input field");
+  Check(CandidateSelectionKey(L"", 2) == L'3',
+        "unlabelled candidate must use the displayed numeric key");
+  Check(CandidateSelectionKey(L"2", 0) == L'2',
+        "explicit numeric label must take precedence");
+  Check(CandidateSelectionKey(L"", 9) == 0 &&
+            CandidateSelectionKey(L"x", 0) == 0,
+        "unsupported labels must not synthesize another candidate key");
+}
+
 }  // namespace
 
 int RunCandidateLayoutTests() {
@@ -49,6 +63,7 @@ int RunCandidateLayoutTests() {
   TestFlipsAboveWhenNeeded();
   TestClampsToWorkArea();
   TestDpiScale();
+  TestCollapsedCaretAndSelectionLabels();
   return g_failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 

@@ -16,6 +16,7 @@
 #include "DisplayAttribute.h"
 #include "Guids.h"
 #include "ModuleState.h"
+#include "candidate_layout.hpp"
 
 namespace rimes::windows::tsf {
 namespace {
@@ -600,17 +601,18 @@ TextService::TextService() noexcept : broker_client_(CreateBrokerClient()) {
     DWORD process = 0;
     GetWindowThreadProcessId(GetForegroundWindow(), &process);
     if (process != GetCurrentProcessId()) return;
-    const auto label = last_state_.candidates[index].label;
-    if (label.size() != 1 || label[0] < L'1' || label[0] > L'9') return;
+    const auto key =
+        CandidateSelectionKey(last_state_.candidates[index].label, index);
+    if (!key) return;
     if (!broker_client_->Control({{"op", "candidate_guard"},
                                   {"revision", last_state_.revision},
                                   {"index", index}}))
       return;
     BOOL eaten = FALSE;
     HandleKey(BrokerKeyPhase::kKeyDown, active_context_,
-              static_cast<WPARAM>(label[0]), 1, &eaten);
+              static_cast<WPARAM>(key), 1, &eaten);
     HandleKey(BrokerKeyPhase::kKeyUp, active_context_,
-              static_cast<WPARAM>(label[0]), static_cast<LPARAM>(1ULL << 31),
+              static_cast<WPARAM>(key), static_cast<LPARAM>(1ULL << 31),
               &eaten);
   });
 }
@@ -796,10 +798,19 @@ HRESULT STDMETHODCALLTYPE TextService::OnSetFocus(BOOL foreground) {
 }
 
 HRESULT STDMETHODCALLTYPE TextService::OnCompositionTerminated(
-    TfEditCookie, ITfComposition* composition) {
-  if (composition_ == composition) {
-    composition_->Release();
-    composition_ = nullptr;
+    TfEditCookie cookie, ITfComposition* composition) {
+  if (composition && composition_ == composition) {
+    // The host can terminate a composition before its focus notification.
+    // Use the granted write cookie while the old range is still editable;
+    // releasing the composition alone would leave raw preedit in the field.
+    auto* terminated = std::exchange(composition_, nullptr);
+    ITfRange* range = nullptr;
+    if (SUCCEEDED(terminated->GetRange(&range)) && range) {
+      range->SetText(cookie, 0, L"", 0);
+      range->Release();
+    }
+    terminated->Release();
+    RevokeContext();
   }
   if (!ending_composition_) {
     candidate_window_.Hide();
