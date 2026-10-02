@@ -28,6 +28,8 @@ import org.scholay.rimes.core.InputEpoch;
 import org.scholay.rimes.core.RimeEngine;
 import org.scholay.rimes.core.KeyboardLayout;
 import org.scholay.rimes.core.NineKeyPinyin;
+import org.scholay.rimes.core.ChordGesture;
+import org.scholay.rimes.core.ChordLayout;
 
 /** All host mutations use the exact live InputConnection; engine results carry an editor lease. */
 public final class RimesInputMethodService extends InputMethodService {
@@ -38,7 +40,13 @@ public final class RimesInputMethodService extends InputMethodService {
     private InputConnection target;
     private SharedPreferences preferences;
     private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener=this::preferenceChanged;
-    private LinearLayout keyboard, bufferRow, candidateRow;
+    private LinearLayout keyboard, bufferRow, candidateRow, spellingRow, chordFooter;
+    private BufferRail bufferRail;
+    private ChordSurface chords;
+    private TextView metrics;
+    private final List<KeyButton> spellingButtons=new ArrayList<>();
+    private final List<KeyButton> chordControls=new ArrayList<>();
+    private String chordPreview="",hostPreedit="";
     private KeyboardSurface keys;
     private KeyboardAppearancePanel appearancePanel;
     private FrameLayout surfaceContainer;
@@ -54,6 +62,8 @@ public final class RimesInputMethodService extends InputMethodService {
     private static final String[] MARK_LABELS={"，","。","？","！","、","：","；","'"};
     private TextView preedit, preview;
     private HorizontalScrollView candidateScroll;
+    private ChordPreview chordReadout;
+    private ChordGesture.Preview heldPreview;
     private String renderedRaw="";
     private int renderedPage=-1;
     private Button schemeButton, bufferButton, retryButton, previous, next, insertNext, insertAll;
@@ -121,7 +131,7 @@ public final class RimesInputMethodService extends InputMethodService {
         if(target==null) { target=getCurrentInputConnection(); configure(info); }
         render();
     }
-    private String effectiveSchema() { return (nineKeyEngine()?"rimes_pinyin9":schema)+(privateField || !preferences.getBoolean("learning",true) ? "_private" : ""); }
+    private String effectiveSchema() { return (chordLayout()?"rimes_ziranma":nineKeyEngine()?"rimes_pinyin9":schema)+(privateField || !preferences.getBoolean("learning",true) ? "_private" : ""); }
     private void resetEngine() {
         if(!ready) return;
         final String selected=effectiveSchema();
@@ -142,7 +152,17 @@ public final class RimesInputMethodService extends InputMethodService {
         preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener);
         endTarget(); destroyed=true; super.onDestroy();
     }
-    private String readLayout() { return "nineKey".equals(preferences.getString("layout","qwerty"))?"nineKey":"qwerty"; }
+    private String readLayout() {
+        String value=preferences.getString("layout","qwerty");
+        return java.util.Arrays.asList("qwerty","nineKey","orthogonal","splitOrthogonal").contains(value)?value:"qwerty";
+    }
+    private boolean chordLayout() { return layout.equals("orthogonal") || layout.equals("splitOrthogonal"); }
+    private boolean chordVisible() { return ready && chordLayout() && !directOnly && !numeric && !emoji; }
+    private void cancelChord() { heldPreview=null; chordPreview=""; if(chords!=null) chords.cancel(); }
+    private void chooseSchema(String selected) {
+        settleAndSwitch(() -> { schema=selected; if(chordLayout()) layout="qwerty"; spellingOpen=false;
+            preferences.edit().putString("schema",schema).putString("layout",layout).apply(); });
+    }
     private boolean nineKeyEngine() { return layout.equals("nineKey") && schema.equals("rimes_pinyin"); }
     private boolean nineKeyVisible() { return ready && nineKeyEngine() && !directOnly && !english && !numeric && !emoji && !uppercase; }
     private void preferenceChanged(SharedPreferences changed,String key) {
@@ -176,10 +196,10 @@ public final class RimesInputMethodService extends InputMethodService {
     private void endTarget() {
         // Clear the old composition before revoking its connection, never through the new target.
         if(target!=null && target==getCurrentInputConnection() && hostComposing) { target.setComposingText("",1); target.finishComposingText(); }
-        appearanceOpen=false; spellingOpen=false; punctuationOpen=false;
-        target=null; hostComposing=false; composingStart=-1; selection=-1; selectionStart=-1;
+        cancelChord(); appearanceOpen=false; spellingOpen=false; punctuationOpen=false;
+        hostPreedit=""; target=null; hostComposing=false; composingStart=-1; selection=-1; selectionStart=-1;
         epoch.revoke(); pending=0; expectedSelections.clear(); snapshot=RimeEngine.Snapshot.EMPTY; retained=""; retainedResults.clear();
-        buffer.finishTarget(); resetEngine(); render();
+        buffer.finishTarget(); if(bufferRail!=null) bufferRail.clearProjection(); resetEngine(); render();
     }
     static boolean isPassword(EditorInfo info) {
         int kind=info.inputType&InputType.TYPE_MASK_CLASS, variation=info.inputType&InputType.TYPE_MASK_VARIATION;
@@ -274,9 +294,11 @@ public final class RimesInputMethodService extends InputMethodService {
     private void updateComposition() {
         if(!ownsTarget() || buffer.isEnabled() || directOnly) return;
         if(snapshot.composing()) {
+            if(hostComposing && hostPreedit.equals(snapshot.preedit)) return;
             if(!hostComposing) composingStart=Math.min(selectionStart,selection);
             expect(composingStart<0 ? -1 : composingStart+snapshot.preedit.length());
             hostComposing=target.setComposingText(snapshot.preedit,1);
+            hostPreedit=hostComposing?snapshot.preedit:"";
         } else if(hostComposing && retained.isEmpty()) {
             expect(composingStart); target.setComposingText("",1); target.finishComposingText();
             hostComposing=false; composingStart=-1;
@@ -293,12 +315,13 @@ public final class RimesInputMethodService extends InputMethodService {
         if(newStart==oldStart && newEnd==oldEnd) return;
         if(hostComposing && newStart==newEnd && newEnd==candidatesEnd) return;
         // A host/user selection change revokes pending work, including keys still in the worker queue.
-        epoch.revoke(); pending=0; expectedSelections.clear(); snapshot=RimeEngine.Snapshot.EMPTY; retained=""; retainedResults.clear();
+        cancelChord(); epoch.revoke(); pending=0; expectedSelections.clear(); snapshot=RimeEngine.Snapshot.EMPTY; retained=""; retainedResults.clear();
         if(hostComposing) { target.setComposingText("",1); target.finishComposingText(); }
         hostComposing=false; composingStart=-1; selection=newEnd; selectionStart=newStart;
-        buffer.beginTarget(buffer.isPermitted()); resetEngine(); render();
+        buffer.beginTarget(buffer.isPermitted()); if(bufferRail!=null) bufferRail.clearProjection(); resetEngine(); render();
     }
     private void insert(boolean all) {
+        if(chords!=null && chords.isChordActive()) return;
         if(pending!=0 || snapshot.composing()) return;
         insertNow(all);
         retryRetained(); render();
@@ -351,6 +374,7 @@ public final class RimesInputMethodService extends InputMethodService {
         else if(!sendDefaultEditorAction(true)) deliver("\n",false);
     }
     private void settleAndSwitch(Runnable change) {
+        cancelChord();
         if(!retained.isEmpty()) return;
         if(!ready) { change.run(); render(); return; }
         // Route settlement before applying the new mode; subsequent keys queue after it.
@@ -361,6 +385,7 @@ public final class RimesInputMethodService extends InputMethodService {
         render();
     }
     private void select(int index) {
+        if(chords!=null && chords.isChordActive()) return;
         if(pending!=0 || !ready || index>=snapshot.candidates.size()) return;
         final int absolute=snapshot.pageStart+index;
         dispatch(() -> Result.state(engine.selectCandidate(session,absolute)));
@@ -388,7 +413,23 @@ public final class RimesInputMethodService extends InputMethodService {
         settleAndSwitch(() -> {
             layout=selected; numeric=false; symbols=false; emoji=false; uppercase=false; spellingOpen=false;
             if(selected.equals("nineKey")) { schema="rimes_pinyin"; english=false; }
+            if(chordLayout()) english=false;
             preferences.edit().putString("layout",layout).putString("schema",schema).apply();
+        });
+    }
+    private void typeChord(String code) {
+        if(code.isEmpty() || !ownsTarget() || !ready) return;
+        final boolean chinese=!english && !directOnly && !uppercase;
+        final String literalCode=uppercase?code.toUpperCase(Locale.ROOT):code;
+        dispatch(() -> {
+            if(!chinese) return literal(literalCode);
+            RimeEngine.Snapshot after=state(); StringBuilder committed=new StringBuilder();
+            if(after.raw.length()+code.length()>128) return Result.state(after);
+            for(int key:code.codePoints().toArray()) {
+                after=engine.processKey(session,key); committed.append(after.commit);
+                if(!after.handled && after.commit.isEmpty()) committed.appendCodePoint(key);
+            }
+            return new Result(after,committed.toString(),true,0);
         });
     }
     private void toggleLanguage() {
@@ -402,6 +443,7 @@ public final class RimesInputMethodService extends InputMethodService {
                 :nineKeyVisible()?KeyboardLayout.Mode.NINE_KEY:KeyboardLayout.Mode.QWERTY;
     }
     private void toggleAppearance() {
+        cancelChord();
         appearanceOpen=!appearanceOpen;
         if(appearanceOpen) appearancePanel.scrollTo(0,0);
         render();
@@ -411,7 +453,7 @@ public final class RimesInputMethodService extends InputMethodService {
             switch(key.action) {
                 case TEXT:
                     if(nineKeyVisible()) return new String[]{"ABC","DEF","GHI","JKL","MNO","PQRS","TUV","WXYZ"}[Integer.parseInt(key.text)-2];
-                    return uppercase && !numeric && !emoji?key.text.toUpperCase(Locale.ROOT):key.text;
+                    return !numeric && !emoji?key.text.toUpperCase(Locale.ROOT):key.text;
                 case SHIFT: return uppercase?"⇪":"⇧";
                 case DELETE: return "⌫";
                 case RETURN: return returnLabel();
@@ -428,7 +470,7 @@ public final class RimesInputMethodService extends InputMethodService {
         }
         @Override public String description(KeyboardLayout.Key key) {
             switch(key.action) {
-                case TEXT: return nineKeyVisible()?"九键 "+key.text+" "+label(key):label(key);
+                case TEXT: return nineKeyVisible()?"九键 "+key.text+" "+label(key):!uppercase && !numeric && !emoji?key.text:label(key);
                 case SHIFT: return "Shift";
                 case DELETE: return getString(R.string.backspace);
                 case RETURN: return getString(R.string.enter);
@@ -487,72 +529,92 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     @Override public View onCreateInputView() {
         keyboard=new LinearLayout(this); keyboard.setOrientation(LinearLayout.VERTICAL);
-        if(Build.VERSION.SDK_INT>=29) keyboard.setForceDarkAllowed(false); // Palettes already have explicit dark colors.
-        keyboard.setLayoutDirection(View.LAYOUT_DIRECTION_LTR); chromeButtons.clear();
-        keyboard.setPadding(dp(3),dp(2),dp(3),dp(2));
+        if(Build.VERSION.SDK_INT>=29) keyboard.setForceDarkAllowed(false);
+        keyboard.setLayoutDirection(View.LAYOUT_DIRECTION_LTR); chromeButtons.clear(); chordControls.clear();
+        keyboard.setPadding(dp(5),dp(5),dp(5),dp(5));
+        keyboard.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob) -> { if(r-l!=or-ol) render(); });
         keyboard.setOnApplyWindowInsetsListener((view,insets) -> {
             int left,right,bottom;
             if(Build.VERSION.SDK_INT>=30) {
                 android.graphics.Insets safe=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());
                 left=safe.left; right=safe.right; bottom=safe.bottom;
             } else { left=insets.getSystemWindowInsetLeft(); right=insets.getSystemWindowInsetRight(); bottom=insets.getSystemWindowInsetBottom(); }
-            view.setPadding(dp(3)+left,dp(2),dp(3)+right,dp(2)+bottom); return insets;
+            view.setPadding(dp(5)+left,dp(5),dp(5)+right,dp(5)+bottom); return insets;
         });
-        LinearLayout toolbar=row(keyboard,landscape()?36:44);
-        themeButton=button(toolbar,"◐",this::toggleAppearance,0); fixedWidth(themeButton,44);
-        themeButton.setContentDescription("布局与配色");
-        schemeButton=button(toolbar,"拼音",() -> settleAndSwitch(() -> {
-            int i=java.util.Arrays.asList(SCHEMAS).indexOf(schema); schema=SCHEMAS[(i+1)%SCHEMAS.length];
-            spellingOpen=false; preferences.edit().putString("schema",schema).apply();
-        }),1);
-        schemeButton.setContentDescription("中文方案");
-        bufferButton=button(toolbar,"Buffer",() -> { if(pending==0 && !snapshot.composing() && retained.isEmpty()) { buffer.setEnabled(!buffer.isEnabled()); render(); } },1.2f);
-        layoutButton=button(toolbar,"26 键",this::toggleAppearance,1);
-        layoutButton.setContentDescription("键位布局");
-        KeyButton globe=button(toolbar,"🌐",() -> { endTarget(); getSystemService(InputMethodManager.class).showInputMethodPicker(); },0);
-        fixedWidth(globe,44); globe.setContentDescription(getString(R.string.switch_keyboard));
         preedit=new TextView(this); preedit.setSingleLine(true); preedit.setTextSize(13); preedit.setGravity(Gravity.CENTER_VERTICAL);
-        preedit.setPadding(dp(8),0,dp(8),0); preedit.setEllipsize(android.text.TextUtils.TruncateAt.START);
-        if(landscape()) toolbar.addView(preedit,3,new LinearLayout.LayoutParams(0,-1,1.5f));
-        else keyboard.addView(preedit,new LinearLayout.LayoutParams(-1,dp(20)));
-        candidateRow=row(keyboard,landscape()?36:44); previous=button(candidateRow,"‹",() -> candidatePage(false),0); fixedWidth(previous,36);
-        previous.setContentDescription("上一页候选");
+        preedit.setPadding(dp(8),0,dp(8),0); keyboard.addView(preedit,new LinearLayout.LayoutParams(-1,dp(28)));
+        bufferRow=new LinearLayout(this); bufferRow.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams bufferParams=new LinearLayout.LayoutParams(-1,dp(landscape()?60:76)); bufferParams.bottomMargin=dp(4); keyboard.addView(bufferRow,bufferParams);
+        int railHeight=landscape()?28:36;
+        LinearLayout input=row(bufferRow,railHeight);
+        themeButton=button(input,theme.glyph,this::toggleAppearance,0); fixedWidth(themeButton,32); gapRight(themeButton,4);
+        themeButton.setContentDescription("布局与配色");
+        bufferRail=new BufferRail(this); input.addView(bufferRail,new LinearLayout.LayoutParams(0,-1,1));
+        insertNext=button(input,"↑",() -> insert(false),0); fixedWidth(insertNext,32); gapLeft(insertNext,4);
+        ((KeyButton)insertNext).appearance(false,false,true); insertNext.setContentDescription(getString(R.string.insert_next)); insertNext.setOnLongClickListener(v -> { insert(true); return true; });
+        LinearLayout details=new LinearLayout(this); bufferRow.addView(details,new LinearLayout.LayoutParams(-1,dp(railHeight)));
+        KeyButton settings=button(details,"⚙",this::toggleAppearance,0); fixedWidth(settings,32); gapRight(settings,4); settings.setContentDescription("Buffer 设置");
+        metrics=new TextView(this); metrics.setGravity(Gravity.CENTER); metrics.setTextSize(landscape()?14:16);
+        metrics.setTypeface(android.graphics.Typeface.create("sans-serif-medium",android.graphics.Typeface.NORMAL)); details.addView(metrics,new LinearLayout.LayoutParams(0,-1,1));
+        insertAll=button(details,"⇈",() -> insert(true),0); fixedWidth(insertAll,32); gapLeft(insertAll,4); insertAll.setContentDescription(getString(R.string.insert_all));
+        candidateRow=row(keyboard,32);
+        layoutButton=button(candidateRow,"⚙",this::toggleAppearance,0); fixedWidth(layoutButton,32); gapRight(layoutButton,4); layoutButton.setContentDescription("键位布局");
+        previous=button(candidateRow,"‹",() -> candidatePage(false),0); fixedWidth(previous,32); ((KeyButton)previous).plain(true); previous.setContentDescription("上一页候选");
         candidateScroll=new HorizontalScrollView(this); candidateScroll.setFillViewport(false); candidateScroll.setHorizontalScrollBarEnabled(false);
         LinearLayout strip=new LinearLayout(this); candidateScroll.addView(strip,new HorizontalScrollView.LayoutParams(-2,-1));
-        candidateRow.addView(candidateScroll,new LinearLayout.LayoutParams(0,-1,1));
-        candidates.clear();
+        FrameLayout center=new FrameLayout(this); candidateRow.addView(center,new LinearLayout.LayoutParams(0,-1,1));
+        center.addView(candidateScroll,new FrameLayout.LayoutParams(-1,-1)); chordReadout=new ChordPreview(this); center.addView(chordReadout,new FrameLayout.LayoutParams(-1,-1)); candidates.clear();
         for(int i=0;i<9;i++) {
             final int index=i; KeyButton candidate=button(strip,"",() -> candidateTapped(index),0);
-            candidate.setLayoutParams(new LinearLayout.LayoutParams(-2,-1)); candidate.font(20);
-            candidate.setMinWidth(dp(52)); candidate.setMinimumWidth(dp(52)); candidate.setPadding(dp(12),0,dp(12),0);
-            // Natural text width preserves complete long phrases inside the horizontal rail.
-            candidate.setAutoSizeTextTypeWithDefaults(TextView.AUTO_SIZE_TEXT_TYPE_NONE); candidate.setTextSize(landscape()?18:20);
-            candidates.add(candidate);
+            candidate.setLayoutParams(new LinearLayout.LayoutParams(-2,-1)); candidate.fontStyle(false,20,false); candidate.plain(true);
+            candidate.setMinWidth(dp(32)); candidate.setMinimumWidth(dp(32)); candidate.setPadding(dp(6),0,dp(6),0);
+            gapRight(candidate,4);
+            candidate.setAutoSizeTextTypeWithDefaults(TextView.AUTO_SIZE_TEXT_TYPE_NONE); candidate.setTextSize(20); candidates.add(candidate);
         }
-        next=button(candidateRow,"›",() -> candidatePage(true),0); fixedWidth(next,36); next.setContentDescription("下一页候选");
-        bufferRow=row(keyboard,landscape()?36:44);
-        preview=new TextView(this); preview.setSingleLine(true); preview.setTextSize(16); preview.setGravity(Gravity.CENTER_VERTICAL);
-        preview.setPadding(dp(8),0,dp(8),0);
-        HorizontalScrollView bufferScroll=new HorizontalScrollView(this); bufferScroll.setFillViewport(true); bufferScroll.addView(preview,new HorizontalScrollView.LayoutParams(-2,-1));
-        bufferRow.addView(bufferScroll,new LinearLayout.LayoutParams(0,-1,1));
-        insertNext=button(bufferRow,"插入",() -> insert(false),0); fixedWidth(insertNext,48); insertNext.setContentDescription(getString(R.string.insert_next));
-        insertAll=button(bufferRow,"全部",() -> insert(true),0); fixedWidth(insertAll,48); insertAll.setContentDescription(getString(R.string.insert_all));
-        KeyButton clear=button(bufferRow,"清空",() -> { if(pending==0 && !snapshot.composing()) { buffer.clear(); retryRetained(); render(); } },0);
-        fixedWidth(clear,48); clear.setContentDescription(getString(R.string.clear));
+        next=button(candidateRow,"›",() -> candidatePage(true),0); fixedWidth(next,32); ((KeyButton)next).plain(true); next.setContentDescription("下一页候选");
+        bufferButton=button(candidateRow,"▤",() -> { if(pending==0 && !snapshot.composing() && retained.isEmpty()) { cancelChord(); buffer.setEnabled(!buffer.isEnabled()); render(); } },0);
+        fixedWidth(bufferButton,32); gapLeft(bufferButton,4); ((KeyButton)bufferButton).appearance(false,false,true);
+        spellingRow=row(keyboard,34); spellingButtons.clear();
+        for(int i=0;i<9;i++) { final int index=i; KeyButton spelling=button(spellingRow,"",() -> chooseSpelling(spellingPage+index),1); spellingButtons.add(spelling); }
         retryButton=new KeyButton(this); chromeButtons.add((KeyButton)retryButton); retryButton.setText(R.string.retry);
         retryButton.setOnClickListener(v -> { if(failed) initialize(); else retryRetained(); }); keyboard.addView(retryButton,new LinearLayout.LayoutParams(-1,dp(44)));
         surfaceContainer=new FrameLayout(this);
         keys=new KeyboardSurface(this,keyHandler); surfaceContainer.addView(keys,new FrameLayout.LayoutParams(-1,-1));
+        chords=new ChordSurface(this,new ChordSurface.Handler() {
+            public void onChord(String code) { chordPreview=""; typeChord(code); }
+            public void onKey(String text) { type(uppercase?text.toUpperCase(Locale.ROOT):text); }
+            public void onPreview(ChordGesture.Preview preview) { heldPreview=preview; String value=preview==null?"":preview.combined!=null?preview.combined:(preview.left==null?"":preview.left.keys)+(preview.right==null?"":preview.right.keys);
+                chordPreview=value; render(); }
+            public void onControl(ChordLayout.Action action) { if(action==ChordLayout.Action.DELETE) delete(); else { settleAndSwitch(() -> { emoji=true; numeric=false; }); } }
+            public String label(ChordLayout.Action action) { return action==ChordLayout.Action.DELETE?"⌫":"☺"; }
+            public String description(ChordLayout.Action action) { return action==ChordLayout.Action.DELETE?getString(R.string.backspace):"表情"; }
+        }); surfaceContainer.addView(chords,new FrameLayout.LayoutParams(-1,-1));
         appearancePanel=new KeyboardAppearancePanel(this,this::chooseLayout,id -> preferences.edit().putString("theme",id).apply());
+        appearancePanel.schemes(schema,this::chooseSchema);
+        appearancePanel.action("清空 Buffer",getString(R.string.clear),() -> { if(pending==0 && !snapshot.composing()) { buffer.clear(); retryRetained(); render(); } });
+        appearancePanel.action("🌐 系统键盘",getString(R.string.switch_keyboard),() -> { endTarget(); getSystemService(InputMethodManager.class).showInputMethodPicker(); });
         surfaceContainer.addView(appearancePanel,new FrameLayout.LayoutParams(-1,-1));
         keyboard.addView(surfaceContainer,new LinearLayout.LayoutParams(-1,dp(KeyboardLayout.height(landscape()))));
+        chordFooter=row(keyboard,landscape()?34:40); ((LinearLayout.LayoutParams)chordFooter.getLayoutParams()).bottomMargin=0;
+        KeyboardLayout.Action[] actions={KeyboardLayout.Action.NUMBERS,KeyboardLayout.Action.SHIFT,KeyboardLayout.Action.SPACE,KeyboardLayout.Action.LANGUAGE,KeyboardLayout.Action.RETURN};
+        for(KeyboardLayout.Action action:actions) {
+            KeyButton button=button(chordFooter,"",() -> chordControl(action),action==KeyboardLayout.Action.SPACE?3.5f:1);
+            button.classic(true); button.fontStyle(false,action==KeyboardLayout.Action.SHIFT?17:14,true); button.appearance(action!=KeyboardLayout.Action.SPACE,true,action==KeyboardLayout.Action.RETURN); if(!chordControls.isEmpty()) gapLeft(button,2); chordControls.add(button);
+        }
         rebuildKeys(); render(); return keyboard;
     }
+    private void chordControl(KeyboardLayout.Action action) {
+        cancelChord();
+        switch(action) { case NUMBERS:toggleNumbers();break; case SHIFT:settleAndSwitch(() -> uppercase=!uppercase);break;
+            case LANGUAGE:toggleLanguage();break; case SPACE:type(" ");break; case RETURN:enter();break; default:break; }
+    }
+    private void gapLeft(View view,int gap) { ((LinearLayout.LayoutParams)view.getLayoutParams()).leftMargin=dp(gap); }
+    private void gapRight(View view,int gap) { ((LinearLayout.LayoutParams)view.getLayoutParams()).rightMargin=dp(gap); }
     private boolean landscape() { return getResources().getConfiguration().orientation==Configuration.ORIENTATION_LANDSCAPE; }
     private void rebuildKeys() { if(keys!=null) keys.render(visibleMode(),theme); }
     private void candidateTapped(int index) {
-        if(spellingOpen) chooseSpelling(spellingPage+index);
-        else if(punctuationOpen || !snapshot.composing()) {
+        if(!chordPreview.isEmpty()) return;
+        if(punctuationOpen || !snapshot.composing()) {
             if(index<MARKS.length) { punctuationOpen=false; type(MARKS[index]); }
         } else select(index);
     }
@@ -564,42 +626,71 @@ public final class RimesInputMethodService extends InputMethodService {
         if(keyboard==null) return;
         KeyboardTheme.Palette palette=theme.palette(this); keyboard.setBackgroundColor(palette.background);
         for(KeyButton button:chromeButtons) button.theme(theme);
-        setText(themeButton,theme.glyph); setText(layoutButton,appearanceOpen?"完成":nineKeyVisible()?"9 键":"26 键");
+        setText(themeButton,theme.glyph); setText(layoutButton,appearanceOpen?"✓":"⚙");
         layoutButton.setSelected(appearanceOpen);
-        setText(schemeButton,NAMES[java.util.Arrays.asList(SCHEMAS).indexOf(schema)]); schemeButton.setEnabled(!directOnly && ready);
+
         bufferButton.setContentDescription(getString(buffer.isEnabled()?R.string.buffer_on:R.string.buffer_off)); bufferButton.setSelected(buffer.isEnabled());
-        bufferButton.setEnabled(buffer.isPermitted() && pending==0 && !snapshot.composing() && retained.isEmpty());
-        String status=failed?getString(R.string.engine_failed):!ready?getString(R.string.engine_loading):snapshot.preedit;
+        bufferButton.setEnabled(buffer.isPermitted() && pending==0 && !snapshot.composing() && retained.isEmpty() && !chords.isChordActive());
+        String status=failed?getString(R.string.engine_failed):!ready?getString(R.string.engine_loading):"";
         if(!retained.isEmpty()) status=getString(R.string.delivery_pending);
-        setText(preedit,status); preedit.setTextColor(palette.accentText); preedit.setVisibility(directOnly?View.GONE:View.VISIBLE);
+        setText(preedit,status); preedit.setTextColor(palette.accentText); preedit.setVisibility(!directOnly && !status.isEmpty()?View.VISIBLE:View.GONE);
         boolean show=ready && !directOnly && !english && snapshot.composing();
         spellingChoices=nineKeyVisible()?spellings.choices(snapshot.raw):java.util.Collections.emptyList();
         if(spellingChoices.isEmpty()) spellingOpen=false;
         if(spellingPage>=spellingChoices.size()) spellingPage=0;
-        candidateRow.setVisibility(directOnly?View.GONE:View.VISIBLE);
+        candidateRow.setVisibility(View.VISIBLE);
+        candidateScroll.setVisibility(heldPreview==null?View.VISIBLE:View.GONE); chordReadout.setVisibility(heldPreview==null?View.GONE:View.VISIBLE);
+        chordReadout.render(heldPreview,theme,landscape());
         boolean marks=punctuationOpen || !show;
-        int count=spellingOpen?Math.min(9,spellingChoices.size()-spellingPage):marks?MARKS.length:snapshot.candidates.size();
+        int count=directOnly?0:!chordPreview.isEmpty()?1:marks?MARKS.length:snapshot.candidates.size();
         for(int i=0;i<9;i++) {
             Button item=candidates.get(i); boolean exists=i<count;
             item.setVisibility(exists?View.VISIBLE:View.GONE);
             if(exists) {
-                String value=spellingOpen?spellingChoices.get(spellingPage+i):marks?(english || numeric || emoji?MARKS[i]:MARK_LABELS[i]):snapshot.candidates.get(i);
+                String value=!chordPreview.isEmpty()?chordPreview:marks?(english || numeric || emoji?MARKS[i]:MARK_LABELS[i]):snapshot.candidates.get(i);
                 setText(item,value);
-                item.setContentDescription(spellingOpen?"拼音 "+value:marks?MARKS[i]:"候选"+(i+1)+" "+value);
+                item.setContentDescription(marks?MARKS[i]:"候选"+(i+1)+" "+value);
             }
-            item.setEnabled(exists && pending==0);
+            item.setEnabled(exists && pending==0 && chordPreview.isEmpty());
         }
         if(renderedPage!=snapshot.pageStart || !renderedRaw.equals(snapshot.raw)) {
             candidateScroll.scrollTo(0,0); renderedPage=snapshot.pageStart; renderedRaw=snapshot.raw;
         }
-        previous.setVisibility(marks && !spellingOpen?View.GONE:View.VISIBLE); next.setVisibility(previous.getVisibility());
+        previous.setVisibility(marks && !spellingOpen || directOnly || heldPreview!=null || !spellingOpen && snapshot.pageStart==0?View.GONE:View.VISIBLE); next.setVisibility(marks && !spellingOpen || directOnly || heldPreview!=null?View.GONE:View.VISIBLE);
         previous.setEnabled(pending==0 && (spellingOpen?spellingPage>0:snapshot.pageStart>0));
         next.setEnabled(pending==0 && (spellingOpen?spellingPage+9<spellingChoices.size():!snapshot.lastPage));
         bufferRow.setVisibility(buffer.isEnabled()?View.VISIBLE:View.GONE);
-        setText(preview,buffer.text().isEmpty()?getString(R.string.buffer_empty):buffer.text()); preview.setTextColor(palette.ink);
-        insertNext.setEnabled(pending==0 && !snapshot.composing() && buffer.blockCount()>0); insertAll.setEnabled(insertNext.isEnabled());
+        if(buffer.isEnabled()) {
+            bufferRail.render(buffer.blocks(),snapshot.preedit,theme,landscape());
+            String text=buffer.text(); setText(metrics,text.codePointCount(0,text.length())+" 字 · "+buffer.blockCount()+" 块");
+        }
+        metrics.setTextColor(palette.ink);
+        if(metrics.getTag()==null || !metrics.getTag().equals(palette.ink)) { android.graphics.drawable.GradientDrawable output=new android.graphics.drawable.GradientDrawable(); output.setColor((palette.ink&0xffffff)|0x10000000); output.setCornerRadius(dp(7)); metrics.setBackground(output); metrics.setTag(palette.ink); }
+        spellingRow.setVisibility(spellingOpen?View.VISIBLE:View.GONE);
+        for(int i=0;i<9;i++) { KeyButton key=spellingButtons.get(i); boolean exists=spellingPage+i<spellingChoices.size(); key.setVisibility(exists?View.VISIBLE:View.GONE);
+            if(exists) { String value=spellingChoices.get(spellingPage+i); setText(key,value); key.setContentDescription("拼音 "+value); } key.setEnabled(exists && pending==0); }
+        insertNext.setEnabled(pending==0 && !snapshot.composing() && buffer.blockCount()>0 && !chords.isChordActive()); insertAll.setEnabled(insertNext.isEnabled());
         retryButton.setVisibility(failed || !retained.isEmpty()?View.VISIBLE:View.GONE);
-        keys.render(visibleMode(),theme); keys.setVisibility(appearanceOpen?View.GONE:View.VISIBLE);
+        boolean chord=chordVisible();
+        float width=(keyboard.getWidth()>0?keyboard.getWidth():getResources().getDisplayMetrics().widthPixels)-keyboard.getPaddingLeft()-keyboard.getPaddingRight();
+        float surfaceHeight=chord?ChordLayout.height(Math.max(1,width/getResources().getDisplayMetrics().density),"splitOrthogonal".equals(layout)):KeyboardLayout.height(landscape());
+        if(chord && appearanceOpen) surfaceHeight+=landscape()?35:41;
+        int desiredHeight=Math.round(surfaceHeight*getResources().getDisplayMetrics().density);
+        if(surfaceContainer.getLayoutParams().height!=desiredHeight) { surfaceContainer.getLayoutParams().height=desiredHeight; surfaceContainer.requestLayout(); }
+        keys.render(visibleMode(),theme); keys.setVisibility(appearanceOpen || chord?View.GONE:View.VISIBLE);
+        chords.render("splitOrthogonal".equals(layout),!english && !uppercase,uppercase,theme); chords.setVisibility(appearanceOpen || !chord?View.GONE:View.VISIBLE);
+        chordFooter.setVisibility(!appearanceOpen && chord?View.VISIBLE:View.GONE);
+        ((LinearLayout.LayoutParams)surfaceContainer.getLayoutParams()).bottomMargin=chord && !appearanceOpen?dp(1):0;
+        String[] footerLabels={"123",uppercase?"⇪":"⇧","空格",english?"EN":"中",returnLabel()};
+        String[] footerDescriptions={"数字与字母","Shift",getString(R.string.space),"中英切换",getString(R.string.enter)};
+        for(int i=0;i<chordControls.size();i++) {
+            KeyButton button=chordControls.get(i); setText(button,footerLabels[i]); button.setContentDescription(footerDescriptions[i]);
+            LinearLayout.LayoutParams params=(LinearLayout.LayoutParams)button.getLayoutParams(); int keyWidth=i==2?0:Math.round((width/getResources().getDisplayMetrics().density-10)/7.5f*getResources().getDisplayMetrics().density);
+            float weight=i==2?1:0; if(params.width!=keyWidth || params.weight!=weight) { params.width=keyWidth; params.weight=weight; button.requestLayout(); }
+            button.setEnabled(!chords.isChordActive());
+        }
+        insertNext.setSelected(insertNext.isEnabled());
+        if(appearanceOpen) appearancePanel.schemes(schema,this::chooseSchema);
         appearancePanel.setVisibility(appearanceOpen?View.VISIBLE:View.GONE);
         if(appearanceOpen) appearancePanel.render(layout,theme);
     }
@@ -608,10 +699,10 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private LinearLayout row(LinearLayout parent,int height) {
         LinearLayout row=new LinearLayout(this); row.setOrientation(LinearLayout.HORIZONTAL);
-        parent.addView(row,new LinearLayout.LayoutParams(-1,dp(height))); return row;
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(height)); params.bottomMargin=dp(4); parent.addView(row,params); return row;
     }
     private KeyButton button(LinearLayout row,String text,Runnable action,float weight) {
-        KeyButton button=new KeyButton(this); button.setText(text); button.font(15); button.appearance(false,true,false);
+        KeyButton button=new KeyButton(this); button.setText(text); button.font(15); button.appearance(false,false,false);
         button.setOnClickListener(v -> action.run()); row.addView(button,new LinearLayout.LayoutParams(0,-1,weight)); chromeButtons.add(button); return button;
     }
     private void fixedWidth(View view,int width) { view.setLayoutParams(new LinearLayout.LayoutParams(dp(width),-1)); }

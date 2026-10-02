@@ -28,17 +28,22 @@ final class KeyboardSurface extends ViewGroup {
             frames=KeyboardLayout.keys(400,landscape(),mode);
             for(KeyboardLayout.Key key:frames) {
                 KeyButton button=new KeyButton(getContext());
-                boolean control=key.action!=KeyboardLayout.Action.TEXT && key.action!=KeyboardLayout.Action.SPACE;
-                button.appearance(control,false,false);
-                button.font(mode==KeyboardLayout.Mode.NINE_KEY?18:key.action==KeyboardLayout.Action.TEXT?(landscape()?20:24):16);
                 button.setOnClickListener(v -> handler.press(key)); addView(button);
             }
             requestLayout();
         }
         for(int i=0;i<getChildCount();i++) {
             KeyboardLayout.Key key=frames.get(i); KeyButton button=(KeyButton)getChildAt(i);
+            boolean system=theme.id.equals("apple"),letter=key.action==KeyboardLayout.Action.TEXT;
+            boolean functional=mode!=KeyboardLayout.Mode.NINE_KEY && !letter && key.action!=KeyboardLayout.Action.SPACE;
+            button.appearance(functional,false,key.action==KeyboardLayout.Action.RETURN);
+            int font=letter?(mode==KeyboardLayout.Mode.NINE_KEY?20:system?24:21)
+                    :key.action==KeyboardLayout.Action.LANGUAGE?18:system?18:14;
+            button.fontStyle(letter && !system && mode!=KeyboardLayout.Mode.EMOJI,font,!system || key.action==KeyboardLayout.Action.LANGUAGE);
             String label=handler.label(key); if(!android.text.TextUtils.equals(button.getText(),label)) button.setText(label);
-            button.setContentDescription(handler.description(key)); button.setEnabled(handler.enabled(key));
+            String description=handler.description(key);
+            if(!android.text.TextUtils.equals(button.getContentDescription(),description)) button.setContentDescription(description);
+            button.setEnabled(handler.enabled(key));
             button.setSelected(handler.selected(key)); button.theme(theme);
         }
     }
@@ -54,6 +59,11 @@ final class KeyboardSurface extends ViewGroup {
             int w=Math.round((key.x+key.width)*density)-Math.round(key.x*density);
             int h=Math.round((key.y+key.height)*density)-Math.round(key.y*density);
             getChildAt(i).measure(MeasureSpec.makeMeasureSpec(w,MeasureSpec.EXACTLY),MeasureSpec.makeMeasureSpec(h,MeasureSpec.EXACTLY));
+            int x=Math.round(key.x*density),y=Math.round(key.y*density);
+            int capX=Math.round(key.visualX*density),capY=Math.round(key.visualY*density);
+            int capW=Math.round((key.visualX+key.visualWidth)*density)-capX;
+            int capH=Math.round((key.visualY+key.visualHeight)*density)-capY;
+            ((KeyButton)getChildAt(i)).capFrame((capX-x)/density,(capY-y)/density,capW/density,capH/density);
         }
     }
     @Override protected void onLayout(boolean changed,int l,int t,int r,int b) {

@@ -14,7 +14,7 @@ final class KeyboardTheme {
         new KeyboardTheme("piglet","小猪","🐷",0xFFF0DCE3,0xFFFFF8FA,0xFFE6B6C5,0xFFAC4469,0xFF32252B,0xFF533B45,0xFF684552,0xFFF0A0BC),
         new KeyboardTheme("noto-1f415","狗狗","🐕",0xFFE9DED0,0xFFFFF9EF,0xFFD9C29F,0xFF93602D,0xFF2F2820,0xFF514335,0xFF67533D,0xFFEABC7A),
         new KeyboardTheme("noto-1f429","贵宾犬","🐩",0xFFDCDDDD,0xFFFAFBFC,0xFFBEC3C7,0xFF626A72,0xFF272A2D,0xFF42474C,0xFF555D64,0xFFC8D1D8),
-        new KeyboardTheme("noto-1f416","猪","🐖",0xFFF0DCE3,0xFFFFF8FA,0xFFE6B6C5,0xFFAC4469,0xFF32252B,0xFF533B45,0xFF684552,0xFFF0A0BC),
+        new KeyboardTheme("noto-1f416","猪","🐖",0xFFF2DECF,0xFFFFF9F1,0xFFECC0A7,0xFFBF5A62,0xFF322824,0xFF544039,0xFF695147,0xFFF8BDA4),
         new KeyboardTheme("noto-1f407","兔子","🐇",0xFFE2DFE4,0xFFFFFAFD,0xFFD8C7D2,0xFF9D557E,0xFF2B272E,0xFF48414D,0xFF5E4F60,0xFFEDB4D5),
         new KeyboardTheme("noto-1f980","螃蟹","🦀",0xFFF1DFC8,0xFFFFFAEE,0xFFF0C482,0xFFC45F0A,0xFF32291F,0xFF55422E,0xFF6B5437,0xFFFFA32B),
         new KeyboardTheme("noto-1f427","企鹅","🐧",0xFFDEDFDC,0xFFFFFFF8,0xFFBFC2BF,0xFFEBAE32,0xFF262827,0xFF424643,0xFF555B56,0xFFF4C458),
@@ -32,16 +32,19 @@ final class KeyboardTheme {
     Palette palette(Context context) {
         boolean dark=(context.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES;
         int offset=dark?4:0;
-        return new Palette(colors[offset],colors[offset+1],colors[offset+2],colors[offset+3],dark?0xFFF4F4F4:0xFF17191C,id.equals("apple"));
+        return new Palette(colors[offset],colors[offset+1],colors[offset+2],colors[offset+3],dark?0xFFFFFFFF:0xFF000000,id.equals("apple"),dark);
     }
     static final class Palette {
-        final int background,key,functional,accent,ink,accentInk,accentText;
-        final boolean system;
-        Palette(int background,int key,int functional,int accent,int ink,boolean system) {
-            this.background=background; this.key=key; this.functional=functional; this.accent=accent; this.ink=ink; this.system=system;
-            accentInk=luminance(accent)>0.179?0xFF101214:0xFFFFFFFF;
+        final int background,key,functional,accent,ink,accentInk,accentText,pressedSelected,pressedSelectedInk;
+        final boolean system,dark;
+        Palette(int background,int key,int functional,int accent,int ink,boolean system,boolean dark) {
+            this.background=background; this.key=key; this.functional=functional; this.accent=accent; this.ink=ink; this.system=system; this.dark=dark;
+            accentInk=system?0xFFFFFFFF:contrastingInk(accent);
+            float[] hsv=new float[3]; android.graphics.Color.colorToHSV(accent,hsv); hsv[2]*=0.78f;
+            pressedSelected=android.graphics.Color.HSVToColor(hsv); pressedSelectedInk=contrastingInk(pressedSelected);
             accentText=contrast(accent,background)>=4.5?accent:ink;
         }
+        private static int contrastingInk(int color) { return luminance(color)>0.179?0xFF000000:0xFFFFFFFF; }
         private static double luminance(int color) {
             double value=0; double[] weights={0.2126,0.7152,0.0722};
             for(int i=0;i<3;i++) { double channel=((color>>(16-i*8))&255)/255.0; value+=weights[i]*(channel<=0.04045?channel/12.92:Math.pow((channel+0.055)/1.055,2.4)); }
