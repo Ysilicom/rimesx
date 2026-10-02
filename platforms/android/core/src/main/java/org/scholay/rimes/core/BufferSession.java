@@ -12,6 +12,9 @@ public final class BufferSession {
     private long revision;
     private boolean permitted;
     private boolean enabled;
+    private long projectionRevision=-1;
+    private String projectedText="";
+    private List<String> projectedBlocks=java.util.Collections.emptyList();
 
     public void beginTarget(boolean allowBuffer) {
         target++;
@@ -24,7 +27,14 @@ public final class BufferSession {
     public boolean isPermitted() { return permitted; }
     public boolean isEnabled() { return enabled; }
     public int blockCount() { return blocks.size(); }
-    public String text() { return String.join("", blocks); }
+    public List<String> blocks() { updateProjection(); return projectedBlocks; }
+    public String text() { updateProjection(); return projectedText; }
+    private void updateProjection() {
+        if(projectionRevision==revision) return;
+        projectedText=String.join("",blocks);
+        projectedBlocks=java.util.Collections.unmodifiableList(new ArrayList<>(blocks));
+        projectionRevision=revision;
+    }
 
     public boolean setEnabled(boolean value) {
         if (value && !permitted) return false;
@@ -33,7 +43,10 @@ public final class BufferSession {
         return true;
     }
 
-    public void clear() { blocks.clear(); committed.clear(); revision++; }
+    public void clear() {
+        blocks.clear(); committed.clear(); revision++;
+        projectedText=""; projectedBlocks=java.util.Collections.emptyList(); projectionRevision=revision;
+    }
 
     /** One Rime confirmation is an immutable block boundary, including non-BMP text. */
     public boolean appendCommittedBlock(String text) {

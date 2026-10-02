@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fail closed on absent/corrupted data, forbidden runtime inputs or native alignment."""
-import hashlib,json,pathlib,struct
+import hashlib,json,pathlib,struct,re
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 assets=ROOT/'app/build/generated/rime/assets'
 receipt=json.loads((ROOT/'app/build/generated/rime/build-receipt.json').read_text())
@@ -28,9 +28,18 @@ groups=('abc','def','ghi','jkl','mno','pqrs','tuv','wxyz')
 for syllable in syllables:
     digits=''.join(str(next(i+2 for i,group in enumerate(groups) if letter in group)) for letter in syllable)
     assert 'derive/^'+syllable+'$/'+digits+'/' in nine_source,syllable
+profile_source=(ROOT/'resources/chord-profile.json').read_bytes()
+assert (data/'chord-profile.json').read_bytes()==profile_source
+profile=json.loads(profile_source)
+chord_java=(ROOT/'core/src/main/java/org/scholay/rimes/core/ChordData.java').read_text()
+assert hashlib.sha256(profile_source).hexdigest()==re.search(r'SOURCE_SHA256="([a-f0-9]+)"',chord_java)[1]
+generated=re.findall(r'\{"([a-z,.]+)","([a-z]+)","([A-Za-z]+)"\}',chord_java)
+assert generated==[(m['keys'],m['output'],m['kind']) for m in profile['mappings']]
+assert len(generated)==427 and profile['leftKeys']=='qwertasdfgzxcvb' and profile['rightKeys']=='yuiophjklnm,.'
 for license in ('librime-BSD.txt','Boost-1.0.txt','leveldb-LICENSE.txt','marisa-trie-COPYING.md.txt',
                 'yaml-cpp-LICENSE.txt','opencc-LICENSE.txt','wubi86-LGPL-3.0.txt','pinyin_simp-APACHE-2.0.txt'):
     assert (assets/'licenses'/license).read_bytes()==(ROOT.parent/'ios/Licenses'/license).read_bytes(),license
+assert (assets/'licenses/RIMES-MIT.txt').read_bytes()==(ROOT.parents[1]/'LICENSE').read_bytes(), 'RIMES MIT license'
 for abi in ('arm64-v8a','x86_64'):
     lib=ROOT/'app/build/generated/rime/jniLibs'/abi/'librimes_jni.so'
     assert hashlib.sha256(lib.read_bytes()).hexdigest()==receipt['libraries'][abi],abi
