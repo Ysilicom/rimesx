@@ -34,7 +34,8 @@ public final class InputContractInstrumentation extends Instrumentation {
             }
             removeMonitor(monitor); check(host!=null,"validation host launch within 15 seconds");
             waitForIdleSync(); report("START contract");
-            if(!"soak".equals(arguments.getString("mode"))) contract();
+            if("layout".equals(arguments.getString("mode"))) layoutContract();
+            else if(!"soak".equals(arguments.getString("mode"))) contract();
             else soak(Long.parseLong(arguments.getString("seconds","1800")));
             result.putString("stream","PASS input contract; assertions="+assertions+"\n"); finish(-1,result);
         } catch(Throwable error) {
@@ -61,13 +62,15 @@ public final class InputContractInstrumentation extends Instrumentation {
         if(node==null) return null;
         CharSequence label=description?node.getContentDescription():node.getText();
         if(IME.contentEquals(node.getPackageName()==null?"":node.getPackageName()) && value.contentEquals(label==null?"":label)
-                && node.isVisibleToUser()) return node;
+                && node.isVisibleToUser() && node.isClickable()) return node;
         for(int i=0;i<node.getChildCount();i++) { AccessibilityNodeInfo found=search(node.getChild(i),value,description); if(found!=null) return found; }
         return null;
     }
     private AccessibilityNodeInfo find(String value,boolean description) {
+        if(value.equals("↵")) { value="Enter"; description=true; }
         for(AccessibilityWindowInfo window:getUiAutomation().getWindows()) {
             AccessibilityNodeInfo node=search(window.getRoot(),value,description); if(node!=null) return node;
+            if(!description) { node=search(window.getRoot(),value,true); if(node!=null) return node; }
         }
         return null;
     }
@@ -192,6 +195,79 @@ public final class InputContractInstrumentation extends Instrumentation {
         tap("Insert all"); check("\"你好你好\"".equals(js("document.getElementById('first').value")),"WebView exact insertion");
         js("document.getElementById('second').focus()"); SystemClock.sleep(200); type("nihao"); tap("Space");
         check("\"你好\"".equals(js("document.getElementById('second').value")),"WebView target switch");
+    }
+    private void focusAny(EditText field) {
+        runOnMainSync(() -> { field.setText(""); host.focus(field); getTargetContext().getSystemService(InputMethodManager.class).restartInput(field); });
+        waitButton("键位布局"); SystemClock.sleep(400);
+    }
+    private void layout(String value) { tap("键位布局"); tap("布局 "+value+" 键"); tap("键位布局"); }
+    private void nine(String code) {
+        String[] labels={"ABC","DEF","GHI","JKL","MNO","PQRS","TUV","WXYZ"};
+        for(char c:code.toCharArray()) tap("九键 "+c+" "+labels[c-'2']);
+    }
+    private android.graphics.Rect bounds(String label) {
+        android.graphics.Rect result=new android.graphics.Rect(); waitButton(label).getBoundsInScreen(result); return result;
+    }
+    private void touch(String label) {
+        android.graphics.Rect rect=bounds(label); long time=SystemClock.uptimeMillis();
+        android.view.MotionEvent down=android.view.MotionEvent.obtain(time,time,android.view.MotionEvent.ACTION_DOWN,rect.exactCenterX(),rect.exactCenterY(),0);
+        android.view.MotionEvent up=android.view.MotionEvent.obtain(time,time+60,android.view.MotionEvent.ACTION_UP,rect.exactCenterX(),rect.exactCenterY(),0);
+        down.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN); up.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);
+        try {
+            check(getUiAutomation().injectInputEvent(down,true),"touch down "+label);
+            check(getUiAutomation().injectInputEvent(up,true),"touch up "+label);
+        } finally { down.recycle(); up.recycle(); }
+        SystemClock.sleep(120);
+    }
+    private void screenshot(String name) throws Exception {
+        android.graphics.Bitmap bitmap=getUiAutomation().takeScreenshot();
+        check(bitmap!=null,"layout screenshot available");
+        try(java.io.FileOutputStream out=getTargetContext().openFileOutput("layout-"+name+".png",0)) {
+            check(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out),"layout screenshot saved");
+        }
+    }
+    private void letterGeometry() {
+        android.graphics.Rect q=bounds("q"),a=bounds("a"),z=bounds("z"),space=bounds("Space"),shift=bounds("⇧"),del=bounds("⌫");
+        for(char c:"qwertyuiopasdfghjklzxcvbnm".toCharArray()) {
+            android.graphics.Rect key=bounds(String.valueOf(c));
+            check(Math.abs(key.width()-q.width())<=1,"equal width: "+c);
+            check(Math.abs(key.height()-q.height())<=1,"equal height: "+c);
+            check(key.left>=0 && key.right<=host.getResources().getDisplayMetrics().widthPixels,"key within display: "+c);
+        }
+        check(a.left>q.left && z.left>a.left,"staggered equal-width rows");
+        check(space.width()>q.width()*4,"wide Space");
+        check(Math.abs(shift.top-z.top)<=1 && Math.abs(del.top-z.top)<=1,"Shift and Delete flank third row");
+        check(bounds("Enter").bottom<=host.getResources().getDisplayMetrics().heightPixels,"Return above system navigation");
+    }
+    private void layoutContract() throws Exception {
+        focusAny(host.first); layout("26"); pinyin();
+        letterGeometry(); screenshot("qwerty");
+        for(char c:"nihao".toCharArray()) touch(String.valueOf(c)); touch("Space");
+        expect(host.first,"你好","real touch coordinates commit once"); focus(host.first);
+        tap("键位布局"); screenshot("appearance"); tap("配色 犀牛"); tap("键位布局"); screenshot("rhino");
+        type("nihao"); screenshot("candidates"); tap("Space"); expect(host.first,"你好","new QWERTY candidate");
+        focus(host.first); tap("Buffer off"); type("nihao"); tap("Space");
+        layout("9"); expect(host.first,"","layout switch preserves isolated Buffer");
+        screenshot("nine-buffer"); nine("64426"); tap("Space"); expect(host.first,"","nine-key confirmed text stays in Buffer");
+        tap("Insert all"); expect(host.first,"你好你好","both layouts retain complete blocks");
+        focusAny(host.first); nine("64"); tap("选拼音"); screenshot("spelling"); tap("拼音 ni"); nine("426");
+        tap("选拼音"); tap("拼音 hao"); screenshot("nine-composition"); tap("Space"); expect(host.first,"你好","nine-key spelling constraints");
+        focusAny(host.first); nine("64"); tap("选拼音"); tap("拼音 ni"); tap("⌫"); nine("426"); tap("Space");
+        expect(host.first,"你好","nine-key delete unpins syllable");
+        focusAny(host.first); nine("64"); layout("26"); expect(host.first,"64","layout switch settles unconfirmed raw code");
+        type("hao"); tap("Space"); expect(host.first,"64好","26-key restored engine");
+        focus(host.first); tap("123"); type("123"); screenshot("numbers"); tap("符号页"); tap("#"); screenshot("symbols");
+        tap("ABC"); expect(host.first,"123#","numeric and symbol pages");
+        tap("表情"); screenshot("emoji"); tap("😀"); expect(host.first,"123#😀","non-BMP emoji"); tap("⌫"); expect(host.first,"123#","emoji code-point delete"); tap("表情");
+        tap("键位布局"); tap("配色 原生"); tap("键位布局");
+        runOnMainSync(() -> host.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)); SystemClock.sleep(800);
+        focus(host.first); pinyin(); letterGeometry(); screenshot("landscape");
+        type("nihao"); tap("Space"); expect(host.first,"你好","landscape QWERTY");
+        layout("9"); focusAny(host.first); nine("64426"); tap("Space"); expect(host.first,"你好","landscape nine-key"); screenshot("nine-landscape");
+        layout("26");
+        runOnMainSync(() -> host.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)); SystemClock.sleep(600);
+        focus(host.first); letterGeometry(); screenshot("portrait-restored");
+        report("PASS keyboard layouts, equal touch geometry, theme, spelling, emoji, Buffer and orientation");
     }
     private void soak(long seconds) throws Exception {
         focus(host.first); pinyin();

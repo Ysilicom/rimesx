@@ -11,7 +11,8 @@
     <string name="password_field">Password — Buffer must stay off</string>
     <string name="buffer_on">Buffer on</string>
     <string name="buffer_off">Buffer off</string>
-    <string name="buffer_empty">Compose before inserting</string>
+    <string name="buffer_empty">Confirmed text stays here</string>
+    <string name="keyboard_appearance">Keyboard layout and colors · QWERTY / 9-key</string>
     <string name="insert_next">Insert</string>
     <string name="insert_all">Insert all</string>
     <string name="clear">Clear</string>
@@ -28,4 +29,3 @@
     <string name="delivery_pending">Text is retained. Free Buffer space or retry insertion.</string>
     <string name="retry">Retry</string>
 </resources>
-

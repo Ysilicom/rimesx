@@ -1,6 +1,6 @@
 # RIMES Android
 
-**0.1.0-dev.3** is a native Java Android input method for daily Chinese input and
+**0.1.0-dev.4** is a native Java Android input method for daily Chinese input and
 local dictionary learning. Minimum Android 8.0 / API 26; development package
 `org.scholay.rimes.android.debug`. This is a local development build, not a store release.
 Current evidence and remaining acceptance are in [VALIDATION.md](VALIDATION.md).
@@ -10,7 +10,7 @@ Current evidence and remaining acceptance are in [VALIDATION.md](VALIDATION.md).
 - Offline librime 1.17.0: simplified Pinyin, natural-code Shuangpin and Wubi 86.
   Default Pinyin; the last Chinese schema is remembered. English and numeric
   input remain available while Chinese resources initialize; failures show Retry.
-- The 中/英 control changes language. The adjacent scheme control cycles
+- The footer 中/英 control changes language. The toolbar scheme control cycles
   拼音 → 自然码 → 五笔. There are nine candidates per page, with tap selection
   and previous/next buttons. Composing text is displayed through the host's
   `InputConnection` when Buffer is off.
@@ -29,6 +29,42 @@ Current evidence and remaining acceptance are in [VALIDATION.md](VALIDATION.md).
   revokes queued engine work and delivery authority, and clears transient state.
   Android hosts may finish and retain the already displayed preedit in the *old*
   editor before disconnecting it. RIMES never replays it into the next editor.
+
+## Keyboard layouts and appearance
+
+The layout/appearance controls in the keyboard toolbar and Setup open the same
+chooser. The layout and theme are stored with the existing schema/learning
+preferences; changing colors does not settle composition or reset Buffer.
+
+- **26-key QWERTY** uses equal letter widths on all three rows, with a half-key
+  inset on row two and a one-and-a-half-key inset on row three. Shift/Delete flank
+  row three. The footer has numbers, emoji, language, a wide Space, and Return.
+  Return displays the real editor action, raw-code confirmation or Buffer insert.
+- **9-key Pinyin** uses the iOS telephone arrangement, `ABC` through `WXYZ`, a
+  double-height Return, separator, punctuation and spelling selection. Choosing
+  this layout selects Pinyin. Natural-code, Wubi, English and protected fields
+  use QWERTY; returning to Pinyin restores the chosen nine-key preference.
+  `64426` offers `你好` through librime. “选拼音” narrows ambiguous syllables;
+  deleting a pinned syllable's separator returns it to its digit spelling.
+- **Numbers / symbols / emoji** have dedicated pages. Numeric/symbol rows keep
+  the letter-key width; the emoji page offers 30 fixed choices without recording
+  recents. Emoji are committed through the existing native input route.
+- **18 palettes** mirror iOS: native, Rhino, hermit crab, kitten, puppy, piglet,
+  dog, poodle, pig, rabbit, crab, penguin, fox, panda, turtle, octopus, frog and
+  chick. Every palette has light/dark colors, functional caps and visible press
+  feedback. Pet glyphs use system emoji; animated pets are not included.
+- Portrait touch rows are 56 dp; landscape rows are 36 dp. In landscape, preedit
+  moves into the toolbar and chrome rows shrink to 36 dp. Insets keep keys clear
+  of navigation and cutouts. Text auto-sizes within the key while touch geometry
+  stays fixed, including larger system fonts.
+- Candidate refreshes reuse the keyboard surface. Composition and idle punctuation
+  share a stable rail; long phrases retain their full natural width and scroll.
+  “选拼音” temporarily uses that rail, returning to word candidates after a choice.
+
+Layout/language/page changes settle pending raw code through the current input
+route and preserve confirmed Buffer blocks. Switching a theme only changes colors.
+Nine-key schemas have the same private/off-learning variants and share the
+existing Pinyin user dictionary; they are compiled on the build machine.
 
 ## Local learning and privacy
 
@@ -62,8 +98,8 @@ python3 scripts/build-engine.py
 "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 -v 4 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The Android-only builder reads the iOS dependency lock, minimal mobile schemas and
-licenses. It never invokes iOS generation or writes iOS resources. Its `.native/`
+The Android-only builder reads the iOS dependency lock, three minimal mobile schemas and
+licenses, plus the Android-owned nine-key resources in `resources/`. It never invokes iOS generation or writes iOS resources. Its `.native/`
 cache, generated assets and ABI libraries are ignored. Optional
 `--source-cache /path/to/Vendor/ios-build` exports the exact pinned Git commits and
 checks the Boost archive checksum; it does not copy source modifications or builds.
@@ -82,8 +118,8 @@ their original license notices. No iOS executable code or Apple framework is lin
 ## Checks
 
 `core:test` covers block boundaries, exact consumption, capacity, privacy, editor
-revocation and immutable snapshots. `app` instrumentation checks the real JNI
-Unicode bridge and Android editor policies. `native/engine_contract.cpp` checks
+revocation, immutable snapshots, layout geometry and nine-key spelling constraints. `app` instrumentation checks the real JNI
+Unicode bridge, nine-key schemas, all 18 keycap palettes and Android editor policies. `native/engine_contract.cpp` checks
 actual schemas, paging, punctuation, learning/restart and disabled learning.
 
 On x86_64 Linux (including an x86_64 Linux container on an ARM development host):
@@ -112,6 +148,9 @@ adb -s "$RIMES_ANDROID_SERIAL" shell ime set \
   org.scholay.rimes.android.debug/org.scholay.rimes.android.RimesInputMethodService
 adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w \
   org.scholay.rimes.testhost.test/org.scholay.rimes.testhost.InputContractInstrumentation
+# Layout, touch coordinates, spelling, Buffer and orientation with screenshots.
+adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w -e mode layout \
+  org.scholay.rimes.testhost.test/org.scholay.rimes.testhost.InputContractInstrumentation
 # Continuous real-keyboard input; the runner reports every minute.
 adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w -e mode soak -e seconds 1800 \
   org.scholay.rimes.testhost.test/org.scholay.rimes.testhost.InputContractInstrumentation
@@ -139,4 +178,4 @@ The Android workflow builds/checks both ABIs and resources; it does not publish,
 install on a physical phone, or participate in macOS release jobs.
 
 Out of scope: chord/sliding/long-press gestures, complete Buffer editing, AI,
-translation, theme redesign and iOS feature parity.
+translation, custom layout importing, animated pets and complete iOS feature parity.

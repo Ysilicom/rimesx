@@ -46,6 +46,25 @@ public final class SetupActivity extends Activity {
         Switch learning = new Switch(this);
         learning.setText(R.string.learning);
         android.content.SharedPreferences preferences = getSharedPreferences("keyboard", MODE_PRIVATE);
+        Button appearance = new Button(this);
+        appearance.setText(R.string.keyboard_appearance);
+        appearance.setOnClickListener(view -> {
+            final KeyboardAppearancePanel[] panel = new KeyboardAppearancePanel[1];
+            Runnable refresh = () -> panel[0].render(preferences.getString("layout", "qwerty"),
+                    KeyboardTheme.named(preferences.getString("theme", "apple")));
+            panel[0] = new KeyboardAppearancePanel(this, selected -> {
+                android.content.SharedPreferences.Editor edit = preferences.edit().putString("layout", selected);
+                if (selected.equals("nineKey")) edit.putString("schema", "rimes_pinyin");
+                edit.apply(); refresh.run();
+            }, selected -> { preferences.edit().putString("theme", selected).apply(); refresh.run(); });
+            refresh.run();
+            android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+                    .setTitle("键盘外观").setView(panel[0]).setPositiveButton("完成", null).create();
+            dialog.show();
+            panel[0].getLayoutParams().height = Math.round(360 * getResources().getDisplayMetrics().density);
+            panel[0].requestLayout();
+        });
+        content.addView(appearance);
         learning.setChecked(preferences.getBoolean("learning", true));
         learning.setOnCheckedChangeListener((button, checked) -> preferences.edit().putBoolean("learning", checked).apply());
         content.addView(learning);

@@ -47,7 +47,7 @@ jobs:
         run: |
           set -o pipefail
           python3 scripts/test-linux-native.py 2>&1 | tee .native/engine-contract.log
-      - name: Test Buffer, build development APK and run Lint
+      - name: Test Buffer and keyboard layouts, build development APK and run Lint
         run: ./gradlew --no-daemon :core:test :app:assembleDebug :app:lintDebug :app:assembleDebugAndroidTest :testhost:assembleDebug :testhost:assembleDebugAndroidTest :testhost:lintDebug
       - name: Verify APK 16 KB alignment
         run: "$ANDROID_HOME/build-tools/36.0.0/zipalign -c -P 16 -v 4 app/build/outputs/apk/debug/app-debug.apk"
