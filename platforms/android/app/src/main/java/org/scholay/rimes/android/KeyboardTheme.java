@@ -26,13 +26,16 @@ final class KeyboardTheme {
         new KeyboardTheme("noto-1f423","小鸡","🐣",0xFFEFE6CD,0xFFFFFCED,0xFFE7D49A,0xFFF1C232,0xFF302B1D,0xFF514832,0xFF665939,0xFFF7D368)
     };
     final String id,title,glyph;
-    private final int[] colors;
-    KeyboardTheme(String id,String title,String glyph,int... colors) { this.id=id; this.title=title; this.glyph=glyph; this.colors=colors; }
+    private final Palette lightPalette,darkPalette;
+    KeyboardTheme(String id,String title,String glyph,int... colors) {
+        this.id=id; this.title=title; this.glyph=glyph;
+        lightPalette=new Palette(colors[0],colors[1],colors[2],colors[3],0xFF000000,id.equals("apple"),false);
+        darkPalette=new Palette(colors[4],colors[5],colors[6],colors[7],0xFFFFFFFF,id.equals("apple"),true);
+    }
     static KeyboardTheme named(String id) { for(KeyboardTheme theme:ALL) if(theme.id.equals(id)) return theme; return ALL[0]; }
     Palette palette(Context context) {
         boolean dark=(context.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES;
-        int offset=dark?4:0;
-        return new Palette(colors[offset],colors[offset+1],colors[offset+2],colors[offset+3],dark?0xFFFFFFFF:0xFF000000,id.equals("apple"),dark);
+        return dark?darkPalette:lightPalette;
     }
     static final class Palette {
         final int background,key,functional,accent,ink,accentInk,accentText,pressedSelected,pressedSelectedInk;
