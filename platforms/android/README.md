@@ -28,6 +28,8 @@ Current evidence and remaining acceptance are in [VALIDATION.md](VALIDATION.md).
   results. Storage is bounded to 16,384 UTF-16 units in the block store.
 - Changing fields, hiding/switching the keyboard or destroying the service
   revokes queued engine work and delivery authority, and clears transient state.
+  Ordinary keys also retire held touch streams and queued native clicks; a late
+  pointer cannot acquire a different key after the target or mode has changed.
   Android hosts may finish and retain the already displayed preedit in the *old*
   editor before disconnecting it. RIMES never replays it into the next editor.
 
@@ -194,7 +196,8 @@ notice is packaged too. No iOS executable code or Apple framework is linked.
 revocation, immutable snapshots, touch/cap geometry, nine-key spelling constraints,
 all 427 chord encodings, gesture resolution and cancellation. `app` instrumentation
 checks the real JNI Unicode bridge, nine-key schemas, all 18 keycap palettes,
-chord touch-stream contracts, vector icon visibility/tint/accessibility, Buffer glyph/chip rendering and near-capacity
+attached native Button/Looper cancellation, chord touch-stream contracts,
+vector icon visibility/tint/accessibility, Buffer glyph/chip rendering and near-capacity
 viewport/cache behavior, plus Android editor policies. Its rendering timings are
 component bitmap measurements, not hardware frame latency. `native/engine_contract.cpp`
 checks actual schemas, paging, punctuation, learning/restart and disabled learning.
@@ -214,6 +217,9 @@ WebView fields. It is never included in the keyboard APK. Its instrumentation
 clicks the actual RIMES buttons and checks actual host text; it does not inject
 text through an automation keyboard. While visible it keeps its own window awake,
 without changing the device timeout. Close other UiAutomation sessions before use.
+Run JNI instrumentation with another enabled IME selected, then force-stop the
+instrumented keyboard process before reselecting RIMES. This isolates the test
+engine from the system's live keyboard service.
 
 ```sh
 ./gradlew :app:assembleDebugAndroidTest :testhost:assembleDebug :testhost:assembleDebugAndroidTest
@@ -221,6 +227,7 @@ without changing the device timeout. Close other UiAutomation sessions before us
 adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w \
   org.scholay.rimes.android.debug.test/org.scholay.rimes.android.EngineInstrumentation
 # Select RIMES after the JNI test (instrumentation restarts the keyboard process).
+adb -s "$RIMES_ANDROID_SERIAL" shell am force-stop org.scholay.rimes.android.debug
 adb -s "$RIMES_ANDROID_SERIAL" shell ime set \
   org.scholay.rimes.android.debug/org.scholay.rimes.android.RimesInputMethodService
 adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w \
@@ -231,6 +238,9 @@ adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w -e mode layout \
 # Actual injected multi-touch: held/released hands, cancellation, split, Buffer,
 # private fields, target changes and orientation.
 adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w -e mode chord \
+  org.scholay.rimes.testhost.test/org.scholay.rimes.testhost.InputContractInstrumentation
+# Ordinary held keys across target/selection changes and actual window hiding.
+adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w -e mode touch \
   org.scholay.rimes.testhost.test/org.scholay.rimes.testhost.InputContractInstrumentation
 # Idle/plugin shortcuts, retained source, private targets and unavailable execution.
 adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w -e mode plugins \
