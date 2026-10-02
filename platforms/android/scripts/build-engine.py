@@ -7,7 +7,10 @@ WORK = ANDROID / '.native'
 LOCK = json.loads((ROOT / 'platforms/ios/dependencies.lock.json').read_text())
 NDK = '29.0.14206865'
 CMAKE = '3.22.1'
-SCHEMAS = ('rimes_pinyin', 'rimes_ziranma', 'rimes_wubi')
+SCHEMAS = ('rimes_pinyin', 'rimes_pinyin9', 'rimes_ziranma', 'rimes_wubi')
+def schema_source(name):
+    root = ANDROID/'resources' if name == 'rimes_pinyin9' else ROOT/'platforms/ios/Resources/EngineData'
+    return root/(name+'.schema.yaml')
 def run(*args, **kw):
     subprocess.run([str(a) for a in args], check=True, **kw)
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -98,9 +101,12 @@ def prepare_data():
     if stage.exists(): shutil.rmtree(stage)
     stage.mkdir()
     resources = ROOT/'platforms/ios/Resources/EngineData'
-    shutil.copy2(resources/'default.yaml', stage/'default.yaml')
+    default = (resources/'default.yaml').read_text()
+    if 'schema: rimes_pinyin9' not in default:
+        default = default.replace('  - schema: rimes_pinyin\n', '  - schema: rimes_pinyin\n  - schema: rimes_pinyin9\n')
+    (stage/'default.yaml').write_text(default)
     for schema in SCHEMAS:
-        data = (resources/(schema+'.schema.yaml')).read_text()
+        data = schema_source(schema).read_text()
         (stage/(schema+'.schema.yaml')).write_text(data)
         private = data.replace('schema_id: '+schema,'schema_id: '+schema+'_private').replace('enable_user_dict: true','enable_user_dict: false')
         (stage/(schema+'_private.schema.yaml')).write_text(private)
@@ -118,6 +124,7 @@ def prepare_data():
     for path in (stage/'build').iterdir():
         if path.suffix in ('.bin','.yaml'): shutil.copy2(path,dest/'build'/path.name)
     shutil.copy2(stage/'default.yaml',dest/'default.yaml')
+    shutil.copy2(ANDROID/'resources/nine-key-syllables.json',dest/'nine-key-syllables.json')
     # Runtime only needs compiled data. Source dictionaries remain pinned build inputs.
     licenses = ANDROID/'app/build/generated/rime/assets/licenses'
     shutil.copytree(ROOT/'platforms/ios/Licenses', licenses, dirs_exist_ok=True)
@@ -140,7 +147,8 @@ if __name__ == '__main__':
     # Keep Gradle from accidentally packaging libraries built from older native inputs.
     inputs = [pathlib.Path(__file__).resolve(), ROOT/'platforms/ios/dependencies.lock.json']
     inputs += list((ANDROID/'native').glob('*'))
-    inputs += [ROOT/'platforms/ios/Resources/EngineData'/(name+'.schema.yaml') for name in SCHEMAS]
+    inputs += [schema_source(name) for name in SCHEMAS]
+    inputs += [ANDROID/'resources/nine-key-syllables.json']
     inputs += [ROOT/'platforms/ios/Resources/EngineData/default.yaml']
     inputs += list((ROOT/'platforms/ios/Licenses').glob('*'))
     receipt = {'inputs':{str(p.relative_to(ROOT)):sha(p) for p in sorted(inputs) if p.is_file()},

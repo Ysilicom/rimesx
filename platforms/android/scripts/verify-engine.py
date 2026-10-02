@@ -16,11 +16,18 @@ for name,digest in manifest['files'].items():
     assert '..' not in name and not name.startswith('/')
     assert hashlib.sha256((data/name).read_bytes()).hexdigest()==digest,name
 assert not list(data.rglob('*.dict.yaml')), 'Raw dictionaries must not trigger on-device compilation'
-for schema in ('rimes_pinyin','rimes_ziranma','rimes_wubi'):
+for schema in ('rimes_pinyin','rimes_pinyin9','rimes_ziranma','rimes_wubi'):
     for suffix in ('','_private'):
         text=(data/'build'/(schema+suffix+'.schema.yaml')).read_text()
         assert 'page_size: 9' in text
         assert ('enable_user_dict: false' if suffix else 'enable_user_dict: true') in text
+syllables=json.loads((data/'nine-key-syllables.json').read_text())
+assert len(syllables)>400 and 'ni' in syllables and 'hao' in syllables
+nine_source=(ROOT/'resources/rimes_pinyin9.schema.yaml').read_text()
+groups=('abc','def','ghi','jkl','mno','pqrs','tuv','wxyz')
+for syllable in syllables:
+    digits=''.join(str(next(i+2 for i,group in enumerate(groups) if letter in group)) for letter in syllable)
+    assert 'derive/^'+syllable+'$/'+digits+'/' in nine_source,syllable
 for license in ('librime-BSD.txt','Boost-1.0.txt','leveldb-LICENSE.txt','marisa-trie-COPYING.md.txt',
                 'yaml-cpp-LICENSE.txt','opencc-LICENSE.txt','wubi86-LGPL-3.0.txt','pinyin_simp-APACHE-2.0.txt'):
     assert (assets/'licenses'/license).read_bytes()==(ROOT.parent/'ios/Licenses'/license).read_bytes(),license

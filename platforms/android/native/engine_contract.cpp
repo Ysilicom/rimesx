@@ -19,7 +19,7 @@ int main(int argc,char** argv) {
     if(mode!="export") {
         auto session=api->create_session(); require(session!=0,"session");
         struct Case { const char* schema; const char* code; const char* expected; };
-        Case cases[]={{"rimes_pinyin","nihao","你好"},{"rimes_ziranma","nihk","你好"},{"rimes_wubi","wq","你"}};
+        Case cases[]={{"rimes_pinyin","nihao","你好"},{"rimes_pinyin9","64426","你好"},{"rimes_ziranma","nihk","你好"},{"rimes_wubi","wq","你"}};
         for(const auto& item:cases) {
             std::string schema=item.schema;
             if(mode.rfind("private",0)==0) schema+="_private";
