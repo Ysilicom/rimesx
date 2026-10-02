@@ -72,7 +72,17 @@ x64 DLL SHA-256：`1ea49d21b4f650576f5f04459d6f2b6fe367749c47ab357bcd7c3f70d0ec1
 
 按用户提出的方式，已通过 SSH 准备独立 Windows 副本 `D:\AI\rimes-windows-daily-20261002\cursor-cold-start-c99a3aadcead`，含准确源码身份、Git 基线、任务边界和冷启动问题指令；目标是本地开发/测试，再拉回 diff、日志审查。本地 Git 初始提交仅是快照，不冒充原分支提交。
 
-实际存在 `cursor-agent.cmd`，版本 `2026.04.17-787b533`。`status` 返回已登录但无法获取用户信息；真正的 `--print --trust --output-format stream-json --workspace ...` 调用以退出码 1 返回 `Authentication required`。因此 **尚没有 Cursor 实施或测试的代码，也没有 Cursor 修改回收或合并**。已请求用户在 Young 执行 `cursor-agent login`，未读取或复制其他应用凭据。
+实际存在 `cursor-agent.cmd`，版本 `2026.04.17-787b533`。首轮 `status` 返回已登录但无法获取用户信息，真正的任务调用退出码 1，错误为 `Authentication required`。用户重新处理登录后，20:04 的实际任务调用已能读取源码。无交互调用的 shell 命令仍被默认权限拒绝；根据 CLI 帮助启用 `--force` 执行已经授权的隔离开发任务，保留 `--trust`，未启用 MCP 自动批准或修改沙箱设置。
+
+20:20:27，`--print --trust --force --resume ... --output-format stream-json --workspace ...` 任务正常结束，退出码 0。Cursor 在 Windows 本地完成 x64/x86 Release 构建、每架构 12 项 CTest，以及使用固定 librime、独立用户目录和自己启动的 Session 0 Broker 的模拟 TSF 测试。常规拉取运行库的入口因缺少 7-Zip 失败，改用此前已准备的固定 DLL；失败也记录在原始报告中。没有安装或注册新输入法。
+
+**开发回收链路已跑通，冷启动问题尚未修复。** Cursor 最初提出连接期间消费按键的改动，会静默丢弃输入，违反断连直通要求；经 Codex 审查撤回，未合入。最终保留的变更为 `CMakeLists.txt`、新 `broker_client_contract_tests.cpp` 和模拟 TSF 测试，生产 `BrokerClient.cpp/.h`、`TextService.cpp` 内容与基线一致。
+
+回收包 `cursor-reviewed-export.zip` 为 87,319 字节，SHA-256 为 `3e7a7674ce65169bb3409bc49bae590e014867e806a041d3393830b730cbd44b`。Young 核对了 124 个未改动的 Windows 基线文件；恢复生产文件时 Git 将其中三个文件转为 CRLF，转换回 LF 后与原清单完全一致。包内 20 个文件及完整 ZIP 均在 Mac 校验通过，代码已带回 `codex/windows-daily-buffer`，原始报告和日志保存在 `.build/windows-cursor-20261002/retrieved/`。
+
+Codex 进一步移除了依赖连接完成时机、可能偶发失败的采样，并把“不补发旧输入”的宽松比较改为精确检查新组字为 `n`、`ni`；未连接单测也注入旧组字和旧提交状态，确认没有残留。20:28:25，审查后代码再次在 Young 双架构构建相关测试目标，每架构 12 项 CTest 与真实 Broker 配合模拟 TSF 均通过；六项命令退出码均为 0，三份源文件 SHA-256 与 Mac 工作分支一致。
+
+当前策略是：Broker 尚未就绪或不可用时，让宿主直接处理按键，不阻塞、不吞字、不在重连后补发。源代码说明了首次激活时原始字母进入宿主的路径，本轮新增测试覆盖断连及重连行为；这些结果不等于已经复现所有真实宿主的冷启动时间窗口。后续仍需减少启动延迟、提供明确就绪反馈并完成真实应用验收。已安装的 preview.4 未因这批测试改动重新打包或升级。
 
 ## 证据位置
 
@@ -81,7 +91,9 @@ Young 根目录：`D:\AI\rimes-windows-daily-20261002`。
 - `release-c99a3aadcead-result.json`、`native-host-audit-c99a3aa.log` 和 `native-host-audit.ps1`：准确源码、命令、时间、退出码、二进制哈希及完整测试记录。
 - `install-c99a3aadcead.log`、`verify-c99a3aadcead.log`：独立版本升级与安装后校验。
 - `real-x64-preview4.json`、`real-x86-preview4.json`、`real-notepad-preview4.json`、`real-edge-preview4.json`：真实进程、会话、模块路径与 SHA-256。
-- `cursor-cold-start-result.json`、`cursor-cold-start-stderr.log`：CLI 实际鉴权失败；`cursor-cold-start-prompt.txt` 保存待运行任务，不包含凭据。
+- `cursor-attempts/`：保留初次鉴权失败、缺少命令权限及撤回的吞键方案记录；`cursor-cold-start-prompt.txt` 和 `cursor-cold-start-review.txt` 保存任务和审查反馈，不含凭据。
+- `cursor-cold-start-result.json`、`cursor-cold-start-stream.jsonl`、`cursor-reviewed-export.zip`：Cursor 实际开发、测试、退出码与代码回收；Mac 上 `.build/windows-cursor-20261002/local-verification.json` 记录完整校验。
+- `cursor-parent-review-result.json`、`cursor-parent-review.log`、`validate-cursor-parent.ps1`：审查后最终代码的双架构复测与文件哈希；已拉回 `.build/windows-cursor-20261002/`。原始 Cursor 测试包和最终审查后的代码分别记录。
 
 ## 尚未完成的门槛
 

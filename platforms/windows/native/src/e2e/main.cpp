@@ -119,6 +119,101 @@ void ResetDocument(rimes::windows::e2e::FakeDocument* document) {
   *document = rimes::windows::e2e::FakeDocument{};
 }
 
+// Documents the intentional cold/unavailable contract: keys before the Broker
+// is ready fail open immediately, are never marked consumed without processing,
+// and are never replayed after a later successful connect.
+void CheckUnavailablePassThroughAndNoReplay() {
+  using namespace rimes::windows::tsf;
+  auto client = CreateBrokerClient();
+  Expect(client != nullptr, "unavailable-contract client created");
+  if (!client) {
+    return;
+  }
+
+  Expect(!client->IsConnected(), "contract client starts disconnected");
+  BrokerInputState cold;
+  Expect(client->HandleKey({BrokerKeyPhase::kTestKeyDown, 'N', 0}, nullptr) ==
+             BrokerKeyResult::kUnavailable,
+         "cold TestKeyDown fails open");
+  Expect(client->HandleKey({BrokerKeyPhase::kKeyDown, 'N', 1}, &cold) ==
+             BrokerKeyResult::kUnavailable,
+         "cold KeyDown fails open");
+  Expect(!cold.has_snapshot, "cold KeyDown must not invent a snapshot");
+  Expect(client->HandleKey({BrokerKeyPhase::kKeyDown, 'I', 1}, &cold) ==
+             BrokerKeyResult::kUnavailable,
+         "second cold KeyDown fails open");
+  Expect(!cold.has_snapshot, "second cold KeyDown has no snapshot to replay");
+
+  client->BeginConnect();
+  const auto connected_at = GetTickCount64();
+  while (!client->IsConnected() && GetTickCount64() - connected_at < 15000) {
+    Sleep(50);
+  }
+  Expect(client->IsConnected(), "contract client connects for positive control");
+  if (!client->IsConnected()) {
+    client->Disconnect();
+    return;
+  }
+  Expect(client->SetContext(1001), "connected context bound");
+
+  BrokerInputState live;
+  Expect(client->HandleKey({BrokerKeyPhase::kKeyDown, 'N', 1}, &live) ==
+             BrokerKeyResult::kConsumed,
+         "connected KeyDown is processed");
+  Expect(live.has_snapshot && live.composing,
+         "connected KeyDown yields a live snapshot");
+  Expect(live.composition == L"n" && live.commit_text.empty(),
+         "first connected key has no replay of unavailable NI");
+  client->HandleKey({BrokerKeyPhase::kKeyUp, 'N', 0}, &live);
+  // Cancel any preedit so the next reconnect assertion is unambiguous.
+  BrokerInputState cancelled;
+  client->HandleKey({BrokerKeyPhase::kKeyDown, VK_ESCAPE, 1}, &cancelled);
+  client->HandleKey({BrokerKeyPhase::kKeyUp, VK_ESCAPE, 0}, &cancelled);
+
+  client->Disconnect();
+  Expect(!client->IsConnected(), "Disconnect returns to unavailable");
+
+  BrokerInputState dropped;
+  Expect(client->HandleKey({BrokerKeyPhase::kKeyDown, 'X', 1}, &dropped) ==
+             BrokerKeyResult::kUnavailable,
+         "post-disconnect KeyDown fails open");
+  Expect(client->HandleKey({BrokerKeyPhase::kKeyDown, 'Y', 1}, &dropped) ==
+             BrokerKeyResult::kUnavailable,
+         "second post-disconnect KeyDown fails open");
+  Expect(!dropped.has_snapshot,
+         "disconnected letters are not retained for replay");
+
+  client->BeginConnect();
+  const auto reconnected_at = GetTickCount64();
+  while (!client->IsConnected() && GetTickCount64() - reconnected_at < 15000) {
+    Sleep(50);
+  }
+  Expect(client->IsConnected(), "contract client reconnects");
+  if (!client->IsConnected()) {
+    client->Disconnect();
+    return;
+  }
+  Expect(client->SetContext(1002), "fresh context after reconnect");
+
+  BrokerInputState after;
+  Expect(client->HandleKey({BrokerKeyPhase::kKeyDown, 'N', 1}, &after) ==
+             BrokerKeyResult::kConsumed,
+         "first key after reconnect is processed fresh");
+  Expect(after.has_snapshot, "reconnect KeyDown has a snapshot");
+  Expect(after.composition == L"n" && after.commit_text.empty(),
+         "no delayed replay of unavailable or prior cancelled input");
+  client->HandleKey({BrokerKeyPhase::kKeyUp, 'N', 0}, &after);
+  Expect(client->HandleKey({BrokerKeyPhase::kKeyDown, 'I', 1}, &after) ==
+             BrokerKeyResult::kConsumed,
+         "second fresh key after reconnect is processed");
+  Expect(after.composition == L"ni" && after.commit_text.empty(),
+         "fresh reconnect composition contains exactly the new NI");
+  client->HandleKey({BrokerKeyPhase::kKeyUp, 'I', 0}, &after);
+  client->HandleKey({BrokerKeyPhase::kKeyDown, VK_ESCAPE, 1}, &after);
+  client->HandleKey({BrokerKeyPhase::kKeyUp, VK_ESCAPE, 0}, &after);
+  client->Disconnect();
+}
+
 void CheckCandidateGuardAfterKeyRelease() {
   using namespace rimes::windows::tsf;
   auto client = CreateBrokerClient();
@@ -213,6 +308,7 @@ int RunTypingScenarios() {
   std::cerr << "caps_lock=" << ((GetKeyState(VK_CAPITAL) & 1) != 0)
             << " shift=" << ((GetKeyState(VK_SHIFT) & 0x8000) != 0) << '\n';
 
+  CheckUnavailablePassThroughAndNoReplay();
   CheckCandidateGuardAfterKeyRelease();
 
   TypeLatin(service, context, "nihao", &document);

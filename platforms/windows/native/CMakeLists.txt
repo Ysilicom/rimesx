@@ -229,6 +229,25 @@ if(RIMES_BUILD_TESTS)
     )
     rimes_harden_target(RimesCandidateLayoutTests)
 
+    # Fail-open contract for a disconnected BrokerClient. Does not launch a
+    # Broker or touch Session 1; safe as a default CTest.
+    add_executable(RimesBrokerClientContractTests
+        src/tsf/broker_client_contract_tests.cpp
+        src/tsf/BrokerClient.cpp
+        src/tsf/ModuleState.cpp
+    )
+    target_include_directories(RimesBrokerClientContractTests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/tsf"
+    )
+    target_link_libraries(RimesBrokerClientContractTests PRIVATE
+        RimesCore
+        advapi32
+        ole32
+        user32
+    )
+    rimes_harden_target(RimesBrokerClientContractTests)
+    rimes_use_unicode_console_entrypoint(RimesBrokerClientContractTests)
+
     # In-process TSF + live Broker typing host. Not a default CTest: it needs
     # a launched Broker, a pinned rime.dll, and the isolated e2e schema.
     add_executable(RimesTsfE2E
@@ -283,6 +302,8 @@ if(RIMES_BUILD_TESTS)
              COMMAND RimesBrokerKeyTranslationTests)
     add_test(NAME RimesBrokerOptions COMMAND RimesBrokerOptionsTests)
     add_test(NAME RimesCandidateLayout COMMAND RimesCandidateLayoutTests)
+    add_test(NAME RimesBrokerClientContract
+             COMMAND RimesBrokerClientContractTests)
     add_test(NAME RimesRegistrarMetadata COMMAND RimesRegistrar metadata)
     add_test(NAME RimesBrokerEndpoint COMMAND RimesBroker --print-endpoint)
     add_test(NAME RimesBrokerPrintPaths COMMAND RimesBroker --print-paths)
@@ -293,6 +314,7 @@ if(RIMES_BUILD_TESTS)
         RimesBrokerKeyTranslation
         RimesBrokerOptions
         RimesCandidateLayout
+        RimesBrokerClientContract
         RimesRegistrarMetadata
         RimesBrokerEndpoint
         RimesBrokerPrintPaths
