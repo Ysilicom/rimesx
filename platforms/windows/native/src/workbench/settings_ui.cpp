@@ -1,0 +1,637 @@
+#include "settings_ui.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <stdexcept>
+
+#include "../ui/icons.hpp"
+#include "../ui/theme.hpp"
+
+namespace rimes::windows::workbench {
+namespace {
+
+constexpr const wchar_t* kSchemas[] = {L"rime_ice", L"double_pinyin",
+                                       L"double_pinyin_flypy", L"wubi86",
+                                       L"english"};
+
+RECT DipToPx(const ui::DipRect& r, unsigned dpi) {
+  RECT out{};
+  out.left = static_cast<LONG>(r.left * dpi / 96.0f + 0.5f);
+  out.top = static_cast<LONG>(r.top * dpi / 96.0f + 0.5f);
+  out.right = static_cast<LONG>(r.right * dpi / 96.0f + 0.5f);
+  out.bottom = static_cast<LONG>(r.bottom * dpi / 96.0f + 0.5f);
+  return out;
+}
+
+void Place(HWND hwnd, const ui::DipRect& r, unsigned dpi, bool show) {
+  if (!hwnd) return;
+  const RECT px = DipToPx(r, dpi);
+  SetWindowPos(hwnd, nullptr, px.left, px.top, px.right - px.left,
+               px.bottom - px.top, SWP_NOZORDER | SWP_NOACTIVATE |
+                                       (show ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
+}
+
+std::wstring GetText(HWND hwnd) {
+  if (!hwnd) return {};
+  std::wstring text(static_cast<std::size_t>(GetWindowTextLengthW(hwnd)) + 1,
+                    L'\0');
+  GetWindowTextW(hwnd, text.data(), static_cast<int>(text.size()));
+  text.resize(wcslen(text.c_str()));
+  return text;
+}
+
+}  // namespace
+
+SettingsUiHost::SettingsUiHost(SettingsUiCallbacks callbacks)
+    : callbacks_(std::move(callbacks)) {
+  draft_.about_text = callbacks_.about_text;
+}
+
+SettingsUiHost::~SettingsUiHost() {
+  if (hwnd_) DestroyWindow(hwnd_);
+  fonts_.Release();
+  if (edit_brush_) DeleteObject(edit_brush_);
+}
+
+void SettingsUiHost::SyncDraftFromConfig(const Settings& config) {
+  draft_.schema_index = 0;
+  for (int i = 0; i < 5; ++i) {
+    if (config.schema == Utf8(std::wstring(kSchemas[i]))) draft_.schema_index = i;
+  }
+  draft_.theme = callbacks_.load_theme ? callbacks_.load_theme()
+                                       : ui::ThemeIdOrDefault(config.theme);
+  draft_.preview_theme = draft_.theme;
+  draft_.theme_index = static_cast<int>(draft_.theme);
+  opened_theme_ = draft_.theme;
+  draft_.ascii = config.ascii;
+  draft_.traditional = config.traditional;
+  draft_.ascii_punctuation = config.ascii_punctuation;
+  draft_.font_size = config.font_size;
+  draft_.hotkey = static_cast<wchar_t>(config.hotkey_key);
+  draft_.base_url = Wide(config.base_url);
+  draft_.model = Wide(config.model);
+  draft_.target_language = Wide(config.target_language);
+  draft_.api_key.clear();
+  draft_.page = ui::SettingsPage::kInput;
+  draft_.subpage = 0;
+  draft_.keyboard_focus = false;
+  draft_.hover = -1;
+  if (!callbacks_.about_text.empty()) draft_.about_text = callbacks_.about_text;
+}
+
+void SettingsUiHost::Open(HWND owner) {
+  owner_ = owner;
+  if (hwnd_) {
+    ShowWindow(hwnd_, SW_SHOWNORMAL);
+    SetForegroundWindow(hwnd_);
+    return;
+  }
+  if (callbacks_.load) SyncDraftFromConfig(callbacks_.load());
+  saved_ = false;
+  WNDCLASSW wc{};
+  wc.lpfnWndProc = Procedure;
+  wc.hInstance = GetModuleHandleW(nullptr);
+  wc.lpszClassName = L"Rimes.SettingsHost";
+  wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+  wc.hbrBackground = static_cast<HBRUSH>(GetStockObject(NULL_BRUSH));
+  wc.style = CS_HREDRAW | CS_VREDRAW;
+  RegisterClassW(&wc);
+
+  dpi_ = 96;
+  if (owner) dpi_ = GetDpiForWindow(owner);
+  RECT client{0, 0, MulDiv(980, static_cast<int>(dpi_), 96),
+              MulDiv(680, static_cast<int>(dpi_), 96)};
+  AdjustWindowRectExForDpi(&client, WS_OVERLAPPEDWINDOW, FALSE, 0, dpi_);
+  MONITORINFO monitor{sizeof(monitor)};
+  GetMonitorInfoW(MonitorFromWindow(owner, MONITOR_DEFAULTTONEAREST), &monitor);
+  const int width = (std::min)(client.right - client.left,
+                               monitor.rcWork.right - monitor.rcWork.left);
+  const int height = (std::min)(client.bottom - client.top,
+                                monitor.rcWork.bottom - monitor.rcWork.top);
+  const int left = monitor.rcWork.left +
+                   (monitor.rcWork.right - monitor.rcWork.left - width) / 2;
+  const int top = monitor.rcWork.top +
+                  (monitor.rcWork.bottom - monitor.rcWork.top - height) / 2;
+  hwnd_ = CreateWindowExW(
+      0, wc.lpszClassName, L"RIMES 设置", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+      left, top, width, height,
+      owner, nullptr, wc.hInstance, this);
+  if (!hwnd_) return;
+  CreateOrUpdateChildren();
+  Relayout();
+  ShowWindow(hwnd_, SW_SHOWNORMAL);
+  SetForegroundWindow(hwnd_);
+  draft_.focus = static_cast<int>(draft_.page);
+  SetFocus(hwnd_);
+}
+
+void SettingsUiHost::Close(bool persist) {
+  if (!hwnd_) return;
+  if (persist && !CommitSave()) return;
+  DestroyWindow(hwnd_);
+}
+
+bool SettingsUiHost::HandleDialogMessage(MSG* message) {
+  if (!hwnd_ || (message->hwnd != hwnd_ && !IsChild(hwnd_, message->hwnd)))
+    return false;
+  if (message->message == WM_KEYDOWN) {
+    draft_.keyboard_focus = true;
+    const auto key = message->wParam;
+    if (key == VK_ESCAPE ||
+        (key >= '1' && key <= '5' && (GetKeyState(VK_CONTROL) & 0x8000))) {
+      SendMessageW(hwnd_, WM_KEYDOWN, key, message->lParam);
+      return true;
+    }
+    if (key == VK_TAB && (GetKeyState(VK_CONTROL) & 0x8000)) {
+      draft_.subpage = 1 - draft_.subpage;
+      draft_.focus = static_cast<int>(draft_.page);
+      Relayout();
+      SetFocus(hwnd_);
+      return true;
+    }
+    if (key == VK_RETURN && GetFocus() != hwnd_) {
+      Close(true);
+      return true;
+    }
+    if (key == VK_TAB) {
+      std::vector<HWND> controls;
+      for (const auto control : {check_ascii_, check_trad_, check_punct_,
+                                edit_font_, edit_hotkey_, edit_base_,
+                                edit_model_, edit_key_, edit_lang_})
+        if (control && IsWindowVisible(control)) controls.push_back(control);
+      const bool back = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+      const int sidebar = static_cast<int>(draft_.page);
+      int grid = sidebar;
+      if (draft_.subpage == 0 && draft_.page == ui::SettingsPage::kInput)
+        grid = 100 + draft_.schema_index;
+      if (draft_.subpage == 0 && draft_.page == ui::SettingsPage::kAppearance)
+        grid = 200 + draft_.theme_index;
+      auto focus_shell = [&](int next) {
+        draft_.focus = next;
+        SetFocus(hwnd_);
+        InvalidateRect(hwnd_, nullptr, FALSE);
+      };
+      if (GetFocus() == hwnd_) {
+        const int current = draft_.focus;
+        if (!back) {
+          if (current < 5 && grid != sidebar) focus_shell(grid);
+          else if (current < 300 && !controls.empty()) SetFocus(controls.front());
+          else if (current < 300) focus_shell(300);
+          else focus_shell(current == 300 ? 301 : sidebar);
+        } else {
+          if (current < 5) focus_shell(301);
+          else if (current == 301) focus_shell(300);
+          else if (current == 300 && !controls.empty()) SetFocus(controls.back());
+          else focus_shell(current == 300 ? grid : sidebar);
+        }
+        return true;
+      }
+      if (!controls.empty() && GetFocus() ==
+          (back ? controls.front() : controls.back())) {
+        focus_shell(back ? grid : 300);
+        return true;
+      }
+    }
+    // IsDialogMessage eats arrow/space keys for dialog navigation; the painted
+    // sidebar/cards own these keys while focus is on the shell.
+    if (GetFocus() == hwnd_) return false;
+  }
+  return IsDialogMessageW(hwnd_, message) != FALSE;
+}
+
+void SettingsUiHost::CreateOrUpdateChildren() {
+  auto make_edit = [&](HWND* slot, bool secret) {
+    if (*slot) return;
+    *slot = CreateWindowExW(
+        0, L"EDIT", L"",
+        WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL | (secret ? ES_PASSWORD : 0), 0,
+        0, 10, 10, hwnd_, nullptr, GetModuleHandleW(nullptr), nullptr);
+  };
+  auto make_check = [&](HWND* slot, const wchar_t* text, int id) {
+    if (*slot) return;
+    *slot = CreateWindowExW(0, L"BUTTON", text,
+                            WS_CHILD | WS_TABSTOP | BS_OWNERDRAW, 0, 0, 10,
+                            10, hwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), GetModuleHandleW(nullptr),
+                            nullptr);
+  };
+  make_edit(&edit_font_, false);
+  make_edit(&edit_hotkey_, false);
+  make_edit(&edit_base_, false);
+  make_edit(&edit_model_, false);
+  make_edit(&edit_key_, true);
+  make_edit(&edit_lang_, false);
+  make_check(&check_ascii_, L"英文直输", 401);
+  make_check(&check_trad_, L"繁体转换", 402);
+  make_check(&check_punct_, L"英文标点", 403);
+  SetWindowTextW(edit_font_, std::to_wstring(draft_.font_size).c_str());
+  SetWindowTextW(edit_hotkey_, std::wstring(1, draft_.hotkey).c_str());
+  SetWindowTextW(edit_base_, draft_.base_url.c_str());
+  SetWindowTextW(edit_model_, draft_.model.c_str());
+  SetWindowTextW(edit_key_, L"");
+  SetWindowTextW(edit_lang_, draft_.target_language.c_str());
+  ThemeEdits();
+}
+
+void SettingsUiHost::ThemeEdits() {
+  fonts_.Ensure(dpi_);
+  const auto& p = ui::Palette(draft_.preview_theme);
+  if (edit_brush_) DeleteObject(edit_brush_);
+  edit_brush_ = CreateSolidBrush(ui::ToColorRef(p.surface));
+  HWND edits[] = {edit_font_, edit_hotkey_, edit_base_,
+                  edit_model_, edit_key_,   edit_lang_};
+  for (HWND edit : edits) {
+    if (!edit) continue;
+    SendMessageW(edit, WM_SETFONT, reinterpret_cast<WPARAM>(fonts_.control),
+                 TRUE);
+  }
+  HWND checks[] = {check_ascii_, check_trad_, check_punct_};
+  for (HWND check : checks) {
+    if (!check) continue;
+    SendMessageW(check, WM_SETFONT, reinterpret_cast<WPARAM>(fonts_.body), TRUE);
+  }
+}
+
+void SettingsUiHost::Relayout() {
+  RECT client{};
+  GetClientRect(hwnd_, &client);
+  dpi_ = GetDpiForWindow(hwnd_);
+  fonts_.Ensure(dpi_);
+  const float width = static_cast<float>(client.right) * 96.0f /
+                      static_cast<float>(dpi_);
+  const float height = static_cast<float>(client.bottom) * 96.0f /
+                       static_cast<float>(dpi_);
+  layout_ = ui::LayoutSettings(width, height, draft_);
+  ThemeEdits();
+
+  const bool input = draft_.page == ui::SettingsPage::kInput && draft_.subpage == 1;
+  const bool appearance = draft_.page == ui::SettingsPage::kAppearance && draft_.subpage == 1;
+  const bool buffer = draft_.page == ui::SettingsPage::kBuffer && draft_.subpage == 0;
+  const bool api = draft_.page == ui::SettingsPage::kApi && draft_.subpage == 0;
+  auto place_edit = [&](HWND edit, ui::DipRect box, bool show) {
+    if (show) {
+      box.left += 8;
+      box.right -= 8;
+      box.top += 5;
+      box.bottom -= 4;
+    }
+    Place(edit, box, dpi_, show);
+  };
+
+  place_edit(edit_font_, layout_.font_edit, appearance);
+  place_edit(edit_hotkey_, layout_.hotkey_edit, buffer);
+  place_edit(edit_base_, layout_.base_edit, api);
+  place_edit(edit_model_, layout_.model_edit, api);
+  place_edit(edit_key_, layout_.key_edit,
+             draft_.page == ui::SettingsPage::kApi && draft_.subpage == 1);
+  place_edit(edit_lang_, layout_.lang_edit, api);
+  Place(check_ascii_, layout_.check_ascii, dpi_, input);
+  Place(check_trad_, layout_.check_trad, dpi_, input);
+  Place(check_punct_, layout_.check_punct, dpi_, input);
+  InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void SettingsUiHost::ApplyControlTheme() { ThemeEdits(); }
+
+bool SettingsUiHost::CommitSave() {
+  if (!callbacks_.save) return true;
+  try {
+    Settings config = callbacks_.load ? callbacks_.load() : Settings{};
+    config.schema = Utf8(std::wstring(kSchemas[draft_.schema_index]));
+    config.theme = ui::ThemeIdString(
+        static_cast<ui::ThemeId>(draft_.theme_index));
+    config.base_url = Utf8(GetText(edit_base_));
+    config.model = Utf8(GetText(edit_model_));
+    config.target_language = Utf8(GetText(edit_lang_));
+    const auto font_text = GetText(edit_font_);
+    std::size_t parsed = 0;
+    config.font_size = static_cast<unsigned>(std::stoul(font_text, &parsed));
+    auto hotkey = GetText(edit_hotkey_);
+    if (parsed != font_text.size() || config.font_size < 10 ||
+        config.font_size > 40 || hotkey.size() != 1)
+      throw std::runtime_error("range");
+    config.hotkey_key = static_cast<unsigned>(towupper(hotkey[0]));
+    config.hotkey_modifiers = MOD_CONTROL | MOD_ALT;
+    config.ascii = draft_.ascii;
+    config.traditional = draft_.traditional;
+    config.ascii_punctuation = draft_.ascii_punctuation;
+    auto key = GetText(edit_key_);
+    std::string error;
+    const bool ok =
+        callbacks_.save(config, key, !key.empty(), &error);
+    if (!key.empty())
+      SecureZeroMemory(key.data(), key.size() * sizeof(wchar_t));
+    if (!ok) {
+      MessageBoxW(hwnd_, Wide(error).c_str(), L"RIMES", MB_OK);
+      return false;
+    }
+    draft_.theme = static_cast<ui::ThemeId>(draft_.theme_index);
+    draft_.preview_theme = draft_.theme;
+    opened_theme_ = draft_.theme;
+    saved_ = true;
+    if (callbacks_.on_theme_preview)
+      callbacks_.on_theme_preview(draft_.theme);
+    return true;
+  } catch (...) {
+    MessageBoxW(hwnd_, L"请检查输入方案、字号和快捷键。", L"RIMES", MB_OK);
+    return false;
+  }
+}
+
+void SettingsUiHost::Paint(HDC dc) {
+  ui::PaintSettingsShell(dc, layout_, draft_, fonts_, dpi_);
+}
+
+LRESULT CALLBACK SettingsUiHost::Procedure(HWND hwnd, UINT message,
+                                           WPARAM wparam, LPARAM lparam) {
+  auto* self =
+      reinterpret_cast<SettingsUiHost*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+  if (message == WM_NCCREATE) {
+    self = static_cast<SettingsUiHost*>(
+        reinterpret_cast<CREATESTRUCTW*>(lparam)->lpCreateParams);
+    SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+    self->hwnd_ = hwnd;
+  }
+  if (!self) return DefWindowProcW(hwnd, message, wparam, lparam);
+
+  switch (message) {
+    case WM_PAINT: {
+      PAINTSTRUCT ps{};
+      HDC dc = BeginPaint(hwnd, &ps);
+      self->Paint(dc);
+      EndPaint(hwnd, &ps);
+      return 0;
+    }
+    case WM_ERASEBKGND:
+      return 1;
+    case WM_COMMAND:
+      if (HIWORD(wparam) == BN_CLICKED) {
+        switch (LOWORD(wparam)) {
+          case 401: self->draft_.ascii = !self->draft_.ascii; break;
+          case 402: self->draft_.traditional = !self->draft_.traditional; break;
+          case 403: self->draft_.ascii_punctuation = !self->draft_.ascii_punctuation; break;
+          default: return 0;
+        }
+        InvalidateRect(reinterpret_cast<HWND>(lparam), nullptr, FALSE);
+        return 0;
+      }
+      break;
+    case WM_DRAWITEM: {
+      const auto* draw = reinterpret_cast<DRAWITEMSTRUCT*>(lparam);
+      if (draw->CtlType != ODT_BUTTON) break;
+      const auto& p = ui::Palette(self->draft_.preview_theme);
+      ui::FillRectColor(draw->hDC, draw->rcItem,
+                       ui::ToColorRef(p.settings_background));
+      const bool checked = draw->CtlID == 401 ? self->draft_.ascii
+          : draw->CtlID == 402 ? self->draft_.traditional
+                               : self->draft_.ascii_punctuation;
+      RECT box = draw->rcItem;
+      const int size = MulDiv(14, static_cast<int>(self->dpi_), 96);
+      box.right = box.left + size;
+      box.top += (box.bottom - box.top - size) / 2;
+      box.bottom = box.top + size;
+      ui::FillRoundRect(draw->hDC, box, MulDiv(3, static_cast<int>(self->dpi_), 96),
+                        ui::ToColorRef(checked ? p.accent : p.surface));
+      ui::StrokeRoundRect(draw->hDC, box, MulDiv(3, static_cast<int>(self->dpi_), 96),
+                          ui::ToColorRef(checked ? p.accent : p.border_strong));
+      if (checked) ui::DrawIconGlyph(draw->hDC, ui::IconId::kCheck, box,
+                                    ui::ToColorRef(p.accent_foreground));
+      RECT text_box = draw->rcItem;
+      text_box.left = box.right + MulDiv(8, static_cast<int>(self->dpi_), 96);
+      const auto label = GetText(draw->hwndItem);
+      const auto old = SelectObject(draw->hDC, self->fonts_.body);
+      SetBkMode(draw->hDC, TRANSPARENT);
+      SetTextColor(draw->hDC, ui::ToColorRef(p.text_primary));
+      DrawTextW(draw->hDC, label.c_str(), -1, &text_box,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+      SelectObject(draw->hDC, old);
+      if (draw->itemState & ODS_FOCUS) DrawFocusRect(draw->hDC, &draw->rcItem);
+      return TRUE;
+    }
+    case WM_GETMINMAXINFO: {
+      auto* limits = reinterpret_cast<MINMAXINFO*>(lparam);
+      const int dpi = static_cast<int>(GetDpiForWindow(hwnd));
+      RECT min_client{0, 0, MulDiv(860, dpi, 96), MulDiv(600, dpi, 96)};
+      AdjustWindowRectExForDpi(&min_client, WS_OVERLAPPEDWINDOW, FALSE, 0,
+                               dpi);
+      limits->ptMinTrackSize = {min_client.right - min_client.left,
+                                min_client.bottom - min_client.top};
+      return 0;
+    }
+    case WM_SIZE:
+      self->Relayout();
+      return 0;
+    case WM_DPICHANGED: {
+      auto* rect = reinterpret_cast<RECT*>(lparam);
+      SetWindowPos(hwnd, nullptr, rect->left, rect->top,
+                   rect->right - rect->left, rect->bottom - rect->top,
+                   SWP_NOZORDER);
+      self->dpi_ = HIWORD(wparam);
+      self->Relayout();
+      return 0;
+    }
+    case WM_CTLCOLOREDIT:
+    case WM_CTLCOLORSTATIC: {
+      const auto& p = ui::Palette(self->draft_.preview_theme);
+      HDC dc = reinterpret_cast<HDC>(wparam);
+      SetBkColor(dc, ui::ToColorRef(p.surface));
+      SetTextColor(dc, ui::ToColorRef(p.text_primary));
+      if (!self->edit_brush_)
+        self->edit_brush_ = CreateSolidBrush(ui::ToColorRef(p.surface));
+      return reinterpret_cast<LRESULT>(self->edit_brush_);
+    }
+    case WM_LBUTTONUP: {
+      SetFocus(hwnd);
+      self->draft_.keyboard_focus = false;
+      const float dpi = static_cast<float>(self->dpi_);
+      const float x = static_cast<float>(static_cast<short>(LOWORD(lparam))) *
+                      96.0f / dpi;
+      const float y = static_cast<float>(static_cast<short>(HIWORD(lparam))) *
+                      96.0f / dpi;
+      for (int i = 0; i < ui::kSettingsPageCount; ++i) {
+        if (self->layout_.nav[static_cast<std::size_t>(i)].contains(x, y)) {
+          self->draft_.page = static_cast<ui::SettingsPage>(i);
+          self->draft_.subpage = 0;
+          self->draft_.focus = i;
+          self->Relayout();
+          return 0;
+        }
+      }
+      for (int i = 0; i < 2; ++i) {
+        if (self->layout_.subpage_tabs[static_cast<std::size_t>(i)].contains(
+                x, y)) {
+          self->draft_.subpage = i;
+          self->draft_.focus = static_cast<int>(self->draft_.page);
+          self->Relayout();
+          return 0;
+        }
+      }
+      if (self->draft_.page == ui::SettingsPage::kInput) {
+        for (std::size_t i = 0; i < self->layout_.scheme_cards.size(); ++i) {
+          if (self->layout_.scheme_cards[i].contains(x, y)) {
+            self->draft_.schema_index = static_cast<int>(i);
+            self->draft_.focus = 100 + static_cast<int>(i);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+          }
+        }
+      } else if (self->draft_.page == ui::SettingsPage::kAppearance) {
+        for (std::size_t i = 0; i < self->layout_.theme_cards.size(); ++i) {
+          if (self->layout_.theme_cards[i].contains(x, y)) {
+            self->draft_.theme_index = static_cast<int>(i);
+            self->draft_.preview_theme = static_cast<ui::ThemeId>(i);
+            self->draft_.focus = 200 + static_cast<int>(i);
+            if (self->callbacks_.on_theme_preview)
+              self->callbacks_.on_theme_preview(self->draft_.preview_theme);
+            self->ThemeEdits();
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+          }
+        }
+      }
+      if (self->layout_.save.contains(x, y)) {
+        if (self->CommitSave()) DestroyWindow(hwnd);
+        return 0;
+      }
+      if (self->layout_.close.contains(x, y)) {
+        DestroyWindow(hwnd);
+        return 0;
+      }
+      return 0;
+    }
+    case WM_MOUSEMOVE: {
+      const float x = static_cast<float>(static_cast<short>(LOWORD(lparam))) *
+                      96.0f / self->dpi_;
+      const float y = static_cast<float>(static_cast<short>(HIWORD(lparam))) *
+                      96.0f / self->dpi_;
+      int hover = -1;
+      for (std::size_t i = 0; i < self->layout_.nav.size(); ++i)
+        if (self->layout_.nav[i].contains(x, y)) hover = static_cast<int>(i);
+      for (std::size_t i = 0; i < self->layout_.scheme_cards.size(); ++i)
+        if (self->layout_.scheme_cards[i].contains(x, y)) hover = 100 + static_cast<int>(i);
+      for (std::size_t i = 0; i < self->layout_.theme_cards.size(); ++i)
+        if (self->layout_.theme_cards[i].contains(x, y)) hover = 200 + static_cast<int>(i);
+      if (self->draft_.hover != hover) {
+        self->draft_.hover = hover;
+        InvalidateRect(hwnd, nullptr, FALSE);
+      }
+      TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0};
+      TrackMouseEvent(&track);
+      return 0;
+    }
+    case WM_MOUSELEAVE:
+      self->draft_.hover = -1;
+      InvalidateRect(hwnd, nullptr, FALSE);
+      return 0;
+    case WM_SETCURSOR:
+      if (reinterpret_cast<HWND>(wparam) == hwnd && LOWORD(lparam) == HTCLIENT) {
+        POINT point{};
+        GetCursorPos(&point);
+        ScreenToClient(hwnd, &point);
+        const float x = static_cast<float>(point.x) * 96.0f / self->dpi_;
+        const float y = static_cast<float>(point.y) * 96.0f / self->dpi_;
+        bool actionable = self->layout_.save.contains(x, y) ||
+                          self->layout_.close.contains(x, y);
+        for (const auto& item : self->layout_.nav)
+          actionable = actionable || item.contains(x, y);
+        for (const auto& item : self->layout_.subpage_tabs)
+          actionable = actionable || item.contains(x, y);
+        for (const auto& item : self->layout_.scheme_cards)
+          actionable = actionable || item.contains(x, y);
+        for (const auto& item : self->layout_.theme_cards)
+          actionable = actionable || item.contains(x, y);
+        SetCursor(LoadCursorW(nullptr, actionable ? IDC_HAND : IDC_ARROW));
+        return TRUE;
+      }
+      break;
+    case WM_KEYDOWN:
+      if (wparam == VK_ESCAPE) {
+        DestroyWindow(hwnd);
+        return 0;
+      }
+      if (wparam >= '1' && wparam <= '5' && (GetKeyState(VK_CONTROL) & 0x8000)) {
+        self->draft_.page =
+            static_cast<ui::SettingsPage>(static_cast<int>(wparam - '1'));
+        self->draft_.focus = static_cast<int>(wparam - '1');
+        self->Relayout();
+        return 0;
+      }
+      if (wparam == VK_UP || wparam == VK_DOWN || wparam == VK_LEFT ||
+          wparam == VK_RIGHT) {
+        auto& focus = self->draft_.focus;
+        if (focus < 0) focus = static_cast<int>(self->draft_.page);
+        if (focus < ui::kSettingsPageCount) {
+          if (wparam == VK_DOWN || wparam == VK_RIGHT)
+            focus = (focus + 1) % ui::kSettingsPageCount;
+          else
+            focus = (focus + ui::kSettingsPageCount - 1) % ui::kSettingsPageCount;
+          self->draft_.page = static_cast<ui::SettingsPage>(focus);
+          self->Relayout();
+          return 0;
+        }
+        if (self->draft_.page == ui::SettingsPage::kInput &&
+            self->draft_.subpage == 0 && focus >= 100 && focus < 105) {
+          int idx = focus - 100;
+          if (wparam == VK_RIGHT || wparam == VK_DOWN) idx = (idx + 1) % 5;
+          else idx = (idx + 4) % 5;
+          focus = 100 + idx;
+          InvalidateRect(hwnd, nullptr, FALSE);
+          return 0;
+        }
+        if (self->draft_.page == ui::SettingsPage::kAppearance &&
+            self->draft_.subpage == 0 && focus >= 200 && focus < 204) {
+          int idx = focus - 200;
+          if (wparam == VK_RIGHT || wparam == VK_DOWN) idx = (idx + 1) % 4;
+          else idx = (idx + 3) % 4;
+          focus = 200 + idx;
+          InvalidateRect(hwnd, nullptr, FALSE);
+          return 0;
+        }
+      }
+      if (wparam == VK_SPACE || wparam == VK_RETURN) {
+        const int focus = self->draft_.focus;
+        if (focus == 300) {
+          self->Close(true);
+          return 0;
+        }
+        if (focus == 301) {
+          self->Close(false);
+          return 0;
+        }
+        if (focus >= 0 && focus < ui::kSettingsPageCount) {
+          self->draft_.page = static_cast<ui::SettingsPage>(focus);
+          self->Relayout();
+          return 0;
+        }
+        if (focus >= 100 && focus < 105) {
+          self->draft_.schema_index = focus - 100;
+          InvalidateRect(hwnd, nullptr, FALSE);
+          return 0;
+        }
+        if (focus >= 200 && focus < 204) {
+          self->draft_.theme_index = focus - 200;
+          self->draft_.preview_theme =
+              static_cast<ui::ThemeId>(self->draft_.theme_index);
+          if (self->callbacks_.on_theme_preview)
+            self->callbacks_.on_theme_preview(self->draft_.preview_theme);
+          self->ThemeEdits();
+          InvalidateRect(hwnd, nullptr, FALSE);
+          return 0;
+        }
+      }
+      break;
+    case WM_DESTROY:
+      self->hwnd_ = nullptr;
+      self->edit_font_ = self->edit_hotkey_ = self->edit_base_ = nullptr;
+      self->edit_model_ = self->edit_key_ = self->edit_lang_ = nullptr;
+      self->check_ascii_ = self->check_trad_ = self->check_punct_ = nullptr;
+      if (!self->saved_ && self->callbacks_.on_theme_preview)
+        self->callbacks_.on_theme_preview(self->opened_theme_);
+      if (self->callbacks_.on_closed) self->callbacks_.on_closed();
+      return 0;
+    default:
+      break;
+  }
+  return DefWindowProcW(hwnd, message, wparam, lparam);
+}
+
+}  // namespace rimes::windows::workbench

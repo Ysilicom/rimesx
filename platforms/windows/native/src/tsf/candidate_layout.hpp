@@ -38,7 +38,8 @@ inline wchar_t CandidateSelectionKey(std::wstring_view label,
 inline ScreenPoint PlaceCandidateWindow(const ScreenRect& caret,
                                         long window_width,
                                         long window_height,
-                                        const ScreenRect& work_area) noexcept {
+                                        const ScreenRect& work_area,
+                                        long caret_gap_px = 6) noexcept {
   ScreenPoint origin;
   // A collapsed TSF selection can have zero width while still identifying a
   // visible caret. Treating that range as empty placed candidates at (0, 0).
@@ -62,8 +63,9 @@ inline ScreenPoint PlaceCandidateWindow(const ScreenRect& caret,
   }
 
   origin.x = has_caret ? caret.left : area.left;
-  const long below = has_caret ? caret.bottom + 4 : area.top;
-  const long above = has_caret ? caret.top - window_height - 4 : area.top;
+  // macOS CandidatePanelGeometry uses a 6pt caret gap.
+  const long below = has_caret ? caret.bottom + caret_gap_px : area.top;
+  const long above = has_caret ? caret.top - window_height - caret_gap_px : area.top;
   if (below + window_height <= area.bottom || above < area.top) {
     origin.y = below;
   } else {

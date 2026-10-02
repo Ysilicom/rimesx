@@ -62,6 +62,7 @@ void Runtime::CaptureChanged() {
         {{"kind", "capture"},
          {"context", entry.target.context},
          {"font", settings_.font_size},
+         {"theme", settings_.theme},
          {"enabled", model_.capture && model_.bound == entry.target &&
                          model_.live == entry.target}});
   }

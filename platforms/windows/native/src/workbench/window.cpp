@@ -1,5 +1,6 @@
 #include "window.hpp"
 
+#include <commctrl.h>
 #include <d2d1.h>
 #include <dwrite.h>
 #include <shellapi.h>
@@ -7,248 +8,328 @@
 
 #include <algorithm>
 #include <atomic>
+#include <map>
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "../broker/autostart.hpp"
 #include "../broker/default_paths.hpp"
+#include "../ui/buffer_layout.hpp"
+#include "../ui/buffer_paint.hpp"
+#include "../ui/icons.hpp"
+#include "../ui/menu_draw.hpp"
+#include "../ui/theme.hpp"
+#include "settings_ui.hpp"
+
+#pragma comment(lib, "comctl32.lib")
 
 namespace rimes::windows::workbench {
 namespace {
 constexpr UINT kChanged = WM_APP + 80, kTray = WM_APP + 81;
 constexpr int kToggle = 100, kSettings = 101, kDeploy = 102, kStartup = 103,
-              kAbout = 105, kExit = 104;
-const wchar_t* kSchemas[] = {L"rime_ice", L"double_pinyin",
-                             L"double_pinyin_flypy", L"wubi86", L"english"};
-const wchar_t* kSchemaNames[] = {L"雾凇拼音", L"自然码双拼", L"小鹤双拼",
-                                 L"五笔 86", L"英文"};
-const wchar_t* kActions[] = {L"绑定 / 暂停", L"粘贴",   L"生成", L"翻译",
-                             L"取消",        L"下一块", L"全部", L"复制结果",
-                             L"设置",        L"关闭"};
+              kAbout = 105, kExit = 104, kPasteMenu = 106;
+constexpr int kModeInput = 110, kModeGenerate = 111, kModeTranslate = 112;
+
 struct Window {
   Runtime& runtime;
   std::function<void()> stop, deploy;
-  HWND window = nullptr, settings = nullptr;
+  HWND window = nullptr;
+  std::unique_ptr<SettingsUiHost> settings;
   std::atomic<HWND> notification{nullptr};
   ID2D1Factory* factory = nullptr;
   IDWriteFactory* write = nullptr;
   ID2D1HwndRenderTarget* render = nullptr;
   ID2D1SolidColorBrush* brush = nullptr;
   IDWriteTextFormat* format = nullptr;
+  IDWriteTextFormat* label_format = nullptr;
   NOTIFYICONDATAW tray{};
   float scroll[2] = {0, 0};
+  ui::BufferMode mode = ui::BufferMode::kInput;
+  ui::ThemeId theme = ui::ThemeId::kNight;
+  ui::BufferLayout last_layout{};
+  ui::BufferHitKind pressed_hit = ui::BufferHitKind::kNone;
+  int hover = -1;
+  HWND tooltip = nullptr;
   std::jthread maintenance;
   std::atomic_bool deploying = false;
+  HICON product_icon = nullptr;
+  HFONT menu_font = nullptr;
+  std::map<UINT, std::wstring> menu_labels;
+
   Window(Runtime& r, std::function<void()> s, std::function<void()> d)
       : runtime(r), stop(std::move(s)), deploy(std::move(d)) {}
   ~Window() {
     if (maintenance.joinable()) maintenance.join();
+    if (product_icon) DestroyIcon(product_icon);
+    if (menu_font) DeleteObject(menu_font);
+    if (label_format) label_format->Release();
     if (format) format->Release();
     if (brush) brush->Release();
     if (render) render->Release();
     if (write) write->Release();
     if (factory) factory->Release();
   }
-  HWND Item(int id) const { return GetDlgItem(settings, id); }
-  std::wstring Text(int id) const {
-    const HWND item = Item(id);
-    std::wstring text(static_cast<std::size_t>(GetWindowTextLengthW(item)) + 1,
-                      L'\0');
-    GetWindowTextW(item, text.data(), static_cast<int>(text.size()));
-    text.resize(wcslen(text.c_str()));
-    return text;
+
+  ui::ThemeId ActiveTheme() const {
+    return ui::ThemeIdOrDefault(runtime.Configuration().theme);
   }
-  void Label(const wchar_t* text, int y) {
-    CreateWindowExW(0, L"STATIC", text, WS_CHILD | WS_VISIBLE, 20, y, 180, 23,
-                    settings, nullptr, GetModuleHandleW(nullptr), nullptr);
-  }
-  void Edit(int id, const std::wstring& text, int y, bool secret = false) {
-    CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", text.c_str(),
-                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL |
-                        (secret ? ES_PASSWORD : 0),
-                    205, y - 3, 425, 26, settings,
-                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
-                    GetModuleHandleW(nullptr), nullptr);
-  }
-  void Check(int id, const wchar_t* text, int y, bool checked) {
-    auto control = CreateWindowExW(
-        0, L"BUTTON", text,
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 205, y, 390, 24,
-        settings, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
-        GetModuleHandleW(nullptr), nullptr);
-    SendMessageW(control, BM_SETCHECK, checked ? BST_CHECKED : BST_UNCHECKED,
-                 0);
-  }
+  void EnsureSettings();
   void OpenSettings();
-  void Save();
   void Paint();
   void Update();
   void Action(int index);
   void Copy();
   void Paste();
-  void Track(const core::Json& blocks, const std::string& tail, D2D1_RECT_F box,
-             int lane);
-  void Draw(const std::wstring& text, D2D1_RECT_F box, D2D1_COLOR_F color) {
-    brush->SetColor(color);
-    render->DrawTextW(text.c_str(), static_cast<UINT32>(text.size()), format,
-                      box, brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
-  }
-  static LRESULT CALLBACK SettingsProcedure(HWND, UINT, WPARAM, LPARAM);
+  void ApplyHit(ui::BufferHitKind hit);
+  void PopupModeMenu();
+  void PopupMoreMenu();
+  void PopupTrayMenu();
+  HMENU BuildOwnerMenu(const std::vector<ui::OwnerMenuItem>& items);
+  void UpdateTooltip(int hit);
+  ui::BufferPaintState MakePaintState(const core::Json& state) const;
   static LRESULT CALLBACK Procedure(HWND, UINT, WPARAM, LPARAM);
 };
-void Window::OpenSettings() {
-  runtime.Close();
-  if (settings) {
-    ShowWindow(settings, SW_SHOWNORMAL);
-    SetForegroundWindow(settings);
-    return;
-  }
-  WNDCLASSW wc{};
-  wc.lpfnWndProc = SettingsProcedure;
-  wc.hInstance = GetModuleHandleW(nullptr);
-  wc.lpszClassName = L"Rimes.Settings";
-  wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-  wc.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
-  RegisterClassW(&wc);
-  settings = CreateWindowExW(0, wc.lpszClassName, L"RIMES 设置",
-                             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
-                             CW_USEDEFAULT, CW_USEDEFAULT, 680, 585, nullptr,
-                             nullptr, wc.hInstance, this);
-  auto config = runtime.Configuration();
-  Label(L"输入方案", 24);
-  auto combo = CreateWindowExW(
-      0, L"COMBOBOX", L"",
-      WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST, 205, 20, 425, 180,
-      settings, reinterpret_cast<HMENU>(205), wc.hInstance, nullptr);
-  for (int i = 0; i < 5; ++i) {
-    SendMessageW(combo, CB_ADDSTRING, 0,
-                 reinterpret_cast<LPARAM>(kSchemaNames[i]));
-    if (config.schema == Utf8(kSchemas[i]))
-      SendMessageW(combo, CB_SETCURSEL, static_cast<WPARAM>(i), 0);
-  }
-  Check(208, L"英文直输", 62, config.ascii);
-  Check(209, L"繁体转换", 92, config.traditional);
-  Check(210, L"英文标点", 122, config.ascii_punctuation);
-  Label(L"候选字号（10–40）", 158);
-  Edit(206, std::to_wstring(config.font_size), 158);
-  Label(L"Buffer：Ctrl+Alt+字母", 194);
-  Edit(207, std::wstring(1, static_cast<wchar_t>(config.hotkey_key)), 194);
-  Label(L"API 地址", 238);
-  Edit(201, Wide(config.base_url), 238);
-  Label(L"模型", 276);
-  Edit(202, Wide(config.model), 276);
-  Label(L"API 密钥（留空保留）", 314);
-  Edit(203, L"", 314, true);
-  Label(L"翻译目标语言", 352);
-  Edit(204, Wide(config.target_language), 352);
-  CreateWindowExW(0, L"STATIC",
-                  L"密钥保存在 Windows 凭据管理器。正文只在生成或翻译时发送。",
-                  WS_CHILD | WS_VISIBLE, 20, 397, 620, 40, settings, nullptr,
-                  wc.hInstance, nullptr);
-  CreateWindowExW(0, L"BUTTON", L"保存",
-                  WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 425,
-                  470, 95, 32, settings, reinterpret_cast<HMENU>(1),
-                  wc.hInstance, nullptr);
-  CreateWindowExW(0, L"BUTTON", L"关闭", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-                  535, 470, 95, 32, settings, reinterpret_cast<HMENU>(2),
-                  wc.hInstance, nullptr);
-  const auto dpi = GetDpiForWindow(settings);
-  if (dpi != 96) {
-    EnumChildWindows(
-        settings,
-        [](HWND child, LPARAM value) -> BOOL {
-          RECT rect{};
-          GetWindowRect(child, &rect);
-          MapWindowPoints(nullptr, GetParent(child),
-                          reinterpret_cast<POINT*>(&rect), 2);
-          const int d = static_cast<int>(value);
-          SetWindowPos(child, nullptr, MulDiv(rect.left, d, 96),
-                       MulDiv(rect.top, d, 96),
-                       MulDiv(rect.right - rect.left, d, 96),
-                       MulDiv(rect.bottom - rect.top, d, 96), SWP_NOZORDER);
-          return TRUE;
-        },
-        static_cast<LPARAM>(dpi));
-    SetWindowPos(
-        settings, nullptr, 0, 0, MulDiv(680, static_cast<int>(dpi), 96),
-        MulDiv(585, static_cast<int>(dpi), 96), SWP_NOMOVE | SWP_NOZORDER);
-  }
-  ShowWindow(settings, SW_SHOWNORMAL);
-  SetForegroundWindow(settings);
+
+ui::BufferPaintState Window::MakePaintState(const core::Json& state) const {
+  ui::BufferPaintState paint{};
+  paint.theme = theme;
+  paint.mode = mode;
+  paint.busy = state.value("busy", false);
+  paint.translate = state.value("translate", false);
+  paint.capturing = state.value("capture", false);
+  paint.bound = state.value("target_pid", 0) != 0;
+  const auto status = state.value("status", std::string());
+  static const std::map<std::string, std::wstring> messages = {
+      {"Buffer", L"已绑定"}, {"Ready", L"结果就绪"},
+      {"Copy only - no input target", L"未绑定输入框，可复制"},
+      {"Target changed. Rebind to send.", L"输入框已切换，请重新绑定"},
+      {"Protected", L"已暂停"},
+      {"Waiting for response...", L"等待响应…"},
+      {"Receiving...", L"接收中…"},
+      {"Request failed. Source retained.", L"请求失败，原文已保留"},
+      {"Sending...", L"发送中…"}, {"Delivered", L"已发送"},
+      {"Delivery failed. Content retained.", L"发送失败，内容已保留"},
+      {"Delivery state changed. Check the target before retrying.",
+       L"发送状态已变化，请先检查输入框"},
+      {"Delivery unconfirmed. Check the target; automatic retry disabled.",
+       L"发送未确认，请先检查输入框"},
+      {"Paste exceeds Buffer capacity or delivery is pending.",
+       L"粘贴内容过长，或正在发送"}};
+  const auto message = messages.find(status);
+  paint.status = message != messages.end() ? message->second : Wide(status);
+  if (paint.status.empty())
+    paint.status = paint.capturing ? L"已绑定" : L"等待输入框";
+  const bool has_result = !state.value("result", std::string()).empty();
+  const bool has_source = !state.value("source", std::string()).empty();
+  paint.copy_enabled = has_result || has_source;
+  paint.send_enabled = paint.capturing && paint.bound &&
+                       !state.value("uncertain", false) &&
+                       (has_result || has_source) &&
+                       (!paint.busy || has_result) && status != "Sending...";
+  paint.paste_enabled = status != "Sending...";
+  paint.preedit = Wide(state.value("preedit", std::string()));
+  paint.preview = Wide(state.value("preview", std::string()));
+  paint.scroll_source = scroll[0];
+  paint.scroll_result = scroll[1];
+  paint.hover = hover;
+  paint.pressed = static_cast<int>(pressed_hit);
+  paint.empty_hint = L"等待输入";
+  for (const auto& block : state["source_blocks"])
+    paint.source_blocks.push_back(
+        {Wide(block.value("text", std::string())), false});
+  for (const auto& block : state["result_blocks"])
+    paint.result_blocks.push_back(
+        {Wide(block.value("text", std::string())), false});
+  // Do NOT append preview into result_blocks — painter draws preview as the
+  // single streaming tail to avoid duplicated waiting output.
+  return paint;
 }
-void Window::Save() {
-  try {
-    auto old = runtime.Configuration(), config = old;
-    const auto selected = SendMessageW(Item(205), CB_GETCURSEL, 0, 0);
-    if (selected < 0 || selected > 4) throw std::runtime_error("scheme");
-    config.schema = Utf8(kSchemas[selected]);
-    config.base_url = Utf8(Text(201));
-    config.model = Utf8(Text(202));
-    config.target_language = Utf8(Text(204));
-    config.font_size = static_cast<unsigned>(std::stoul(Text(206)));
-    auto hotkey = Text(207);
-    if (config.font_size < 10 || config.font_size > 40 || hotkey.size() != 1)
-      throw std::runtime_error("range");
-    config.hotkey_key = static_cast<unsigned>(towupper(hotkey[0]));
-    config.hotkey_modifiers = MOD_CONTROL | MOD_ALT;
-    if (config.hotkey_key < 'A' || config.hotkey_key > 'Z' ||
-        config.base_url.size() > 2048 || config.model.size() > 256 ||
-        config.target_language.size() > 128)
-      throw std::runtime_error("range");
-    config.ascii = SendMessageW(Item(208), BM_GETCHECK, 0, 0) == BST_CHECKED;
-    config.traditional =
-        SendMessageW(Item(209), BM_GETCHECK, 0, 0) == BST_CHECKED;
-    config.ascii_punctuation =
-        SendMessageW(Item(210), BM_GETCHECK, 0, 0) == BST_CHECKED;
+
+void Window::EnsureSettings() {
+  if (settings) return;
+  SettingsUiCallbacks cb;
+  cb.load = [this] { return runtime.Configuration(); };
+  cb.save = [this](Settings value, const std::wstring& key, bool replace,
+                   std::string* error) {
+    auto old = runtime.Configuration();
     UnregisterHotKey(window, 1);
-    if (!RegisterHotKey(window, 1, config.hotkey_modifiers | MOD_NOREPEAT,
-                        config.hotkey_key)) {
+    if (!RegisterHotKey(window, 1, value.hotkey_modifiers | MOD_NOREPEAT,
+                        value.hotkey_key)) {
       RegisterHotKey(window, 1, old.hotkey_modifiers | MOD_NOREPEAT,
                      old.hotkey_key);
-      MessageBoxW(settings, L"快捷键已被占用，请选择其他字母。", L"RIMES",
-                  MB_OK);
-      return;
+      if (error) *error = "快捷键已被占用，请选择其他字母。";
+      return false;
     }
-    auto key = Text(203);
-    std::string error;
-    const bool saved = runtime.Configure(config, key, !key.empty(), &error);
-    if (!key.empty())
-      SecureZeroMemory(key.data(), key.size() * sizeof(wchar_t));
-    if (!saved) {
+    if (!runtime.Configure(value, key, replace, error)) {
       UnregisterHotKey(window, 1);
       RegisterHotKey(window, 1, old.hotkey_modifiers | MOD_NOREPEAT,
                      old.hotkey_key);
-      MessageBoxW(settings, Wide(error).c_str(), L"RIMES", MB_OK);
-      return;
+      return false;
     }
-    DestroyWindow(settings);
-  } catch (...) {
-    MessageBoxW(settings, L"请检查输入方案、字号和快捷键。", L"RIMES", MB_OK);
+    if (product_icon) {
+      DestroyIcon(product_icon);
+      product_icon = ui::CreateProductIcon(16, theme);
+      tray.hIcon =
+          product_icon ? product_icon : LoadIconW(nullptr, IDI_APPLICATION);
+      Shell_NotifyIconW(NIM_MODIFY, &tray);
+    }
+    InvalidateRect(window, nullptr, FALSE);
+    return true;
+  };
+  cb.load_theme = [this] { return ActiveTheme(); };
+  cb.on_theme_preview = [this](ui::ThemeId preview) {
+    theme = preview;
+    InvalidateRect(window, nullptr, FALSE);
+  };
+  cb.about_text = L"RIMES Windows 0.2.0\nCommit: " + Wide(RIMES_BUILD_COMMIT) +
+                  L"\n协议 v2\n词库：%APPDATA%\\RIMES\n设置与日志：%LOCALAPPDATA%"
+                  L"\\RIMES";
+  settings = std::make_unique<SettingsUiHost>(std::move(cb));
+}
+
+void Window::OpenSettings() {
+  runtime.Close();
+  EnsureSettings();
+  settings->Open(window);
+}
+
+HMENU Window::BuildOwnerMenu(const std::vector<ui::OwnerMenuItem>& items) {
+  HMENU menu = CreatePopupMenu();
+  menu_labels.clear();
+  for (const auto& item : items) {
+    if (item.separator) {
+      AppendMenuW(menu, MF_SEPARATOR | MF_OWNERDRAW, 0, nullptr);
+      continue;
+    }
+    menu_labels[item.id] = item.text;
+    UINT flags = MF_OWNERDRAW | (item.enabled ? 0 : MF_GRAYED);
+    if (item.checked) flags |= MF_CHECKED;
+    AppendMenuW(menu, flags, item.id, MAKEINTRESOURCEW(item.id));
+  }
+  return menu;
+}
+
+void Window::PopupModeMenu() {
+  auto menu = BuildOwnerMenu({{kModeInput, L"输入", mode == ui::BufferMode::kInput},
+                              {kModeGenerate, L"生成",
+                               mode == ui::BufferMode::kGenerate},
+                              {kModeTranslate, L"翻译",
+                               mode == ui::BufferMode::kTranslate}});
+  POINT cursor{};
+  GetCursorPos(&cursor);
+  const auto command =
+      TrackPopupMenu(menu, TPM_RETURNCMD | TPM_NONOTIFY, cursor.x, cursor.y, 0,
+                     window, nullptr);
+  DestroyMenu(menu);
+  if (command == kModeInput) mode = ui::BufferMode::kInput;
+  if (command == kModeGenerate) mode = ui::BufferMode::kGenerate;
+  if (command == kModeTranslate) mode = ui::BufferMode::kTranslate;
+  InvalidateRect(window, nullptr, FALSE);
+}
+
+void Window::PopupMoreMenu() {
+  auto menu = BuildOwnerMenu({{1, L"绑定 / 暂停"},
+                              {kPasteMenu, L"粘贴"},
+                              {2, L"生成"},
+                              {3, L"翻译"},
+                              {4, L"取消"},
+                              {5, L"下一块"},
+                              {6, L"全部发送"},
+                              {0, L"", false, true},
+                              {7, L"设置"}});
+  POINT cursor{};
+  GetCursorPos(&cursor);
+  const auto command =
+      TrackPopupMenu(menu, TPM_RETURNCMD | TPM_NONOTIFY, cursor.x, cursor.y, 0,
+                     window, nullptr);
+  DestroyMenu(menu);
+  switch (command) {
+    case 1:
+      Action(0);
+      break;
+    case kPasteMenu:
+      Paste();
+      break;
+    case 2:
+      Action(2);
+      break;
+    case 3:
+      Action(3);
+      break;
+    case 4:
+      Action(4);
+      break;
+    case 5:
+      Action(5);
+      break;
+    case 6:
+      Action(6);
+      break;
+    case 7:
+      Action(8);
+      break;
+    default:
+      break;
   }
 }
-LRESULT CALLBACK Window::SettingsProcedure(HWND hwnd, UINT message,
-                                           WPARAM wparam, LPARAM lparam) {
-  auto* self =
-      reinterpret_cast<Window*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-  if (message == WM_NCCREATE) {
-    self = static_cast<Window*>(
-        reinterpret_cast<CREATESTRUCTW*>(lparam)->lpCreateParams);
-    SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
-  }
-  if (self) {
-    if (message == WM_COMMAND) {
-      if (LOWORD(wparam) == 1) self->Save();
-      if (LOWORD(wparam) == 2) DestroyWindow(hwnd);
-      return 0;
-    }
-    if (message == WM_DESTROY) {
-      self->settings = nullptr;
-      return 0;
-    }
-  }
-  return DefWindowProcW(hwnd, message, wparam, lparam);
+
+void Window::PopupTrayMenu() {
+  std::wstring startup_command;
+  bool startup_enabled = false;
+  broker::QueryBrokerAutostart(&startup_command, &startup_enabled);
+  auto menu = BuildOwnerMenu(
+      {{kToggle, L"打开 / 绑定 Buffer"},
+       {kSettings, L"设置"},
+       {kDeploy, L"重新部署词库"},
+       {kStartup, L"登录时启动", startup_enabled},
+       {kAbout, L"版本与诊断"},
+       {0, L"", false, true},
+       {kExit, L"退出"}});
+  POINT cursor{};
+  GetCursorPos(&cursor);
+  SetForegroundWindow(window);
+  const auto command =
+      TrackPopupMenu(menu, TPM_RETURNCMD | TPM_NONOTIFY, cursor.x, cursor.y, 0,
+                     window, nullptr);
+  DestroyMenu(menu);
+  PostMessageW(window, WM_COMMAND, command, 0);
 }
+
+void Window::UpdateTooltip(int hit) {
+  if (!tooltip) return;
+  const wchar_t* text = L"";
+  switch (static_cast<ui::BufferHitKind>(hit)) {
+    case ui::BufferHitKind::kMode:
+      text = L"模式";
+      break;
+    case ui::BufferHitKind::kMore:
+      text = L"更多";
+      break;
+    case ui::BufferHitKind::kClose:
+      text = L"关闭";
+      break;
+    case ui::BufferHitKind::kPaste:
+      text = L"粘贴";
+      break;
+    case ui::BufferHitKind::kCopy:
+      text = L"复制";
+      break;
+    case ui::BufferHitKind::kSend:
+      text = L"发送";
+      break;
+    default:
+      break;
+  }
+  TOOLINFOW info{};
+  info.cbSize = sizeof(info);
+  info.hwnd = window;
+  info.uId = 1;
+  info.lpszText = const_cast<wchar_t*>(text);
+  SendMessageW(tooltip, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&info));
+}
+
 void Window::Copy() {
   auto snapshot = runtime.Snapshot();
   auto text = snapshot.value("result", std::string());
@@ -270,6 +351,7 @@ void Window::Copy() {
   }
   CloseClipboard();
 }
+
 void Window::Paste() {
   if (!OpenClipboard(window)) return;
   auto memory = GetClipboardData(CF_UNICODETEXT);
@@ -288,6 +370,7 @@ void Window::Paste() {
   CloseClipboard();
   if (!text.empty()) runtime.Paste(Utf8(text));
 }
+
 void Window::Action(int index) {
   switch (index) {
     case 0:
@@ -297,9 +380,11 @@ void Window::Action(int index) {
       Paste();
       break;
     case 2:
+      mode = ui::BufferMode::kGenerate;
       runtime.Generate(false);
       break;
     case 3:
+      mode = ui::BufferMode::kTranslate;
       runtime.Generate(true);
       break;
     case 4:
@@ -324,53 +409,74 @@ void Window::Action(int index) {
       break;
   }
 }
+
+void Window::ApplyHit(ui::BufferHitKind hit) {
+  const auto state = MakePaintState(runtime.Snapshot());
+  if ((hit == ui::BufferHitKind::kPaste && !state.paste_enabled) ||
+      (hit == ui::BufferHitKind::kCopy && !state.copy_enabled) ||
+      (hit == ui::BufferHitKind::kSend && !state.send_enabled))
+    return;
+  switch (hit) {
+    case ui::BufferHitKind::kMode:
+      PopupModeMenu();
+      break;
+    case ui::BufferHitKind::kMore:
+      PopupMoreMenu();
+      break;
+    case ui::BufferHitKind::kClose:
+      runtime.Close();
+      break;
+    case ui::BufferHitKind::kPaste:
+      Paste();
+      break;
+    case ui::BufferHitKind::kCopy:
+      Copy();
+      break;
+    case ui::BufferHitKind::kSend:
+      runtime.Send(false);
+      break;
+    default:
+      break;
+  }
+}
+
 void Window::Update() {
   if (runtime.Stopping()) {
     PostMessageW(window, WM_CLOSE, 0, 0);
     return;
   }
+  // Keep unsaved settings theme preview while the settings host is open.
+  if (!settings || !settings->IsOpen()) theme = ActiveTheme();
   auto state = runtime.Snapshot();
   ShowWindow(window,
              state.value("visible", false) ? SW_SHOWNOACTIVATE : SW_HIDE);
+  if (state.value("visible", false)) {
+    RECT rect{};
+    GetClientRect(window, &rect);
+    const float dpi = static_cast<float>(GetDpiForWindow(window)) / 96.0f;
+    auto paint = MakePaintState(state);
+    last_layout = ui::LayoutBuffer(paint, static_cast<float>(rect.right) / dpi);
+    const float source_content = ui::MeasureBufferContent(
+        write, format, paint.source_blocks, paint.preedit);
+    const float result_content = ui::MeasureBufferContent(
+        write, format, paint.result_blocks, paint.preview, false);
+    scroll[0] = ui::ClampScroll(scroll[0], source_content,
+                                last_layout.source_text.width());
+    scroll[1] = ui::ClampScroll(scroll[1], result_content,
+                                last_layout.result_text.width());
+    RECT window_rect{};
+    GetWindowRect(window, &window_rect);
+    const int height =
+        static_cast<int>(last_layout.height_dip * dpi + 0.5f);
+    const int width = window_rect.right - window_rect.left;
+    if (std::abs((window_rect.bottom - window_rect.top) - height) > 2) {
+      SetWindowPos(window, nullptr, 0, 0, width, height,
+                   SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+  }
   InvalidateRect(window, nullptr, FALSE);
 }
-void Window::Track(const core::Json& blocks, const std::string& tail,
-                   D2D1_RECT_F box, int lane) {
-  render->PushAxisAlignedClip(box, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-  float y = box.top - scroll[lane];
-  auto item = [&](std::string value, bool streaming) {
-    auto text = Wide(value);
-    if (text.size() > 4096) {
-      std::size_t end = 4096;
-      if (text[end - 1] >= 0xd800 && text[end - 1] <= 0xdbff) --end;
-      text = text.substr(0, end) + L"…";
-    }
-    IDWriteTextLayout* layout = nullptr;
-    if (FAILED(write->CreateTextLayout(
-            text.c_str(), static_cast<UINT32>(text.size()), format,
-            box.right - box.left - 24, 180, &layout)))
-      return;
-    DWRITE_TEXT_METRICS metrics{};
-    layout->GetMetrics(&metrics);
-    const float height = (std::clamp)(metrics.height + 20, 42.0f, 200.0f);
-    if (y + height >= box.top && y < box.bottom) {
-      auto rect = D2D1::RectF(box.left, y, box.right, y + height);
-      brush->SetColor(D2D1::ColorF(streaming ? 0.89f : 1.0f, 0.97f, 0.98f));
-      render->FillRoundedRectangle(D2D1::RoundedRect(rect, 6, 6), brush);
-      brush->SetColor(D2D1::ColorF(lane ? 0.05f : 0.12f, 0.26f, 0.3f));
-      render->DrawTextLayout(D2D1::Point2F(box.left + 12, y + 10), layout,
-                             brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
-    }
-    layout->Release();
-    y += height + 8;
-  };
-  for (const auto& block : blocks)
-    item(block.value("text", std::string()), false);
-  if (!tail.empty()) item(tail, true);
-  if (y < box.bottom && scroll[lane] > 0)
-    scroll[lane] = (std::max)(0.0f, scroll[lane] - (box.bottom - y));
-  render->PopAxisAlignedClip();
-}
+
 void Window::Paint() {
   PAINTSTRUCT paint{};
   BeginPaint(window, &paint);
@@ -386,39 +492,22 @@ void Window::Paint() {
     if (render) {
       const auto dpi = static_cast<float>(GetDpiForWindow(window));
       render->SetDpi(dpi, dpi);
+      render->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &brush);
     }
-    if (render)
-      render->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.17f, 0.2f), &brush);
   }
-  if (render && brush && format) {
-    const auto dpi = static_cast<float>(GetDpiForWindow(window)) / 96.0f;
-    const float width = static_cast<float>(rect.right) / dpi;
-    render->BeginDraw();
-    render->Clear(D2D1::ColorF(0.96f, 0.97f, 0.98f));
-    for (int i = 0; i < 10; ++i) {
-      const float x = 8 + static_cast<float>(i) * (width - 16) / 10;
-      auto box = D2D1::RectF(x, 9, x + (width - 16) / 10 - 4, 40);
-      brush->SetColor(D2D1::ColorF(0.88f, 0.92f, 0.93f));
-      render->FillRoundedRectangle(D2D1::RoundedRect(box, 5, 5), brush);
-      Draw(kActions[i], D2D1::RectF(x + 5, 14, box.right, 40),
-           D2D1::ColorF(0.1f, 0.25f, 0.29f));
-    }
-    const float height = static_cast<float>(rect.bottom) / dpi;
+  if (render && brush && format && label_format) {
+    const auto dpi = static_cast<float>(GetDpiForWindow(window));
+    const float width = static_cast<float>(rect.right) * 96.0f / dpi;
     auto state = runtime.Snapshot();
-    Draw(L"原文", D2D1::RectF(14, 53, width / 2 - 10, 78),
-         D2D1::ColorF(0.4f, 0.47f, 0.5f));
-    Draw(state.value("busy", false) ? L"结果 · 正在接收" : L"结果",
-         D2D1::RectF(width / 2 + 8, 53, width - 14, 78),
-         D2D1::ColorF(0.4f, 0.47f, 0.5f));
-    Track(state["source_blocks"], state.value("preedit", std::string()),
-          D2D1::RectF(14, 83, width / 2 - 10, height - 46), 0);
-    Track(state["result_blocks"], state.value("preview", std::string()),
-          D2D1::RectF(width / 2 + 8, 83, width - 14, height - 46), 1);
-    Draw(Wide(state.value("status", std::string())),
-         D2D1::RectF(14, height - 34, width - 14, height - 4),
-         D2D1::ColorF(0.36f, 0.41f, 0.46f));
+    auto paint_state = MakePaintState(state);
+    last_layout = ui::LayoutBuffer(paint_state, width);
+    render->BeginDraw();
+    render->Clear(ui::ColorF(0, 0));
+    ui::DrawBufferWorkbench(
+        ui::BufferPaintContext{render, write, format, label_format, brush, dpi},
+        paint_state, last_layout);
     if (render->EndDraw() == D2DERR_RECREATE_TARGET) {
-      brush->Release();
+      if (brush) brush->Release();
       brush = nullptr;
       render->Release();
       render = nullptr;
@@ -426,6 +515,7 @@ void Window::Paint() {
   }
   EndPaint(window, &paint);
 }
+
 LRESULT CALLBACK Window::Procedure(HWND hwnd, UINT message, WPARAM wparam,
                                    LPARAM lparam) {
   auto* self =
@@ -439,6 +529,10 @@ LRESULT CALLBACK Window::Procedure(HWND hwnd, UINT message, WPARAM wparam,
   if (!self) return DefWindowProcW(hwnd, message, wparam, lparam);
   try {
     switch (message) {
+      case WM_NCCALCSIZE:
+        // Keep resize semantics without a native frame subtracting pixels
+        // from the 73/105-DIP workbench client area.
+        return 0;
       case WM_MOUSEACTIVATE:
         return MA_NOACTIVATE;
       case WM_PAINT:
@@ -455,6 +549,30 @@ LRESULT CALLBACK Window::Procedure(HWND hwnd, UINT message, WPARAM wparam,
       case WM_TIMER:
         self->runtime.Tick();
         return 0;
+      case WM_MEASUREITEM: {
+        auto* measure = reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);
+        if (measure->CtlType == ODT_MENU) {
+          const auto found = self->menu_labels.find(measure->itemID);
+          const std::wstring text =
+              found == self->menu_labels.end() ? L"" : found->second;
+          return ui::MeasureOwnerMenu(measure, GetDpiForWindow(hwnd), text,
+                                      measure->itemID == 0 && text.empty());
+        }
+        break;
+      }
+      case WM_DRAWITEM: {
+        auto* draw = reinterpret_cast<DRAWITEMSTRUCT*>(lparam);
+        if (draw->CtlType == ODT_MENU) {
+          const auto found = self->menu_labels.find(draw->itemID);
+          const std::wstring text =
+              found == self->menu_labels.end() ? L"" : found->second;
+          const bool separator = draw->itemID == 0 && text.empty();
+          return ui::DrawOwnerMenu(draw, self->theme, text,
+                                   (draw->itemState & ODS_CHECKED) != 0,
+                                   separator, self->menu_font);
+        }
+        break;
+      }
       case WM_DPICHANGED: {
         if (self->render)
           self->render->SetDpi(static_cast<float>(HIWORD(wparam)),
@@ -463,58 +581,139 @@ LRESULT CALLBACK Window::Procedure(HWND hwnd, UINT message, WPARAM wparam,
         SetWindowPos(hwnd, nullptr, rect->left, rect->top,
                      rect->right - rect->left, rect->bottom - rect->top,
                      SWP_NOZORDER | SWP_NOACTIVATE);
+        if (self->menu_font) DeleteObject(self->menu_font);
+        self->menu_font = CreateFontW(
+            -MulDiv(12, HIWORD(wparam), 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE,
+            FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+        return 0;
+      }
+      case WM_MOUSEMOVE: {
+        const float dpi = static_cast<float>(GetDpiForWindow(hwnd)) / 96.0f;
+        const float x =
+            static_cast<float>(static_cast<short>(LOWORD(lparam))) / dpi;
+        const float y =
+            static_cast<float>(static_cast<short>(HIWORD(lparam))) / dpi;
+        const auto hit = ui::HitTestBuffer(self->last_layout, x, y);
+        const int next = static_cast<int>(hit);
+        if (next != self->hover) {
+          self->hover = next;
+          self->UpdateTooltip(next);
+          InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0};
+        TrackMouseEvent(&track);
+        return 0;
+      }
+      case WM_MOUSELEAVE:
+        if (self->hover >= 0 || self->pressed_hit != ui::BufferHitKind::kNone) {
+          self->hover = -1;
+          self->pressed_hit = ui::BufferHitKind::kNone;
+          InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        return 0;
+      case WM_LBUTTONDOWN: {
+        const float dpi = static_cast<float>(GetDpiForWindow(hwnd)) / 96.0f;
+        const float x =
+            static_cast<float>(static_cast<short>(LOWORD(lparam))) / dpi;
+        const float y =
+            static_cast<float>(static_cast<short>(HIWORD(lparam))) / dpi;
+        self->pressed_hit = ui::HitTestBuffer(self->last_layout, x, y);
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+      }
+      case WM_LBUTTONUP: {
+        const float dpi = static_cast<float>(GetDpiForWindow(hwnd)) / 96.0f;
+        const float x =
+            static_cast<float>(static_cast<short>(LOWORD(lparam))) / dpi;
+        const float y =
+            static_cast<float>(static_cast<short>(HIWORD(lparam))) / dpi;
+        const auto hit = ui::HitTestBuffer(self->last_layout, x, y);
+        const auto pressed = self->pressed_hit;
+        self->pressed_hit = ui::BufferHitKind::kNone;
+        InvalidateRect(hwnd, nullptr, FALSE);
+        if (hit != ui::BufferHitKind::kNone && hit == pressed)
+          self->ApplyHit(hit);
         return 0;
       }
       case WM_MOUSEWHEEL: {
         POINT point{static_cast<short>(LOWORD(lparam)),
                     static_cast<short>(HIWORD(lparam))};
         ScreenToClient(hwnd, &point);
-        RECT rect{};
-        GetClientRect(hwnd, &rect);
-        const int lane = point.x < rect.right / 2 ? 0 : 1;
-        self->scroll[lane] =
-            (std::max)(0.0f,
-                       self->scroll[lane] -
-                           static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) /
-                               WHEEL_DELTA * 60);
+        const float dpi = static_cast<float>(GetDpiForWindow(hwnd)) / 96.0f;
+        const float x = static_cast<float>(point.x) / dpi;
+        const float y = static_cast<float>(point.y) / dpi;
+        const int lane = self->last_layout.show_result &&
+                                 self->last_layout.result_rail.contains(x, y)
+                             ? 1
+                             : 0;
+        auto state = self->runtime.Snapshot();
+        auto paint = self->MakePaintState(state);
+        const float content =
+            lane == 0 ? ui::MeasureBufferContent(self->write, self->format,
+                                                 paint.source_blocks,
+                                                 paint.preedit)
+                      : ui::MeasureBufferContent(self->write, self->format,
+                                                 paint.result_blocks,
+                                                 paint.preview, false);
+        const float visible = lane == 0 ? self->last_layout.source_text.width()
+                                        : self->last_layout.result_text.width();
+        self->scroll[lane] = ui::ClampScroll(
+            self->scroll[lane] -
+                static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) /
+                    WHEEL_DELTA * 40.0f,
+            content, visible);
         InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
       }
       case WM_GETMINMAXINFO: {
         auto* limits = reinterpret_cast<MINMAXINFO*>(lparam);
         const int dpi = static_cast<int>(GetDpiForWindow(hwnd));
-        limits->ptMinTrackSize = {MulDiv(780, dpi, 96), MulDiv(300, dpi, 96)};
+        limits->ptMinTrackSize = {MulDiv(520, dpi, 96), MulDiv(35, dpi, 96)};
+        limits->ptMaxTrackSize = {MulDiv(1100, dpi, 96), MulDiv(400, dpi, 96)};
         return 0;
       }
-      case WM_SIZE:
+      case WM_SIZE: {
         if (self->render)
           self->render->Resize(D2D1::SizeU(LOWORD(lparam), HIWORD(lparam)));
-        return 0;
-      case WM_LBUTTONUP: {
-        RECT rect{};
-        GetClientRect(hwnd, &rect);
-        const float dpi = static_cast<float>(GetDpiForWindow(hwnd)) / 96.0f;
-        const float x = static_cast<float>(static_cast<short>(LOWORD(lparam))) /
-                        dpi,
-                    y = static_cast<float>(static_cast<short>(HIWORD(lparam))) /
-                        dpi;
-        const float width = static_cast<float>(rect.right) / dpi;
-        if (y >= 9 && y <= 40 && x >= 8)
-          self->Action(static_cast<int>((x - 8) / ((width - 16) / 10)));
+        const int dpi = static_cast<int>(GetDpiForWindow(hwnd));
+        const int inset = MulDiv(2, dpi, 96);
+        const int radius = MulDiv(22, dpi, 96);
+        auto region = CreateRoundRectRgn(inset, inset,
+                                         LOWORD(lparam) - inset + 1,
+                                         HIWORD(lparam) - inset + 1,
+                                         radius, radius);
+        if (region && !SetWindowRgn(hwnd, region, TRUE)) DeleteObject(region);
+        if (self->tooltip) {
+          TOOLINFOW info{};
+          info.cbSize = sizeof(info);
+          info.hwnd = hwnd;
+          info.uId = 1;
+          GetClientRect(hwnd, &info.rect);
+          SendMessageW(self->tooltip, TTM_NEWTOOLRECTW, 0,
+                       reinterpret_cast<LPARAM>(&info));
+        }
         return 0;
       }
       case WM_NCHITTEST: {
-        auto result = DefWindowProcW(hwnd, message, wparam, lparam);
         POINT point{static_cast<short>(LOWORD(lparam)),
                     static_cast<short>(HIWORD(lparam))};
         ScreenToClient(hwnd, &point);
+        const float dpi = static_cast<float>(GetDpiForWindow(hwnd)) / 96.0f;
+        const float x = static_cast<float>(point.x) / dpi;
+        const float y = static_cast<float>(point.y) / dpi;
         RECT client{};
         GetClientRect(hwnd, &client);
-        if (result == HTCLIENT &&
-            point.y > client.bottom -
-                          36 * static_cast<int>(GetDpiForWindow(hwnd)) / 96)
+        if (x < 5.0f) return HTLEFT;
+        if (x >= static_cast<float>(client.right) / dpi - 5.0f) return HTRIGHT;
+        if (ui::BufferHitIsCaptionExcluded(
+                ui::HitTestBuffer(self->last_layout, x, y)))
+          return HTCLIENT;
+        if (self->last_layout.toolbar.contains(x, y) &&
+            !self->last_layout.mode_chip.contains(x, y) &&
+            !self->last_layout.status_label.contains(x, y))
           return HTCAPTION;
-        return result;
+        return HTCLIENT;
       }
       case kTray:
         if (lparam == WM_LBUTTONUP) {
@@ -522,26 +721,7 @@ LRESULT CALLBACK Window::Procedure(HWND hwnd, UINT message, WPARAM wparam,
           return 0;
         }
         if (lparam == WM_RBUTTONUP) {
-          HMENU menu = CreatePopupMenu();
-          AppendMenuW(menu, MF_STRING, kToggle, L"打开 / 绑定 Buffer");
-          AppendMenuW(menu, MF_STRING, kSettings, L"设置");
-          AppendMenuW(menu, MF_STRING, kDeploy, L"重新部署词库");
-          std::wstring startup_command;
-          bool startup_enabled = false;
-          broker::QueryBrokerAutostart(&startup_command, &startup_enabled);
-          AppendMenuW(menu, MF_STRING | (startup_enabled ? MF_CHECKED : 0),
-                      kStartup, L"登录时启动");
-          AppendMenuW(menu, MF_STRING, kAbout, L"版本与诊断");
-          AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-          AppendMenuW(menu, MF_STRING, kExit, L"退出");
-          POINT cursor{};
-          GetCursorPos(&cursor);
-          SetForegroundWindow(hwnd);
-          const auto command =
-              TrackPopupMenu(menu, TPM_RETURNCMD | TPM_NONOTIFY, cursor.x,
-                             cursor.y, 0, hwnd, nullptr);
-          DestroyMenu(menu);
-          PostMessageW(hwnd, WM_COMMAND, command, 0);
+          self->PopupTrayMenu();
           return 0;
         }
         break;
@@ -579,11 +759,9 @@ LRESULT CALLBACK Window::Procedure(HWND hwnd, UINT message, WPARAM wparam,
           }
           case kAbout: {
             const auto about_text =
-                L"RIMES Windows 0.2.0 内部预览\nCommit: " +
-                Wide(RIMES_BUILD_COMMIT) +
-                L"\n协议 v2 · x64 Broker / x64+x86 "
-                L"TSF\n词库：%APPDATA%\\RIMES\n设置与阶段日志：%LOCALAPPDATA%"
-                L"\\RIMES\nBuffer 正文不会在重启后恢复。";
+                L"RIMES Windows 0.2.0\nCommit: " + Wide(RIMES_BUILD_COMMIT) +
+                L"\n协议 v2\n词库：%APPDATA%\\RIMES\n设置与日志：%LOCALAPPDATA%"
+                L"\\RIMES";
             MessageBoxW(hwnd, about_text.c_str(), L"版本与诊断", MB_OK);
             break;
           }
@@ -611,7 +789,7 @@ LRESULT CALLBACK Window::Procedure(HWND hwnd, UINT message, WPARAM wparam,
         UnregisterHotKey(hwnd, 1);
         WTSUnRegisterSessionNotification(hwnd);
         Shell_NotifyIconW(NIM_DELETE, &self->tray);
-        if (self->settings) DestroyWindow(self->settings);
+        self->settings.reset();
         self->runtime.Stop();
         self->stop();
         PostQuitMessage(0);
@@ -625,6 +803,7 @@ LRESULT CALLBACK Window::Procedure(HWND hwnd, UINT message, WPARAM wparam,
   return DefWindowProcW(hwnd, message, wparam, lparam);
 }
 }  // namespace
+
 void RunWindow(Runtime& runtime, const std::function<void()>& stop,
                const std::function<void()>& deploy) {
   CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
@@ -632,6 +811,8 @@ void RunWindow(Runtime& runtime, const std::function<void()>& stop,
     ~Apartment() { CoUninitialize(); }
   } apartment;
   SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+  INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_WIN95_CLASSES};
+  InitCommonControlsEx(&icc);
   Window ui(runtime, stop, deploy);
   if (FAILED(
           D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &ui.factory)) ||
@@ -644,8 +825,15 @@ void RunWindow(Runtime& runtime, const std::function<void()>& stop,
   }
   ui.write->CreateTextFormat(
       L"Microsoft YaHei UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-      DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 14, L"zh-CN",
+      DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 12, L"zh-CN",
       &ui.format);
+  ui.write->CreateTextFormat(
+      L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+      DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 10, L"zh-CN",
+      &ui.label_format);
+  if (ui.format) ui.format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+  if (ui.label_format)
+    ui.label_format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
   WNDCLASSW wc{};
   wc.lpfnWndProc = Window::Procedure;
   wc.hInstance = GetModuleHandleW(nullptr);
@@ -654,10 +842,21 @@ void RunWindow(Runtime& runtime, const std::function<void()>& stop,
   RegisterClassW(&wc);
   RECT area{};
   SystemParametersInfoW(SPI_GETWORKAREA, 0, &area, 0);
+  const int dpi = [] {
+    HDC dc = GetDC(nullptr);
+    int v = dc ? GetDeviceCaps(dc, LOGPIXELSX) : 96;
+    if (dc) ReleaseDC(nullptr, dc);
+    return v ? v : 96;
+  }();
+  ui.menu_font =
+      CreateFontW(-MulDiv(12, dpi, 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                  DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                  CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
   HWND window = CreateWindowExW(
       WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST, wc.lpszClassName,
       L"RIMES Buffer", WS_POPUP | WS_THICKFRAME, area.left + 40,
-      area.bottom - 500, 900, 440, nullptr, nullptr, wc.hInstance, &ui);
+      area.bottom - MulDiv(120, dpi, 96), MulDiv(760, dpi, 96),
+      MulDiv(73, dpi, 96), nullptr, nullptr, wc.hInstance, &ui);
   if (!window) {
     runtime.Stop();
     stop();
@@ -669,21 +868,37 @@ void RunWindow(Runtime& runtime, const std::function<void()>& stop,
     if (handle) PostMessageW(handle, kChanged, 0, 0);
   });
   auto config = runtime.Configuration();
+  ui.theme = ui::ThemeIdOrDefault(config.theme);
   RegisterHotKey(window, 1, config.hotkey_modifiers | MOD_NOREPEAT,
                  config.hotkey_key);
+  ui.product_icon = ui::CreateProductIcon(16, ui.theme);
   ui.tray.cbSize = sizeof(ui.tray);
   ui.tray.hWnd = window;
   ui.tray.uID = 1;
   ui.tray.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
   ui.tray.uCallbackMessage = kTray;
-  ui.tray.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+  ui.tray.hIcon =
+      ui.product_icon ? ui.product_icon : LoadIconW(nullptr, IDI_APPLICATION);
   wcscpy_s(ui.tray.szTip, L"RIMES 输入法与 Buffer");
   Shell_NotifyIconW(NIM_ADD, &ui.tray);
+  ui.tooltip = CreateWindowExW(0, TOOLTIPS_CLASSW, nullptr,
+                               WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX, 0, 0, 0,
+                               0, window, nullptr, wc.hInstance, nullptr);
+  if (ui.tooltip) {
+    TOOLINFOW info{};
+    info.cbSize = sizeof(info);
+    info.uFlags = TTF_SUBCLASS;
+    info.hwnd = window;
+    info.uId = 1;
+    GetClientRect(window, &info.rect);
+    info.lpszText = const_cast<wchar_t*>(L"");
+    SendMessageW(ui.tooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&info));
+  }
   WTSRegisterSessionNotification(window, NOTIFY_FOR_THIS_SESSION);
   SetTimer(window, 1, 100, nullptr);
   MSG message{};
   while (GetMessageW(&message, nullptr, 0, 0) > 0) {
-    if (ui.settings && IsDialogMessageW(ui.settings, &message)) continue;
+    if (ui.settings && ui.settings->HandleDialogMessage(&message)) continue;
     TranslateMessage(&message);
     DispatchMessageW(&message);
   }

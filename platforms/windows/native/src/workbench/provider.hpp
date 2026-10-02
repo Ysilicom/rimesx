@@ -10,6 +10,8 @@ namespace rimes::windows::workbench {
 struct Settings {
   std::uint64_t revision = 1;
   std::string schema = "rime_ice", base_url, model, target_language = "English";
+  // Persisted appearance colorway: night|day|quiet|rasta. Default night.
+  std::string theme = "night";
   bool ascii = false, traditional = false, ascii_punctuation = false;
   unsigned font_size = 16, hotkey_modifiers = MOD_CONTROL | MOD_ALT,
            hotkey_key = 'B';

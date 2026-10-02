@@ -17,6 +17,7 @@
 #include "Guids.h"
 #include "ModuleState.h"
 #include "candidate_layout.hpp"
+#include "../ui/theme.hpp"
 
 namespace rimes::windows::tsf {
 namespace {
@@ -1407,6 +1408,8 @@ void TextService::OnBrokerNotification() {
     if (kind == "capture") {
       candidate_window_.SetFont(
           (std::clamp)(message->value("font", 16U), 10U, 40U));
+      candidate_window_.SetTheme(ui::ThemeIdOrDefault(
+          message->value("theme", std::string("night"))));
       SetCapture(message->value("enabled", false));
       continue;
     }

@@ -88,9 +88,10 @@ add_library(RimesWorkbench STATIC
     src/workbench/model.cpp
     src/workbench/provider.cpp
     src/workbench/runtime.cpp
+    src/workbench/settings_ui.cpp
     src/workbench/window.cpp
 )
-target_link_libraries(RimesWorkbench PUBLIC RimesCore winhttp advapi32 user32 d2d1 dwrite shell32 wtsapi32 ole32)
+target_link_libraries(RimesWorkbench PUBLIC RimesCore winhttp advapi32 user32 d2d1 dwrite shell32 wtsapi32 ole32 comctl32 gdi32)
 rimes_harden_target(RimesWorkbench)
 
 add_executable(RimesBroker
@@ -134,6 +135,7 @@ target_link_libraries(RimesTsf PRIVATE
     RimesCore
     advapi32
     gdi32
+    msimg32
     ole32
     oleaut32
     user32
@@ -180,6 +182,12 @@ if(RIMES_BUILD_TESTS)
     add_executable(RimesWorkbenchTests src/workbench/model.cpp src/workbench/model_tests.cpp)
     rimes_harden_target(RimesWorkbenchTests)
     add_test(NAME RimesWorkbench COMMAND RimesWorkbenchTests)
+    add_executable(RimesBufferLayoutTests src/workbench/buffer_layout_tests.cpp)
+    target_include_directories(RimesBufferLayoutTests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    rimes_harden_target(RimesBufferLayoutTests)
+    add_test(NAME RimesBufferLayout COMMAND RimesBufferLayoutTests)
     add_executable(RimesBrokerProtocolTests
         src/core/broker_protocol_tests.cpp
     )
@@ -226,8 +234,31 @@ if(RIMES_BUILD_TESTS)
     )
     target_include_directories(RimesCandidateLayoutTests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src/tsf"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
     rimes_harden_target(RimesCandidateLayoutTests)
+
+    # Own-window mouse/no-activation contracts; never touches an installed IME
+    # or a user's input window and is safe in the SSH test session.
+    add_executable(RimesCandidateWindowTests
+        src/tsf/candidate_window_tests.cpp
+        src/tsf/CandidateWindow.cpp
+        src/tsf/ModuleState.cpp
+    )
+    target_link_libraries(RimesCandidateWindowTests PRIVATE
+        user32 gdi32 msimg32
+    )
+    rimes_harden_target(RimesCandidateWindowTests)
+    add_test(NAME RimesCandidateWindow COMMAND RimesCandidateWindowTests)
+
+    add_executable(RimesSettingsTests
+        src/workbench/settings_tests.cpp
+        src/workbench/provider.cpp
+        src/workbench/model.cpp
+    )
+    target_link_libraries(RimesSettingsTests PRIVATE RimesCore winhttp advapi32)
+    rimes_harden_target(RimesSettingsTests)
+    add_test(NAME RimesSettings COMMAND RimesSettingsTests)
 
     # Fail-open contract for a disconnected BrokerClient. Does not launch a
     # Broker or touch Session 1; safe as a default CTest.
@@ -262,11 +293,13 @@ if(RIMES_BUILD_TESTS)
     target_include_directories(RimesTsfE2E PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src/e2e"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/tsf"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
     target_link_libraries(RimesTsfE2E PRIVATE
         RimesCore
         advapi32
         gdi32
+        msimg32
         ole32
         oleaut32
         user32
@@ -274,6 +307,39 @@ if(RIMES_BUILD_TESTS)
     )
     rimes_harden_target(RimesTsfE2E)
     rimes_use_unicode_console_entrypoint(RimesTsfE2E)
+
+    add_executable(RimesVisualPreview WIN32
+        src/visual_preview/main.cpp
+        src/workbench/settings_ui.cpp
+        src/workbench/provider.cpp
+        src/workbench/model.cpp
+        src/tsf/CandidateWindow.cpp
+        src/tsf/ModuleState.cpp
+    )
+    target_include_directories(RimesVisualPreview PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/tsf"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/workbench"
+    )
+    target_link_libraries(RimesVisualPreview PRIVATE
+        RimesCore
+        d2d1
+        dwrite
+        gdi32
+        msimg32
+        user32
+        advapi32
+        comctl32
+        winhttp
+        shell32
+        ole32
+        windowscodecs
+    )
+    rimes_harden_target(RimesVisualPreview)
+    target_compile_definitions(RimesVisualPreview PRIVATE
+        RIMES_BUILD_COMMIT="visual-preview"
+        RIMES_VISUAL_PREVIEW=1
+    )
 
     # Live end-to-end probe. It deliberately is not a default CTest because it
     # requires an already-running Broker configured with real librime data.
@@ -314,6 +380,9 @@ if(RIMES_BUILD_TESTS)
         RimesBrokerKeyTranslation
         RimesBrokerOptions
         RimesCandidateLayout
+        RimesCandidateWindow
+        RimesSettings
+        RimesBufferLayout
         RimesBrokerClientContract
         RimesRegistrarMetadata
         RimesBrokerEndpoint
