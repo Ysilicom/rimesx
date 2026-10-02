@@ -36,6 +36,7 @@ public final class InputContractInstrumentation extends Instrumentation {
             removeMonitor(monitor); check(host!=null,"validation host launch within 15 seconds");
             waitForIdleSync(); report("START contract");
             if("chord".equals(arguments.getString("mode"))) chordContract();
+            else if("touch".equals(arguments.getString("mode"))) nativeTouchContract();
             else if("benchmark".equals(arguments.getString("mode"))) benchmark();
             else if("layout".equals(arguments.getString("mode"))) layoutContract();
             else if("plugins".equals(arguments.getString("mode"))) pluginsContract();
@@ -61,6 +62,21 @@ public final class InputContractInstrumentation extends Instrumentation {
         String actual;
         do { actual=read(field); if(wanted.equals(actual)) { assertions++; return; } SystemClock.sleep(25); } while(SystemClock.uptimeMillis()<deadline);
         throw new AssertionError(label+" expected=["+wanted+"] actual=["+actual+"]");
+    }
+    private void expectStable(EditText field,String wanted,String label) {
+        long until=SystemClock.uptimeMillis()+600;
+        do { check(wanted.equals(read(field)),label); SystemClock.sleep(30); } while(SystemClock.uptimeMillis()<until);
+    }
+    private void waitKeyboardHidden() {
+        long deadline=SystemClock.uptimeMillis()+5000;
+        do {
+            boolean present=false;
+            for(AccessibilityWindowInfo window:getUiAutomation().getWindows())
+                if(window.getType()==AccessibilityWindowInfo.TYPE_INPUT_METHOD) { present=true; break; }
+            if(!present) { check(true,"keyboard window hidden after animation"); return; }
+            SystemClock.sleep(30);
+        } while(SystemClock.uptimeMillis()<deadline);
+        throw new AssertionError("Keyboard window did not hide within five seconds");
     }
     private AccessibilityNodeInfo search(AccessibilityNodeInfo node,String value,boolean description) {
         if(node==null) return null;
@@ -510,14 +526,19 @@ public final class InputContractInstrumentation extends Instrumentation {
         report("PASS keyboard layouts, equal touch geometry, theme, spelling, emoji, Buffer and orientation");
     }
     private void inject(long downTime,int action,String... labels) {
-        android.view.MotionEvent.PointerProperties[] properties=new android.view.MotionEvent.PointerProperties[labels.length];
-        android.view.MotionEvent.PointerCoords[] coordinates=new android.view.MotionEvent.PointerCoords[labels.length];
-        for(int i=0;i<labels.length;i++) {
+        android.graphics.Rect[] rectangles=new android.graphics.Rect[labels.length];
+        for(int i=0;i<labels.length;i++) rectangles[i]=bounds(labels[i]);
+        inject(downTime,action,rectangles);
+    }
+    private void inject(long downTime,int action,android.graphics.Rect... rectangles) {
+        android.view.MotionEvent.PointerProperties[] properties=new android.view.MotionEvent.PointerProperties[rectangles.length];
+        android.view.MotionEvent.PointerCoords[] coordinates=new android.view.MotionEvent.PointerCoords[rectangles.length];
+        for(int i=0;i<rectangles.length;i++) {
             properties[i]=new android.view.MotionEvent.PointerProperties(); properties[i].id=i; properties[i].toolType=android.view.MotionEvent.TOOL_TYPE_FINGER;
-            coordinates[i]=new android.view.MotionEvent.PointerCoords(); android.graphics.Rect r=bounds(labels[i]);
+            coordinates[i]=new android.view.MotionEvent.PointerCoords(); android.graphics.Rect r=rectangles[i];
             coordinates[i].x=r.exactCenterX(); coordinates[i].y=r.exactCenterY(); coordinates[i].pressure=1; coordinates[i].size=1;
         }
-        android.view.MotionEvent event=android.view.MotionEvent.obtain(downTime,SystemClock.uptimeMillis(),action,labels.length,properties,coordinates,0,0,1,1,0,0,android.view.InputDevice.SOURCE_TOUCHSCREEN,0);
+        android.view.MotionEvent event=android.view.MotionEvent.obtain(downTime,SystemClock.uptimeMillis(),action,rectangles.length,properties,coordinates,0,0,1,1,0,0,android.view.InputDevice.SOURCE_TOUCHSCREEN,0);
         try { boolean accepted=getUiAutomation().injectInputEvent(event,true);
             if(!accepted && allowStaleRejection) report("InputDispatcher rejected retired stream event "+action);
             check(accepted || allowStaleRejection,"real multi-touch event "+action); } finally { event.recycle(); }
@@ -539,6 +560,29 @@ public final class InputContractInstrumentation extends Instrumentation {
         finalRightUp(down,right);
     }
     private void chooseChord(boolean split) { tap("键位布局"); tap(split?"布局 分体并击":"布局 正交并击"); tap("键位布局"); waitButton("D"); }
+    private void nativeTouchContract() throws Exception {
+        focusAny(host.first); layout("26"); pinyin();
+        runOnMainSync(() -> host.traceConnections=true);
+        long down=SystemClock.uptimeMillis(); inject(down,android.view.MotionEvent.ACTION_DOWN,"n");
+        runOnMainSync(() -> host.focus(host.second)); SystemClock.sleep(400);
+        allowStaleRejection=true; inject(down,android.view.MotionEvent.ACTION_UP,"n"); allowStaleRejection=false;
+        expectStable(host.second,"","held ordinary key cannot type into a new field");
+        type("nihao"); tap("Space"); expect(host.second,"你好","new ordinary clicks remain valid");
+        focusAny(host.first); runOnMainSync(() -> host.first.setText("abcd")); SystemClock.sleep(200);
+        down=SystemClock.uptimeMillis(); inject(down,android.view.MotionEvent.ACTION_DOWN,"n");
+        runOnMainSync(() -> host.first.setSelection(1,3)); SystemClock.sleep(300);
+        allowStaleRejection=true; inject(down,android.view.MotionEvent.ACTION_UP,"n"); allowStaleRejection=false;
+        expectStable(host.first,"abcd","selection retirement rejects old ordinary lift");
+        android.graphics.Rect heldKey=bounds("n");
+        down=SystemClock.uptimeMillis(); inject(down,android.view.MotionEvent.ACTION_DOWN,heldKey);
+        expect(host.first,"abcd","ordinary DOWN before hiding does not type");
+        runOnMainSync(() -> host.getSystemService(InputMethodManager.class).hideSoftInputFromWindow(host.first.getWindowToken(),0)); waitKeyboardHidden();
+        expect(host.first,"abcd","hiding a held key preserves selected host text");
+        allowStaleRejection=true; inject(down,android.view.MotionEvent.ACTION_UP,heldKey); allowStaleRejection=false;
+        expectStable(host.first,"abcd","hidden keyboard rejects old ordinary lift");
+        focusAny(host.first); type("nihao"); tap("Space"); expect(host.first,"你好","fresh target after hiding remains usable");
+        report("PASS native held keys, target/selection/hide retirement and fresh accessibility clicks");
+    }
     private void chordContract() throws Exception {
         focusAny(host.first); layout("26"); pinyin(); chooseChord(false); screenshot("chord");
         long down=SystemClock.uptimeMillis();

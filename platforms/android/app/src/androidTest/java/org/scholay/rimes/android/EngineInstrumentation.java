@@ -6,7 +6,7 @@ import android.os.Bundle;
 public final class EngineInstrumentation extends Instrumentation {
     private Bundle arguments;
     private String bufferRenderingResult="";
-    private int chordChecks,iconChecks;
+    private int chordChecks,iconChecks,touchChecks;
     @Override public void onCreate(Bundle arguments) { this.arguments=arguments; super.onCreate(arguments); start(); }
     @Override public void onStart() {
         Bundle result=new Bundle();
@@ -14,13 +14,14 @@ public final class EngineInstrumentation extends Instrumentation {
             if(arguments!=null && "benchmark".equals(arguments.getString("mode"))) {
                 result.putString("stream",EngineBenchmark.run(this,arguments)); finish(-1,result); return;
             }
+            touchChecks=NativeTouchContract.run(this);
             java.util.concurrent.atomic.AtomicReference<Throwable> renderingError=new java.util.concurrent.atomic.AtomicReference<>();
             runOnMainSync(() -> {
                 try { iconChecks=KeyboardIconContract.run(getTargetContext()); keycapRendering(); chordChecks=ChordSurfaceContract.run(getTargetContext()); chordReadoutRetirement(); renderBufferRail(); }
                 catch(Throwable error) { renderingError.set(error); }
             });
             if(renderingError.get()!=null) throw renderingError.get();
-            Bundle rendering=new Bundle(); rendering.putString("stream","VECTOR_ICONS checks="+iconChecks+"\nCHORD_SURFACE checks="+chordChecks+"\n"+bufferRenderingResult); sendStatus(0,rendering);
+            Bundle rendering=new Bundle(); rendering.putString("stream","NATIVE_TOUCH checks="+touchChecks+"\nVECTOR_ICONS checks="+iconChecks+"\nCHORD_SURFACE checks="+chordChecks+"\n"+bufferRenderingResult); sendStatus(0,rendering);
             if(arguments!=null && "rendering".equals(arguments.getString("mode"))) {
                 result.putString("stream","PASS native keycaps, chord and Buffer rail rendering\n"+bufferRenderingResult); finish(-1,result); return;
             }

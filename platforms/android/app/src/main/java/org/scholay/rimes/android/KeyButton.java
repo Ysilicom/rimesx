@@ -9,6 +9,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.view.HapticFeedbackConstants;
+import android.view.MotionEvent;
 import android.widget.Button;
 
 /** A native accessible button with a full touch cell and an inset, visibly pressed keycap. */
@@ -25,6 +26,8 @@ final class KeyButton extends Button {
     private float iconSize=20;
     private boolean iconWithText;
     private float frameX,frameY,frameWidth=-1,frameHeight=-1;
+    private boolean nativeTouchActive;
+    private long nativeDownTime=-1;
     KeyButton(Context context) {
         super(context);
         setAllCaps(false); setMinWidth(0); setMinimumWidth(0); setMinHeight(0); setMinimumHeight(0);
@@ -100,6 +103,24 @@ final class KeyButton extends Button {
             setMeasuredDimension(resolveSize(Math.max(getSuggestedMinimumWidth(),desired),widthSpec),getMeasuredHeight());
         }
     }
+    /** A target loss cancels queued native clicks and retires the lower-level press still held. */
+    @Override public void onCancelPendingInputEvents() {
+        super.onCancelPendingInputEvents();
+        nativeTouchActive=false; nativeDownTime=-1; setPressed(false);
+    }
+    @Override public boolean onTouchEvent(MotionEvent event) {
+        int action=event.getActionMasked();
+        if(action==MotionEvent.ACTION_DOWN) {
+            nativeTouchActive=true; nativeDownTime=event.getDownTime();
+        } else if(!nativeTouchActive || event.getDownTime()!=nativeDownTime) return true;
+        try { return super.onTouchEvent(event); }
+        finally {
+            if(action==MotionEvent.ACTION_UP || action==MotionEvent.ACTION_CANCEL) {
+                nativeTouchActive=false; nativeDownTime=-1;
+            }
+        }
+    }
+    // Accessibility clicks have no touch stream and remain a native, independent action.
     @Override public boolean performClick() { performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); return super.performClick(); }
     @Override protected void drawableStateChanged() { super.drawableStateChanged(); invalidate(); }
     @Override protected void onDraw(Canvas canvas) {

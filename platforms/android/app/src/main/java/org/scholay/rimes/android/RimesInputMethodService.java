@@ -40,7 +40,8 @@ public final class RimesInputMethodService extends InputMethodService {
     private InputConnection target;
     private SharedPreferences preferences;
     private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener=this::preferenceChanged;
-    private LinearLayout keyboard, bufferRow, candidateRow, spellingRow, chordFooter;
+    private KeyboardRoot keyboard;
+    private LinearLayout bufferRow, candidateRow, spellingRow, chordFooter;
     private BufferRail bufferRail;
     private ChordSurface chords;
     private TextView metrics;
@@ -164,7 +165,10 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private boolean chordLayout() { return layout.equals("orthogonal") || layout.equals("splitOrthogonal"); }
     private boolean chordVisible() { return ready && chordLayout() && !directOnly && !numeric && !emoji; }
-    private void cancelChord() { heldPreview=null; chordPreview=""; if(chords!=null) chords.cancel(); }
+    private void cancelChord() {
+        if(keyboard!=null) keyboard.cancelPendingInputEvents();
+        heldPreview=null; chordPreview=""; if(chords!=null) chords.cancel();
+    }
     private void chooseSchema(String selected) {
         settleAndSwitch(() -> { schema=selected; if(chordLayout()) layout="qwerty"; spellingOpen=false;
             preferences.edit().putString("schema",schema).putString("layout",layout).apply(); });
@@ -555,7 +559,7 @@ public final class RimesInputMethodService extends InputMethodService {
         }
     }
     @Override public View onCreateInputView() {
-        keyboard=new LinearLayout(this); keyboard.setOrientation(LinearLayout.VERTICAL);
+        keyboard=new KeyboardRoot(this); keyboard.setOrientation(LinearLayout.VERTICAL);
         if(Build.VERSION.SDK_INT>=29) keyboard.setForceDarkAllowed(false);
         keyboard.setLayoutDirection(View.LAYOUT_DIRECTION_LTR); chromeButtons.clear(); chordControls.clear();
         keyboard.setPadding(dp(5),dp(5),dp(5),dp(5));

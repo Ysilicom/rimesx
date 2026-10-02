@@ -13,6 +13,7 @@ public final class HostActivity extends Activity {
     public EditText first, second, password, privateInput;
     public WebView web;
     public LinearLayout content;
+    public boolean traceConnections;
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -37,7 +38,24 @@ public final class HostActivity extends Activity {
         setContentView(content);
     }
     private EditText field(String hint,int type) {
-        EditText value=new EditText(this); value.setHint(hint); value.setInputType(type);
+        EditText value=new EditText(this) {
+            @Override public android.view.inputmethod.InputConnection onCreateInputConnection(EditorInfo info) {
+                android.view.inputmethod.InputConnection connection=super.onCreateInputConnection(info);
+                if(connection==null) return null;
+                return new android.view.inputmethod.InputConnectionWrapper(connection,false) {
+                    private void trace(String operation,int length) {
+                        if(traceConnections) android.util.Log.i("RIMES-HOST","connection "+operation+" argumentLength="+length
+                                +" selection="+getSelectionStart()+".."+getSelectionEnd()+" composing="
+                                +android.view.inputmethod.BaseInputConnection.getComposingSpanStart(getText())+".."
+                                +android.view.inputmethod.BaseInputConnection.getComposingSpanEnd(getText()));
+                    }
+                    @Override public boolean setComposingText(CharSequence text,int cursor) { trace("setComposingText",text.length()); return super.setComposingText(text,cursor); }
+                    @Override public boolean commitText(CharSequence text,int cursor) { trace("commitText",text.length()); return super.commitText(text,cursor); }
+                    @Override public boolean finishComposingText() { trace("finishComposingText",0); return super.finishComposingText(); }
+                    @Override public boolean deleteSurroundingText(int before,int after) { trace("deleteSurroundingText",before+after); return super.deleteSurroundingText(before,after); }
+                };
+            }
+        }; value.setHint(hint); value.setInputType(type);
         value.setSingleLine(true); value.setSaveEnabled(false); value.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_NO);
         content.addView(value); return value;
     }
