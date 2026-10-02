@@ -492,7 +492,8 @@ public final class RimesInputMethodService extends InputMethodService {
             return true;
         }
         @Override public boolean selected(KeyboardLayout.Key key) {
-            return key.action==KeyboardLayout.Action.SHIFT && uppercase || key.action==KeyboardLayout.Action.SPELLING && spellingOpen;
+            return key.action==KeyboardLayout.Action.SHIFT && uppercase || key.action==KeyboardLayout.Action.SPELLING && spellingOpen
+                    || key.action==KeyboardLayout.Action.RETURN && returnSelected();
         }
         @Override public void press(KeyboardLayout.Key key) {
             switch(key.action) {
@@ -513,6 +514,20 @@ public final class RimesInputMethodService extends InputMethodService {
             }
         }
     };
+    private boolean returnSelected() {
+        if(snapshot.composing() || pending!=0) return false;
+        if(buffer.isEnabled()) return buffer.blockCount()>0;
+        EditorInfo info=getCurrentInputEditorInfo();
+        if(info==null || (info.imeOptions&EditorInfo.IME_FLAG_NO_ENTER_ACTION)!=0) return false;
+        switch(info.imeOptions&EditorInfo.IME_MASK_ACTION) {
+            case EditorInfo.IME_ACTION_SEARCH:
+            case EditorInfo.IME_ACTION_GO:
+            case EditorInfo.IME_ACTION_SEND:
+            case EditorInfo.IME_ACTION_NEXT:
+            case EditorInfo.IME_ACTION_DONE: return true;
+            default: return false;
+        }
+    }
     private String returnLabel() {
         if(snapshot.composing()) return "原码";
         if(buffer.isEnabled()) return "插入";
@@ -688,6 +703,7 @@ public final class RimesInputMethodService extends InputMethodService {
             LinearLayout.LayoutParams params=(LinearLayout.LayoutParams)button.getLayoutParams(); int keyWidth=i==2?0:Math.round((width/getResources().getDisplayMetrics().density-10)/7.5f*getResources().getDisplayMetrics().density);
             float weight=i==2?1:0; if(params.width!=keyWidth || params.weight!=weight) { params.width=keyWidth; params.weight=weight; button.requestLayout(); }
             button.setEnabled(!chords.isChordActive());
+            button.setSelected(i==1 && uppercase || i==3 && english || i==4 && returnSelected());
         }
         insertNext.setSelected(insertNext.isEnabled());
         if(appearanceOpen) appearancePanel.schemes(schema,this::chooseSchema);

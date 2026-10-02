@@ -321,6 +321,7 @@ public final class InputContractInstrumentation extends Instrumentation {
         type("nihao"); screenshot("candidates"); tap("Space"); expect(host.first,"你好","new QWERTY candidate");
         focus(host.first); tap("Buffer off"); type("nihao"); tap("Space");
         layout("9"); expect(host.first,"","layout switch preserves isolated Buffer");
+        check(waitButton("Enter").isSelected(),"confirmed Buffer Return has active cap");
         screenshot("nine-buffer"); nine("64426"); tap("Space"); expect(host.first,"","nine-key confirmed text stays in Buffer");
         tap("Insert all"); expect(host.first,"你好你好","both layouts retain complete blocks");
         focusAny(host.first); nine("64"); tap("选拼音"); screenshot("spelling"); tap("拼音 ni"); nine("426");
@@ -381,8 +382,10 @@ public final class InputContractInstrumentation extends Instrumentation {
         expect(host.first,"","held chord does not preedit or commit");
         inject(down,android.view.MotionEvent.ACTION_POINTER_UP,"V","I"); expect(host.first,"","one hand released does not commit");
         finalRightUp(down,"I"); expect(host.first,"ni","both lifted resolve to Natural Code ni");
+        check(!waitButton("Enter").isSelected(),"composition Return has neutral cap");
         chord("X","C","K"); waitButton("你好"); tap("Space"); expect(host.first,"你好","real two-thumb ni+hao commits once");
         focusAny(host.first); tap("Buffer off"); chord("D","V","I"); chord("X","C","K"); tap("Space"); expect(host.first,"","confirmed chord word stays in Buffer");
+        check(waitButton("Enter").isSelected(),"confirmed chord Buffer Return has active cap");
         screenshot("chord-buffer"); tap("Insert"); expect(host.first,"你好","chord Buffer exact delivery");
         focusAny(host.first); down=SystemClock.uptimeMillis(); inject(down,android.view.MotionEvent.ACTION_DOWN,"D");
         inject(down,android.view.MotionEvent.ACTION_POINTER_DOWN|(1<<android.view.MotionEvent.ACTION_POINTER_INDEX_SHIFT),"D","V");

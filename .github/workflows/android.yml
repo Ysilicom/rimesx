@@ -3,10 +3,10 @@ name: Android checks
 on:
   pull_request:
     branches: [main]
-    paths: ['platforms/android/**', 'platforms/ios/dependencies.lock.json', 'platforms/ios/Resources/EngineData/**', 'platforms/ios/Licenses/**', '.github/workflows/android.yml']
+    paths: ['LICENSE', 'platforms/android/**', 'platforms/ios/dependencies.lock.json', 'platforms/ios/Resources/EngineData/**', 'platforms/ios/Licenses/**', '.github/workflows/android.yml']
   push:
     branches: [main]
-    paths: ['platforms/android/**', 'platforms/ios/dependencies.lock.json', 'platforms/ios/Resources/EngineData/**', 'platforms/ios/Licenses/**', '.github/workflows/android.yml']
+    paths: ['LICENSE', 'platforms/android/**', 'platforms/ios/dependencies.lock.json', 'platforms/ios/Resources/EngineData/**', 'platforms/ios/Licenses/**', '.github/workflows/android.yml']
   workflow_dispatch:
 
 permissions:

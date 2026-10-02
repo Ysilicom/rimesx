@@ -105,6 +105,11 @@ candidate selection confirms Chinese through the direct or Buffer route. The
 nine built-in endpoint slide shortcuts also follow iOS. This is not an arbitrary
 custom gesture system.
 
+Chord Space is a single “空格” tap target for candidate selection or a space.
+iOS's divided Space with two glyphs supports left-half hold/drag for Buffer
+selection and right-half hold/drag for caret movement. Those split-Space visuals
+and editing gestures are deferred with full Buffer editing on Android.
+
 A second finger on the same hand, an extra pointer on a gap/utility, or Android
 `ACTION_CANCEL` cancels the batch. Cancellation remains in force until every
 finger lifts. Field/selection changes, hiding, keyboard switches, surface
