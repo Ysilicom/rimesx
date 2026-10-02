@@ -233,9 +233,10 @@ int RunTypingScenarios() {
   Expect(document.text.empty() && document.composition.empty() &&
              !document.composing,
          "host termination must erase preedit before it becomes raw text");
-  TypeLatin(service, context, "hao");
+  // The minimal E2E dictionary contains nihao and ni, not standalone hao.
+  TypeLatin(service, context, "nihao");
   TypeVirtualKey(service, context, VK_SPACE, true);
-  Expect(document.text == L"好",
+  Expect(document.text == L"你好",
          "host termination must reset the old engine context too");
 
   // An asynchronous edit accepted by RequestEditSession is still revocable.
