@@ -85,14 +85,18 @@ class TextService final : public ITfTextInputProcessorEx,
                     WPARAM virtual_key, LPARAM key_data, BOOL* eaten) noexcept;
 
   HRESULT ApplyDocumentState(ITfContext* context,
-                             const BrokerInputState& state) noexcept;
+                             const BrokerInputState& state,
+                             TfEditCookie cookie = TF_INVALID_EDIT_COOKIE) noexcept;
+  void SelectCandidate(std::size_t index) noexcept;
   HRESULT CommitText(ITfContext* context, const std::wstring& text) noexcept;
   HRESULT UpdateComposition(ITfContext* context,
                             const BrokerInputState& state) noexcept;
   HRESULT EndComposition(ITfContext* context) noexcept;
   void UpdateCandidateWindow(ITfContext* context,
-                             const BrokerInputState& state) noexcept;
-  RECT QueryCaretRect(ITfContext* context) noexcept;
+                             const BrokerInputState& state,
+                             TfEditCookie cookie = TF_INVALID_EDIT_COOKIE) noexcept;
+  RECT QueryCaretRect(ITfContext* context,
+                      TfEditCookie cookie = TF_INVALID_EDIT_COOKIE) noexcept;
   void ClearCompositionPointer() noexcept;
   bool BindContext(ITfContext*) noexcept;
   void SetCapture(bool enabled);

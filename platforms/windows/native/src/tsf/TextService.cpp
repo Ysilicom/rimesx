@@ -576,6 +576,51 @@ class CancelCompositionEdit final : public ITfEditSession {
   ITfComposition* composition_;
 };
 
+// Mouse callbacks are outside TSF's keystroke path: hosts may refuse a
+// synchronous lock. Keep the service/context alive until the requested edit
+// actually runs, and validate the captured candidate inside that edit.
+class CandidateSelectionEdit final : public ITfEditSession {
+ public:
+  CandidateSelectionEdit(ITfContext* context, IUnknown* owner,
+                          std::function<HRESULT(TfEditCookie)> callback)
+      : context_(context), owner_(owner), callback_(std::move(callback)) {
+    context_->AddRef();
+    owner_->AddRef();
+    module::AddObject();
+  }
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** out) override {
+    if (!out) return E_POINTER;
+    *out = nullptr;
+    if (id != IID_IUnknown && id != IID_ITfEditSession) return E_NOINTERFACE;
+    *out = static_cast<ITfEditSession*>(this);
+    AddRef();
+    return S_OK;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++references_; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const auto n = --references_;
+    if (!n) delete this;
+    return n;
+  }
+  HRESULT STDMETHODCALLTYPE DoEditSession(TfEditCookie cookie) override {
+    // A host must not execute the same click twice.
+    auto callback = std::move(callback_);
+    if (!callback) return S_OK;
+    try { return callback(cookie); } catch (...) { return E_FAIL; }
+  }
+
+ private:
+  ~CandidateSelectionEdit() {
+    context_->Release();
+    owner_->Release();
+    module::ReleaseObject();
+  }
+  std::atomic_ulong references_{1};
+  ITfContext* context_;
+  IUnknown* owner_;
+  std::function<HRESULT(TfEditCookie)> callback_;
+};
+
 HRESULT RequestEdit(ITfContext* context, TfClientId client_id,
                     ITfEditSession* session) {
   if (context == nullptr || session == nullptr || client_id == kNullClientId) {
@@ -596,25 +641,50 @@ HRESULT RequestEdit(ITfContext* context, TfClientId client_id,
 
 TextService::TextService() noexcept : broker_client_(CreateBrokerClient()) {
   module::AddObject();
-  candidate_window_.SetSelect([this](std::size_t index) {
-    if (!active_context_ || index >= last_state_.candidates.size()) return;
-    DWORD process = 0;
-    GetWindowThreadProcessId(GetForegroundWindow(), &process);
-    if (process != GetCurrentProcessId()) return;
-    const auto key =
-        CandidateSelectionKey(last_state_.candidates[index].label, index);
-    if (!key) return;
-    if (!broker_client_->Control({{"op", "candidate_guard"},
-                                  {"revision", last_state_.revision},
-                                  {"index", index}}))
-      return;
-    BOOL eaten = FALSE;
-    HandleKey(BrokerKeyPhase::kKeyDown, active_context_,
-              static_cast<WPARAM>(key), 1, &eaten);
-    HandleKey(BrokerKeyPhase::kKeyUp, active_context_,
-              static_cast<WPARAM>(key), static_cast<LPARAM>(1ULL << 31),
-              &eaten);
-  });
+  candidate_window_.SetSelect([this](std::size_t index) { SelectCandidate(index); });
+}
+
+void TextService::SelectCandidate(std::size_t index) noexcept {
+  if (!active_context_ || !broker_client_ ||
+      index >= last_state_.candidates.size()) return;
+  const auto key = CandidateSelectionKey(last_state_.candidates[index].label, index);
+  if (!key) return;
+  auto* context = active_context_;
+  const auto valid = edit_valid_;
+  const auto revision = last_state_.revision;
+  try {
+    auto* edit = new (std::nothrow) CandidateSelectionEdit(
+        context, static_cast<ITfTextInputProcessorEx*>(this),
+        [this, context, valid, revision, index, key](TfEditCookie cookie) {
+          RefreshBrokerConnection();
+          DWORD process = 0;
+          GetWindowThreadProcessId(GetForegroundWindow(), &process);
+          if (!valid || !valid->load() || context != active_context_ ||
+              last_state_.revision != revision ||
+              process != GetCurrentProcessId() || !AllowedContext(context, cookie))
+            return TF_E_DISCONNECTED;
+          if (!broker_client_->Control({{"op", "candidate_guard"},
+                                         {"revision", revision}, {"index", index}}))
+            return TF_E_DISCONNECTED;
+          BrokerInputState state;
+          auto result = broker_client_->HandleKey(
+              {BrokerKeyPhase::kKeyDown, static_cast<WPARAM>(key), 1}, &state);
+          if (result != BrokerKeyResult::kConsumed) return E_FAIL;
+          auto applied = state.has_snapshot ? ApplyDocumentState(context, state, cookie)
+                                             : S_OK;
+          BrokerInputState released;
+          result = broker_client_->HandleKey(
+              {BrokerKeyPhase::kKeyUp, static_cast<WPARAM>(key),
+               static_cast<LPARAM>(1ULL << 31)}, &released);
+          if (SUCCEEDED(applied) && result == BrokerKeyResult::kConsumed &&
+              released.has_snapshot)
+            applied = ApplyDocumentState(context, released, cookie);
+          return applied;
+        });
+    if (!edit) return;
+    RequestEdit(context, client_id_, edit);
+    edit->Release();
+  } catch (...) {}
 }
 
 TextService::~TextService() {
@@ -938,14 +1008,14 @@ HRESULT TextService::HandleKey(BrokerKeyPhase phase, ITfContext* context,
 }
 
 HRESULT TextService::ApplyDocumentState(
-    ITfContext* context, const BrokerInputState& state) noexcept {
+    ITfContext* context, const BrokerInputState& state, TfEditCookie cookie) noexcept {
   if (context == nullptr) {
     return E_INVALIDARG;
   }
   SetCapture(state.buffer_capture);
   if (state.buffer_capture) {
     last_state_ = state;
-    UpdateCandidateWindow(context, state);
+    UpdateCandidateWindow(context, state, cookie);
     return S_OK;
   }
   auto* session = new (std::nothrow) CompositionEditSession(
@@ -953,7 +1023,9 @@ HRESULT TextService::ApplyDocumentState(
       state.composing ? state.composition : std::wstring(), state.caret_utf16,
       edit_valid_, state.commit_text);
   if (!session) return E_OUTOFMEMORY;
-  const auto result = RequestEdit(context, client_id_, session);
+  const auto result = cookie == TF_INVALID_EDIT_COOKIE
+                          ? RequestEdit(context, client_id_, session)
+                          : session->DoEditSession(cookie);
   session->Release();
   if (FAILED(result)) {
     RevokeContext();
@@ -961,7 +1033,7 @@ HRESULT TextService::ApplyDocumentState(
   }
 
   last_state_ = state;
-  UpdateCandidateWindow(context, state);
+  UpdateCandidateWindow(context, state, cookie);
   return S_OK;
 }
 
@@ -1015,7 +1087,7 @@ HRESULT TextService::EndComposition(ITfContext* context) noexcept {
 }
 
 void TextService::UpdateCandidateWindow(
-    ITfContext* context, const BrokerInputState& state) noexcept {
+    ITfContext* context, const BrokerInputState& state, TfEditCookie cookie) noexcept {
   if (!state.candidates_visible || state.candidates.empty() ||
       (activation_flags_ & TF_TMAE_SECUREMODE) != 0) {
     candidate_window_.Hide();
@@ -1028,7 +1100,7 @@ void TextService::UpdateCandidateWindow(
     snapshot.page_start = state.page_start;
     snapshot.page_size = state.page_size;
     snapshot.composition = state.composition;
-    snapshot.caret_rect = QueryCaretRect(context);
+    snapshot.caret_rect = QueryCaretRect(context, cookie);
     snapshot.items.reserve(state.candidates.size());
     for (std::size_t index = 0; index < state.candidates.size(); ++index) {
       CandidateItem item;
@@ -1046,7 +1118,7 @@ void TextService::UpdateCandidateWindow(
   }
 }
 
-RECT TextService::QueryCaretRect(ITfContext* context) noexcept {
+RECT TextService::QueryCaretRect(ITfContext* context, TfEditCookie cookie) noexcept {
   RECT caret{};
   if (context == nullptr) {
     return caret;
@@ -1054,8 +1126,10 @@ RECT TextService::QueryCaretRect(ITfContext* context) noexcept {
   auto* read = new (std::nothrow) ScopeRead(context);
   if (read) {
     HRESULT edit = E_FAIL;
-    const auto hr = context->RequestEditSession(client_id_, read,
-                                                TF_ES_SYNC | TF_ES_READ, &edit);
+    const auto hr = cookie == TF_INVALID_EDIT_COOKIE
+                        ? context->RequestEditSession(
+                              client_id_, read, TF_ES_SYNC | TF_ES_READ, &edit)
+                        : (edit = read->DoEditSession(cookie));
     if (SUCCEEDED(hr) && SUCCEEDED(edit)) caret = read->caret;
     read->Release();
     if (caret.bottom > caret.top) return caret;
@@ -1067,15 +1141,6 @@ RECT TextService::QueryCaretRect(ITfContext* context) noexcept {
         view == nullptr) {
       return caret;
     }
-  }
-  ITfRange* range = nullptr;
-  if (composition_ != nullptr) {
-    composition_->GetRange(&range);
-  }
-  BOOL clipped = FALSE;
-  if (range != nullptr) {
-    view->GetTextExt(TF_INVALID_EDIT_COOKIE, range, &caret, &clipped);
-    range->Release();
   }
   if (caret.right <= caret.left || caret.bottom <= caret.top) {
     HWND window = nullptr;
