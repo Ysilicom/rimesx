@@ -16,6 +16,7 @@ public final class InputContractInstrumentation extends Instrumentation {
     private HostActivity host;
     private Bundle arguments;
     private int assertions;
+    private boolean allowStaleRejection;
     @Override public void onCreate(Bundle args) { super.onCreate(args); arguments=args; start(); }
     @Override public void onStart() {
         Bundle result=new Bundle();
@@ -34,7 +35,9 @@ public final class InputContractInstrumentation extends Instrumentation {
             }
             removeMonitor(monitor); check(host!=null,"validation host launch within 15 seconds");
             waitForIdleSync(); report("START contract");
-            if("layout".equals(arguments.getString("mode"))) layoutContract();
+            if("chord".equals(arguments.getString("mode"))) chordContract();
+            else if("benchmark".equals(arguments.getString("mode"))) benchmark();
+            else if("layout".equals(arguments.getString("mode"))) layoutContract();
             else if(!"soak".equals(arguments.getString("mode"))) contract();
             else soak(Long.parseLong(arguments.getString("seconds","1800")));
             result.putString("stream","PASS input contract; assertions="+assertions+"\n"); finish(-1,result);
@@ -79,7 +82,29 @@ public final class InputContractInstrumentation extends Instrumentation {
         do { AccessibilityNodeInfo node=find(value,false); if(node!=null && node.isEnabled()) return node; SystemClock.sleep(30); } while(SystemClock.uptimeMillis()<deadline);
         throw new AssertionError("Missing enabled keyboard button: "+value);
     }
+    private boolean scrollChooser(AccessibilityNodeInfo node) {
+        if(node==null) return false;
+        if(IME.contentEquals(node.getPackageName()==null?"":node.getPackageName())
+                && "android.widget.ScrollView".contentEquals(node.getClassName()==null?"":node.getClassName())
+                && node.isVisibleToUser() && node.isScrollable())
+            return node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+        for(int i=0;i<node.getChildCount();i++) if(scrollChooser(node.getChild(i))) return true;
+        return false;
+    }
     private void tap(String value) {
+        if((value.equals("拼音") || value.equals("自然码") || value.equals("五笔")) && modern()) {
+            schema(value.equals("拼音")?"自然码":value.equals("自然码")?"五笔":"拼音"); return;
+        }
+        // The appearance panel scrolls independently; large fonts can place palettes below its viewport.
+        if(value.startsWith("配色 ")) {
+            for(int attempt=0;find(value,false)==null && attempt<8;attempt++) {
+                boolean moved=false;
+                for(AccessibilityWindowInfo window:getUiAutomation().getWindows())
+                    if(scrollChooser(window.getRoot())) { moved=true; break; }
+                if(!moved) break;
+                SystemClock.sleep(120);
+            }
+        }
         AccessibilityNodeInfo node=waitButton(value);
         check(node.performAction(AccessibilityNodeInfo.ACTION_CLICK),"click "+value);
         SystemClock.sleep(120);
@@ -91,13 +116,61 @@ public final class InputContractInstrumentation extends Instrumentation {
     }
     private void pinyin() {
         if(find("英",false)!=null && find("英",false).isEnabled()) tap("英");
+        if(modern()) { schema("拼音"); return; }
         if(find("自然码",false)!=null) tap("自然码");
         if(find("五笔",false)!=null) tap("五笔");
         waitButton("拼音");
     }
+    private boolean modern() { AccessibilityNodeInfo node=find("键位布局",true); return node!=null && ("⚙".contentEquals(node.getText()) || "✓".contentEquals(node.getText())); }
+    private void schema(String name) { tap("键位布局"); tap("中文方案 "+name); tap("键位布局"); }
     private void report(String value) {
         Bundle b=new Bundle(); b.putString("stream",value+"\n"); sendStatus(0,b);
         android.util.Log.i("RIMES-TEST",value);
+    }
+    /** End-to-end ACTION_CLICK acknowledgement to actual EditText mutation, without tap sleeps. */
+    private void benchmark() throws Exception {
+        focusAny(host.first); layout("26"); pinyin();
+        java.util.ArrayList<Long> first=new java.util.ArrayList<>(), commit=new java.util.ArrayList<>();
+        java.util.concurrent.atomic.AtomicLong changedAt=new java.util.concurrent.atomic.AtomicLong();
+        runOnMainSync(() -> host.first.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s,int start,int count,int after) {}
+            public void onTextChanged(CharSequence s,int start,int before,int count) { changedAt.set(SystemClock.elapsedRealtimeNanos()); }
+            public void afterTextChanged(android.text.Editable s) {}
+        }));
+        int count=Integer.parseInt(arguments.getString("samples","60"));
+        for(int i=0;i<count+5;i++) {
+            focus(host.first); pinyin();
+            AccessibilityNodeInfo n=waitButton("n"); changedAt.set(0);
+            long start=SystemClock.elapsedRealtimeNanos();
+            check(n.performAction(AccessibilityNodeInfo.ACTION_CLICK),"benchmark first key accepted");
+            expect(host.first,"n","benchmark composing mutation");
+            long firstTime=changedAt.get()-start;
+            for(char c:"ihao".toCharArray()) {
+                check(waitButton(String.valueOf(c)).performAction(AccessibilityNodeInfo.ACTION_CLICK),"benchmark next key accepted");
+            }
+            waitButton("你好"); AccessibilityNodeInfo space=waitButton("Space"); changedAt.set(0);
+            start=SystemClock.elapsedRealtimeNanos();
+            check(space.performAction(AccessibilityNodeInfo.ACTION_CLICK),"benchmark candidate accepted");
+            expect(host.first,"你好","benchmark actual Chinese commit");
+            long commitTime=changedAt.get()-start;
+            check(firstTime>0 && commitTime>0,"benchmark monotonic timestamps");
+            if(i>=5) { first.add(firstTime); commit.add(commitTime); }
+        }
+        org.json.JSONObject data=new org.json.JSONObject();
+        data.put("scope","accessibility ACTION_CLICK request to actual host TextWatcher; includes IPC/scheduling; no touch hardware or frame presentation");
+        data.put("warmup",5); data.put("first_key_ms",stats(first)); data.put("candidate_commit_ms",stats(commit));
+        data.put("ime",String.valueOf(android.provider.Settings.Secure.getString(host.getContentResolver(),"default_input_method")));
+        try(java.io.FileOutputStream out=getTargetContext().openFileOutput("benchmark.json",0)) {
+            out.write(data.toString(2).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+        report("PASS BENCHMARK "+data);
+    }
+    private org.json.JSONObject stats(java.util.List<Long> samples) throws Exception {
+        java.util.Collections.sort(samples); double sum=0; for(long value:samples) sum+=value;
+        return new org.json.JSONObject().put("samples",samples.size()).put("mean",sum/samples.size()/1e6)
+                .put("p50",samples.get((samples.size()-1)/2)/1e6)
+                .put("p95",samples.get((int)Math.ceil(samples.size()*.95)-1)/1e6)
+                .put("max",samples.get(samples.size()-1)/1e6);
     }
     private void contract() throws Exception {
         focus(host.first); pinyin(); type("nihao");
@@ -269,14 +342,79 @@ public final class InputContractInstrumentation extends Instrumentation {
         focus(host.first); letterGeometry(); screenshot("portrait-restored");
         report("PASS keyboard layouts, equal touch geometry, theme, spelling, emoji, Buffer and orientation");
     }
+    private void inject(long downTime,int action,String... labels) {
+        android.view.MotionEvent.PointerProperties[] properties=new android.view.MotionEvent.PointerProperties[labels.length];
+        android.view.MotionEvent.PointerCoords[] coordinates=new android.view.MotionEvent.PointerCoords[labels.length];
+        for(int i=0;i<labels.length;i++) {
+            properties[i]=new android.view.MotionEvent.PointerProperties(); properties[i].id=i; properties[i].toolType=android.view.MotionEvent.TOOL_TYPE_FINGER;
+            coordinates[i]=new android.view.MotionEvent.PointerCoords(); android.graphics.Rect r=bounds(labels[i]);
+            coordinates[i].x=r.exactCenterX(); coordinates[i].y=r.exactCenterY(); coordinates[i].pressure=1; coordinates[i].size=1;
+        }
+        android.view.MotionEvent event=android.view.MotionEvent.obtain(downTime,SystemClock.uptimeMillis(),action,labels.length,properties,coordinates,0,0,1,1,0,0,android.view.InputDevice.SOURCE_TOUCHSCREEN,0);
+        try { boolean accepted=getUiAutomation().injectInputEvent(event,true);
+            if(!accepted && allowStaleRejection) report("InputDispatcher rejected retired stream event "+action);
+            check(accepted || allowStaleRejection,"real multi-touch event "+action); } finally { event.recycle(); }
+        SystemClock.sleep(40);
+    }
+    private void finalRightUp(long downTime,String label) {
+        android.graphics.Rect r=bounds(label);
+        android.view.MotionEvent.PointerProperties property=new android.view.MotionEvent.PointerProperties(); property.id=1; property.toolType=android.view.MotionEvent.TOOL_TYPE_FINGER;
+        android.view.MotionEvent.PointerCoords coord=new android.view.MotionEvent.PointerCoords(); coord.x=r.exactCenterX(); coord.y=r.exactCenterY(); coord.pressure=1; coord.size=1;
+        android.view.MotionEvent event=android.view.MotionEvent.obtain(downTime,SystemClock.uptimeMillis(),android.view.MotionEvent.ACTION_UP,1,new android.view.MotionEvent.PointerProperties[]{property},new android.view.MotionEvent.PointerCoords[]{coord},0,0,1,1,0,0,android.view.InputDevice.SOURCE_TOUCHSCREEN,0);
+        try { check(getUiAutomation().injectInputEvent(event,true),"last right finger lift"); } finally { event.recycle(); } SystemClock.sleep(120);
+    }
+    private void chord(String leftStart,String leftEnd,String right) {
+        long down=SystemClock.uptimeMillis();
+        inject(down,android.view.MotionEvent.ACTION_DOWN,leftStart);
+        inject(down,android.view.MotionEvent.ACTION_POINTER_DOWN|(1<<android.view.MotionEvent.ACTION_POINTER_INDEX_SHIFT),leftStart,right);
+        inject(down,android.view.MotionEvent.ACTION_MOVE,leftEnd,right);
+        inject(down,android.view.MotionEvent.ACTION_POINTER_UP,leftEnd,right);
+        finalRightUp(down,right);
+    }
+    private void chooseChord(boolean split) { tap("键位布局"); tap(split?"布局 分体并击":"布局 正交并击"); tap("键位布局"); waitButton("D"); }
+    private void chordContract() throws Exception {
+        focusAny(host.first); layout("26"); pinyin(); chooseChord(false); screenshot("chord");
+        long down=SystemClock.uptimeMillis();
+        inject(down,android.view.MotionEvent.ACTION_DOWN,"D");
+        inject(down,android.view.MotionEvent.ACTION_POINTER_DOWN|(1<<android.view.MotionEvent.ACTION_POINTER_INDEX_SHIFT),"D","I");
+        inject(down,android.view.MotionEvent.ACTION_MOVE,"V","I"); screenshot("chord-held");
+        expect(host.first,"","held chord does not preedit or commit");
+        inject(down,android.view.MotionEvent.ACTION_POINTER_UP,"V","I"); expect(host.first,"","one hand released does not commit");
+        finalRightUp(down,"I"); expect(host.first,"ni","both lifted resolve to Natural Code ni");
+        chord("X","C","K"); waitButton("你好"); tap("Space"); expect(host.first,"你好","real two-thumb ni+hao commits once");
+        focusAny(host.first); tap("Buffer off"); chord("D","V","I"); chord("X","C","K"); tap("Space"); expect(host.first,"","confirmed chord word stays in Buffer");
+        screenshot("chord-buffer"); tap("Insert"); expect(host.first,"你好","chord Buffer exact delivery");
+        focusAny(host.first); down=SystemClock.uptimeMillis(); inject(down,android.view.MotionEvent.ACTION_DOWN,"D");
+        inject(down,android.view.MotionEvent.ACTION_POINTER_DOWN|(1<<android.view.MotionEvent.ACTION_POINTER_INDEX_SHIFT),"D","V");
+        inject(down,android.view.MotionEvent.ACTION_POINTER_UP,"D","V"); finalRightUp(down,"V");
+        expect(host.first,"","two fingers on same hand cancel all");
+        down=SystemClock.uptimeMillis(); inject(down,android.view.MotionEvent.ACTION_DOWN,"D"); inject(down,android.view.MotionEvent.ACTION_CANCEL,"D");
+        allowStaleRejection=true; inject(down,android.view.MotionEvent.ACTION_UP,"V"); allowStaleRejection=false; expect(host.first,"","cancelled late lift cannot type");
+        down=SystemClock.uptimeMillis(); inject(down,android.view.MotionEvent.ACTION_DOWN,"D");
+        runOnMainSync(() -> host.focus(host.second)); SystemClock.sleep(400); allowStaleRejection=true; inject(down,android.view.MotionEvent.ACTION_UP,"V"); allowStaleRejection=false;
+        expect(host.second,"","old touch never reaches new target");
+        chooseChord(true); chord("D","V","I"); chord("X","C","K"); tap("Space"); expect(host.second,"你好","split chord works"); screenshot("chord-split");
+        focusAny(host.privateInput); chord("D","V","I"); chord("X","C","K"); tap("Space"); expect(host.privateInput,"你好","private chord scheme works");
+        check(!find("Buffer off",false).isEnabled(),"private chord Buffer disabled");
+        runOnMainSync(() -> host.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)); SystemClock.sleep(700);
+        focusAny(host.first); chord("D","V","I"); chord("X","C","K"); tap("Space"); expect(host.first,"你好","landscape chord"); screenshot("chord-landscape");
+        runOnMainSync(() -> host.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)); SystemClock.sleep(600);
+        focusAny(host.first); layout("26"); pinyin(); type("nihao"); tap("Space"); expect(host.first,"你好","ordinary layout restored");
+        report("PASS chord real multi-touch, split/orthogonal, all-fingers release, cancellation, Buffer, privacy, target revocation and rotation");
+    }
     private void soak(long seconds) throws Exception {
-        focus(host.first); pinyin();
+        focusAny(host.first); layout("26"); pinyin();
+        boolean mixed=Boolean.parseBoolean(arguments.getString("chords","false"));
         long start=SystemClock.elapsedRealtime(), next=start+60000; int cycles=0;
         while(SystemClock.elapsedRealtime()-start<seconds*1000) {
             EditText field=(cycles%2==0)?host.first:host.second;
-            focus(field); pinyin();
-            if(cycles%2==0) { tap("Buffer off"); type("nihao"); tap("Space"); expect(field,"","soak Buffer isolation"); tap("Insert all"); }
-            else { type("nihao"); tap("Space"); }
+            focusAny(field);
+            boolean useChord=mixed && cycles%3==2;
+            if(useChord) chooseChord(cycles%2==0); else { layout("26"); pinyin(); }
+            if(cycles%2==0) tap("Buffer off");
+            if(useChord) { chord("D","V","I"); chord("X","C","K"); } else type("nihao");
+            tap("Space");
+            if(cycles%2==0) { expect(field,"","soak Buffer isolation"); tap("Insert all"); }
             expect(field,"你好","soak exactly one commit"); tap(",");
             if(cycles%2==0) tap("Insert all");
             expect(field,"你好，","soak punctuation");
@@ -284,6 +422,6 @@ public final class InputContractInstrumentation extends Instrumentation {
             long now=SystemClock.elapsedRealtime();
             if(now>=next) { report("SOAK elapsed="+((now-start)/1000)+"s cycles="+cycles+" assertions="+assertions); next=now+60000; }
         }
-        report("PASS SOAK duration="+((SystemClock.elapsedRealtime()-start)/1000)+"s cycles="+cycles+" no duplicate or cross-field commit");
+        report("PASS SOAK duration="+((SystemClock.elapsedRealtime()-start)/1000)+"s cycles="+cycles+" mixedChords="+mixed+" no duplicate or cross-field commit");
     }
 }

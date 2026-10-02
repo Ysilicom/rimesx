@@ -4,11 +4,26 @@ import android.os.Bundle;
 
 /** Exercises the actual packaged JNI library, including modified-UTF-8 traps. */
 public final class EngineInstrumentation extends Instrumentation {
-    @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
+    private Bundle arguments;
+    private String bufferRenderingResult="";
+    private int chordChecks;
+    @Override public void onCreate(Bundle arguments) { this.arguments=arguments; super.onCreate(arguments); start(); }
     @Override public void onStart() {
         Bundle result=new Bundle();
         try {
-            runOnMainSync(this::keycapRendering);
+            if(arguments!=null && "benchmark".equals(arguments.getString("mode"))) {
+                result.putString("stream",EngineBenchmark.run(this,arguments)); finish(-1,result); return;
+            }
+            java.util.concurrent.atomic.AtomicReference<Throwable> renderingError=new java.util.concurrent.atomic.AtomicReference<>();
+            runOnMainSync(() -> {
+                try { keycapRendering(); chordChecks=ChordSurfaceContract.run(getTargetContext()); chordReadoutRetirement(); renderBufferRail(); }
+                catch(Throwable error) { renderingError.set(error); }
+            });
+            if(renderingError.get()!=null) throw renderingError.get();
+            Bundle rendering=new Bundle(); rendering.putString("stream","CHORD_SURFACE checks="+chordChecks+"\n"+bufferRenderingResult); sendStatus(0,rendering);
+            if(arguments!=null && "rendering".equals(arguments.getString("mode"))) {
+                result.putString("stream","PASS native keycaps, chord and Buffer rail rendering\n"+bufferRenderingResult); finish(-1,result); return;
+            }
             for(String value:new String[]{"中文","A𠮷😀Z","\u0000","你好\u0000𠮷"}) {
                 if(!value.equals(NativeRimeEngine.roundTripNative(value))) throw new AssertionError("JNI Unicode round trip");
             }
@@ -47,7 +62,7 @@ public final class EngineInstrumentation extends Instrumentation {
             info.inputType=android.text.InputType.TYPE_CLASS_TEXT;
             info.imeOptions=android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING;
             if(RimesInputMethodService.isPassword(info) || RimesInputMethodService.allowsBuffer(info)) throw new AssertionError("private field policy");
-            result.putString("stream","PASS 18 keycap palettes in light/dark/pressed states and scrolled text; JNI Chinese/non-BMP/NUL round trips, UTF-16 preedit caret, resources, nine-key normal/private schemas and platform password/private policies\n"); finish(-1,result);
+            result.putString("stream","PASS 18 keycap palettes in light/dark/pressed states and scrolled text; Buffer text/chips/large viewport; JNI Chinese/non-BMP/NUL round trips, UTF-16 preedit caret, resources, nine-key normal/private schemas and platform password/private policies\n"+bufferRenderingResult); finish(-1,result);
         } catch(Throwable error) { result.putString("stream","FAIL "+android.util.Log.getStackTraceString(error)); finish(0,result); }
     }
     private void keycapRendering() {
@@ -68,5 +83,89 @@ public final class EngineInstrumentation extends Instrumentation {
                 bitmap.recycle();
             }
         }
+    }
+    private void chordReadoutRetirement() {
+        org.scholay.rimes.core.ChordGesture gesture=new org.scholay.rimes.core.ChordGesture(org.scholay.rimes.core.ChordProfile.builtIn());
+        gesture.begin(0,'d'); gesture.begin(1,'i'); gesture.move(0,'v');
+        ChordPreview view=new ChordPreview(getTargetContext());
+        view.render(gesture.preview(),KeyboardTheme.ALL[0],false);
+        if(view.getContentDescription()==null || !view.getContentDescription().toString().contains("ni"))
+            throw new AssertionError("chord readout must expose live preview");
+        view.render(null,KeyboardTheme.ALL[0],false);
+        if(view.getContentDescription()!=null) throw new AssertionError("old target chord readout retained");
+    }
+    private void renderBufferRail() {
+        int draws=0;
+        for(int night:new int[]{android.content.res.Configuration.UI_MODE_NIGHT_NO,android.content.res.Configuration.UI_MODE_NIGHT_YES}) {
+            android.content.res.Configuration configuration=new android.content.res.Configuration(getTargetContext().getResources().getConfiguration());
+            configuration.uiMode=(configuration.uiMode&~android.content.res.Configuration.UI_MODE_NIGHT_MASK)|night;
+            android.content.Context context=getTargetContext().createConfigurationContext(configuration);
+            float density=context.getResources().getDisplayMetrics().density;
+            for(KeyboardTheme theme:new KeyboardTheme[]{KeyboardTheme.ALL[0],KeyboardTheme.ALL[1]}) for(boolean landscape:new boolean[]{false,true}) {
+                BufferRail rail=new BufferRail(context); int width=Math.round(320*density),height=Math.round((landscape?28:36)*density);
+                rail.render(java.util.List.of("你好𠮷😀"),"",theme,landscape); measureRail(rail,width,height);
+                android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(width,height,android.graphics.Bitmap.Config.ARGB_8888);
+                drawRail(rail,bitmap); draws++;
+                int inkPixels=0;
+                for(int y=Math.round(7*density);y<height-Math.round(7*density);y++) for(int x=Math.round(8*density);x<Math.round(38*density);x++) {
+                    int pixel=bitmap.getPixel(x,y);
+                    if(night==android.content.res.Configuration.UI_MODE_NIGHT_YES
+                            ?android.graphics.Color.red(pixel)>180 && android.graphics.Color.green(pixel)>180 && android.graphics.Color.blue(pixel)>180
+                            :android.graphics.Color.red(pixel)<70 && android.graphics.Color.green(pixel)<70 && android.graphics.Color.blue(pixel)<70) inkPixels++;
+                }
+                if(inkPixels<20) throw new AssertionError("Buffer glyphs missing: "+theme.id+" / "+night+" / "+landscape);
+                int background=night==android.content.res.Configuration.UI_MODE_NIGHT_YES?0xff000000:0xffffffff;
+                if(bitmap.getPixel(Math.round(22*density),Math.round(8*density))==background || rail.visibleChipCount()!=1)
+                    throw new AssertionError("Buffer full-height chip missing");
+                rail.render(java.util.List.of("你好𠮷😀"),"ni'hao",theme,landscape); measureRail(rail,width,height); drawRail(rail,bitmap); draws++;
+                if(!rail.getContentDescription().toString().endsWith("ni'hao")) throw new AssertionError("Buffer preedit projection");
+                rail.clearProjection(); measureRail(rail,width,height); bitmap.eraseColor(0); drawRail(rail,bitmap); draws++;
+                if(rail.getContentDescription()!=null || rail.visibleChipCount()!=0) throw new AssertionError("Buffer old target cache retained");
+                bitmap.recycle();
+            }
+        }
+        android.content.Context context=getTargetContext(); float density=context.getResources().getDisplayMetrics().density;
+        BufferRail rail=new BufferRail(context); int width=Math.round(320*density),height=Math.round(36*density);
+        java.util.List<String> blocks=java.util.Collections.nCopies(org.scholay.rimes.core.BufferSession.MAX_CHARACTERS,"中");
+        rail.render(blocks,"",KeyboardTheme.ALL[0],false); measureRail(rail,width,height);
+        android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(width,height,android.graphics.Bitmap.Config.ARGB_8888);
+        drawRail(rail,bitmap);
+        Bundle viewport=new Bundle(); viewport.putString("stream","BUFFER_VIEWPORT "+rail.drawingState()+"\n"); sendStatus(0,viewport);
+        if(rail.getScrollX()==0 || rail.visibleChipCount()>32 || rail.visibleChipCount()==0)
+            throw new AssertionError("Buffer large viewport not bounded: "+rail.drawingState());
+        rail.scrollTo(0,0); bitmap.eraseColor(0); drawRail(rail,bitmap);
+        if(rail.visibleChipCount()==0 || rail.visibleChipCount()>32) throw new AssertionError("Buffer first viewport missing: "+rail.drawingState());
+        rail.fullScroll(android.view.View.FOCUS_RIGHT); bitmap.eraseColor(0); drawRail(rail,bitmap);
+        if(rail.getScrollX()==0 || rail.visibleChipCount()==0 || rail.visibleChipCount()>32) throw new AssertionError("Buffer last viewport missing: "+rail.drawingState());
+        int capacityInk=0; boolean dark=KeyboardTheme.ALL[0].palette(context).dark;
+        for(int y=Math.round(7*density);y<height-Math.round(7*density);y++) for(int x=Math.round(12*density);x<width-Math.round(12*density);x++) {
+            int pixel=bitmap.getPixel(x,y);
+            if(dark?android.graphics.Color.red(pixel)>180 && android.graphics.Color.green(pixel)>180 && android.graphics.Color.blue(pixel)>180
+                    :android.graphics.Color.red(pixel)<70 && android.graphics.Color.green(pixel)<70 && android.graphics.Color.blue(pixel)<70) capacityInk++;
+        }
+        if(capacityInk<50) throw new AssertionError("Buffer last viewport glyphs missing: "+rail.drawingState());
+        long measurements=rail.confirmedMeasurementCount(),start=android.os.SystemClock.elapsedRealtimeNanos();
+        for(int i=0;i<1000;i++) {
+            rail.render(blocks,"ni"+(i%10),KeyboardTheme.ALL[0],false); measureRail(rail,width,height); drawRail(rail,bitmap);
+        }
+        double milliseconds=(android.os.SystemClock.elapsedRealtimeNanos()-start)/1_000_000.0;
+        if(rail.confirmedMeasurementCount()!=measurements || rail.visibleChipCount()>32) throw new AssertionError("Buffer composition remeasured confirmed blocks");
+        bufferRenderingResult="BUFFER_RENDER draws="+draws+" capacityBlocks="+blocks.size()+" visibleChips="+rail.visibleChipCount()+" confirmedMeasurements="+measurements+" capacityGlyphPixels="+capacityInk+" renders=1000 elapsedMs="+milliseconds+"\n";
+        rail.clearProjection(); bitmap.recycle();
+    }
+    private static void measureRail(BufferRail rail,int width,int height) {
+        if(rail.getParent()==null) {
+            android.widget.FrameLayout parent=new android.widget.FrameLayout(rail.getContext());
+            parent.addView(rail,new android.widget.FrameLayout.LayoutParams(width,height));
+        }
+        android.view.View parent=(android.view.View)rail.getParent();
+        parent.measure(android.view.View.MeasureSpec.makeMeasureSpec(width,android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(height,android.view.View.MeasureSpec.EXACTLY));
+        parent.layout(0,0,width,height);
+    }
+    private static void drawRail(BufferRail rail,android.graphics.Bitmap bitmap) {
+        // Parent.drawChild applies the scroll transform used by the real input view. Calling a
+        // scrolled rail.draw directly leaves its canvas at the root origin and is not a viewport.
+        ((android.view.View)rail.getParent()).draw(new android.graphics.Canvas(bitmap));
     }
 }
