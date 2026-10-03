@@ -215,7 +215,7 @@ public final class SetupActivity extends Activity {
         hero.addView(text(t("离线中文输入 · 滑动并击 · 可选 AI","Offline Chinese · Slide chords · Optional AI"),15,secondary,false)); content.addView(hero);
         LinearLayout start=group(t("开始使用","Get started"));
         row(start,KeyboardIcon.KEYBOARD,t("启用 RIMES 键盘","Enable RIMES keyboard"),null,null,"settings.home.enable",() -> navigate("setup"));
-        row(start,KeyboardIcon.CHAT_QUESTION,t("输入体验","Try typing"),null,null,"settings.home.playground",() -> navigate("playground"));
+        row(start,KeyboardIcon.WRITE,t("输入体验","Try typing"),null,null,"settings.home.playground",() -> navigate("playground"));
         LinearLayout typing=group(t("你的输入方式","Your typing"));
         row(typing,null,t("默认方案","Default scheme"),null,schemeName(settings.getSchema()),"settings.home.schema",() -> navigate("schema"));
         row(typing,KeyboardIcon.SLIDERS,t("滑动并击与键位","Slide chords & mappings"),null,null,"settings.home.chords",() -> navigate("chords"));

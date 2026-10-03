@@ -240,6 +240,15 @@
       "svg_sha256": "bcd8788901e6f29e1b231a81ba5e707d083d06cb4848a28f29407fab4f8e0b64",
       "vector": "app/src/main/res/drawable/rimes_icon_clear.xml",
       "vector_sha256": "a26773774c63fc7bec5ed81ef370e2577c47aab598ea5d04bf4fb329ae554846"
+    },
+    {
+      "enum": "WRITE",
+      "upstream_file": "icons/square-pen.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/square-pen.svg",
+      "svg": "lucide/square-pen.svg",
+      "svg_sha256": "09bdac7fdb94058246a5d3132eea0976e690d01694179ab6f474faa2c21de59a",
+      "vector": "app/src/main/res/drawable/rimes_icon_write.xml",
+      "vector_sha256": "9d9ffa3d4c2d372e4bdf6377f032a7ce6e27667dd0d256ea2385a5bdb3439389"
     }
   ]
 }
