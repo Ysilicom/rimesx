@@ -1,0 +1,422 @@
+{
+  "format_version": 1,
+  "date": "2026-10-03",
+  "version": "0.1.0-dev.7",
+  "versionCode": 7,
+  "package": "org.scholay.rimes.android.debug",
+  "min_sdk": 26,
+  "branch": "codex/android-chinese-input",
+  "status": "local_delivery_verified_with_remaining_acceptance",
+  "application_source": "ea8a2818b487fe2146aac5b62dd6634cec0e11fd",
+  "main_implementation_source": "d14a0e691fab54b19a164d7f2c84b6f7f22f6cf5",
+  "artifact": {
+    "application_source": "ea8a2818b487fe2146aac5b62dd6634cec0e11fd",
+    "apk_name": "RIMES-Android-0.1.0-dev.7-ea8a281.apk",
+    "sha256": "50e75cb9260dc53380da40375454374f9774c61fc810efa6bd9708deea657174",
+    "size": 17417218,
+    "installed_apk_matches": true,
+    "versionName": "0.1.0-dev.7",
+    "versionCode": 7,
+    "pushed": false,
+    "published": false
+  },
+  "publication": {
+    "pushed": false,
+    "published": false,
+    "hosted_ci_run_claimed": false
+  },
+  "scope": {
+    "main_settings": "Native grouped iOS-style home with real compatible persisted schema/layout/theme/direction/learning/AI Mock controls",
+    "navigation": "Launcher and platform IME settings share home; nested navigation, recreated activities and rotation verified",
+    "chord_mapping_entries": 427,
+    "palettes": 18,
+    "icon_vectors": 26,
+    "trial_text_persisted": false,
+    "ai": "Local OpenAI Chat Completions JSON/SSE Mock only; no real provider/network/key/model configuration",
+    "translation": "Bundled offline CC-CEDICT longest-word/phrase lookup, not contextual sentence translation",
+    "pixel_equivalence_claimed": false
+  },
+  "dictionary": {
+    "lock": "resources/dictionary/cedict.lock.json",
+    "source_release": "2026-10-01T23:26:37Z",
+    "source_entries": 125166,
+    "source_sha256": "d434b5e90470877952fcbae02de42e4272a09d88783ce2ffa66f571e6871c2f9",
+    "index_sha256": "4dcd01007f78cb1d2857b51593cd6c70d22fa049446e5c4fee2a2a16806f5e8c",
+    "index_bytes": 4663964,
+    "runtime_primitive_arrays_and_pools_bytes": 10578032,
+    "zh_en_keys": 183491,
+    "en_zh_keys": 103644,
+    "license": "CC-BY-SA-4.0",
+    "full_license_attribution_and_modifications_packaged": true
+  },
+  "automatic": {
+    "jvm": {
+      "tests": 47,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "lint": {
+      "app": {
+        "Error": 0,
+        "Warning": 12
+      },
+      "testhost": {
+        "Error": 0,
+        "Warning": 5
+      }
+    },
+    "builds": [
+      "build.log",
+      "settings-test-build.log",
+      "icon-build.log",
+      "compact-final-build.log"
+    ],
+    "resources_and_licenses": "PASS engine-resources.log and dictionary-apk.log",
+    "native_libraries": {
+      "lib/arm64-v8a/librimes_jni.so": {
+        "bytes": 4341112,
+        "sha256": "717c7869deb86eead97a7ac603e69e79b46f4e80a75d7327adafc64131f8d11d"
+      },
+      "lib/x86_64/librimes_jni.so": {
+        "bytes": 4359144,
+        "sha256": "aaffc2f34729fb25dade3b4c5605f12d8f3ed2574e922b038d486bd3842f80da"
+      }
+    },
+    "elf_alignment_bytes": 16384,
+    "zip_alignment_bytes": 16384,
+    "signature_verified": true,
+    "development_certificate_sha256": "f15861ab62d56e69f4094a22ff81bdfabb9c7c3835e1996daff9962cf320ca02"
+  },
+  "app_instrumentation": {
+    "grouped_settings": {
+      "checks": 367,
+      "source": "ea8a2818b487fe2146aac5b62dd6634cec0e11fd",
+      "result": "PASS",
+      "evidence": "app-settings-final.log"
+    },
+    "service_delivery_policy": {
+      "checks": 141,
+      "source": "d14a0e6",
+      "result": "PASS",
+      "scope": "below IPC real service with locally bound InputConnection",
+      "evidence": "delivery.log"
+    },
+    "backend": {
+      "checks": 68,
+      "source": "d14a0e6",
+      "result": "PASS",
+      "evidence": "backend.log"
+    },
+    "final_jni_rendering": {
+      "source": "ea8a2818b487fe2146aac5b62dd6634cec0e11fd",
+      "result": "PASS",
+      "chinese_unicode_utf16_caret_and_nine_key": true,
+      "native_touch_checks": 18,
+      "icon_checks": 872,
+      "chord_checks": 23,
+      "buffer_render_checks": 24,
+      "evidence": "jni-rendering-final.log"
+    }
+  },
+  "physical_device": {
+    "model": "25098PN5AC",
+    "os": "Android 16",
+    "api": 36,
+    "abi": "arm64-v8a",
+    "screen_pixels": [
+      1220,
+      2656
+    ],
+    "density_dpi": 520,
+    "navigation": "three buttons",
+    "runtime_page_bytes": 4096,
+    "test_helper_ime_used_for_typing": false,
+    "source_for_host_suites": "d14a0e6 (same IME code as final ea8a281)",
+    "suites": {
+      "input_native_webview": {
+        "assertions": 335,
+        "result": "PASS",
+        "password_automation": "PENDING explicitly skipped on this OEM"
+      },
+      "plugins": {
+        "assertions": 358,
+        "result": "PASS"
+      },
+      "chords": {
+        "assertions": 117,
+        "result": "PASS"
+      },
+      "benchmark": {
+        "assertions": 787,
+        "result": "PASS"
+      }
+    },
+    "dev7_soak": "not run; dev6 short/dev5 long acceptance remains historical"
+  },
+  "benchmark": {
+    "current": {
+      "scope": "accessibility ACTION_CLICK request to actual host TextWatcher; includes IPC/scheduling; no touch hardware or frame presentation",
+      "warmup": 5,
+      "first_key_ms": {
+        "samples": 60,
+        "mean": 14.7379687,
+        "p50": 14.39125,
+        "p95": 19.997969,
+        "max": 24.845312
+      },
+      "candidate_commit_ms": {
+        "samples": 60,
+        "mean": 10.482253400000001,
+        "p50": 10.361823,
+        "p95": 14.809688,
+        "max": 17.476042
+      },
+      "ime": "org.scholay.rimes.android.debug/org.scholay.rimes.android.RimesInputMethodService"
+    },
+    "previous_dev6_p95_ms": {
+      "first_key": 18.424739,
+      "candidate_commit": 14.748959
+    },
+    "delta_p95_ms": {
+      "first_key": 1.57323,
+      "candidate_commit": 0.060729
+    },
+    "stable_speedup_claimed": false,
+    "scope": "Accessibility ACTION_CLICK submission to host TextWatcher; IPC/scheduling included, touch hardware/frame excluded"
+  },
+  "manual": {
+    "launcher_configurations_present": true,
+    "system_ime_settings_home_verified": true,
+    "system_route": "Languages & input > Manage keyboards > RIMES Dev",
+    "ordinary_and_nine_key_change_and_restore": true,
+    "android16_system_back": true,
+    "chinese_light_dark_home": true,
+    "appearance_preview": true,
+    "translation_ai_and_learning_pages": true,
+    "trial_text_used_this_final_manual_pass": false,
+    "final_source_screenshots": [
+      "home-light-zh-ea8.png",
+      "home-dark-zh-ea8.png",
+      "home-lower-zh-ea8.png",
+      "appearance-dark-zh-ea8.png",
+      "ai-light-zh-ea8.png",
+      "data-light-zh-ea8.png",
+      "system-ime-entry.png",
+      "system-manage-keyboards.png"
+    ],
+    "pre_icon_change_screenshots": [
+      "appearance-light-zh-view.png",
+      "translation-light-zh.png"
+    ],
+    "gallery": "gallery.html",
+    "ios_screenshot_reference_date": "2026-10-02",
+    "pixel_equivalence_claimed": false
+  },
+  "upgrade": {
+    "quiesced_install_r": true,
+    "private_file_count": 19,
+    "rime_user_file_count": 18,
+    "private_file_hashes_match": true,
+    "scope": "18 observed rime-user database/configuration files plus keyboard preferences, not 19 dictionaries",
+    "evidence": "upgrade-preservation.json"
+  },
+  "restoration": {
+    "before": {
+      "secure.default_input_method": "org.scholay.rimes.android.debug/org.scholay.rimes.android.RimesInputMethodService",
+      "system.accelerometer_rotation": "0",
+      "system.user_rotation": "0",
+      "system.screen_off_timeout": "120000",
+      "system.font_scale": "1.0",
+      "secure.ui_night_mode": "2"
+    },
+    "after": {
+      "secure.default_input_method": "org.scholay.rimes.android.debug/org.scholay.rimes.android.RimesInputMethodService",
+      "system.accelerometer_rotation": "0",
+      "system.user_rotation": "0",
+      "system.screen_off_timeout": "120000",
+      "system.font_scale": "1.0",
+      "secure.ui_night_mode": "2"
+    },
+    "system_settings_match": true,
+    "app_locales": "Locales for org.scholay.rimes.android.debug for user 0 are []",
+    "app_locales_restored": true,
+    "keyboard_preferences_restored": true,
+    "agent_device_sessions_closed": true
+  },
+  "pending": [
+    "new 30-minute dev7 soak",
+    "old Android and other manufacturers",
+    "OEM secure-password keyboard automation",
+    "new x86_64 runtime acceptance",
+    "actual 16 KB runtime",
+    "large-font, RTL, screen-reader and gesture-navigation physical acceptance",
+    "real AI provider, network/key configuration and failure behavior",
+    "custom scheme/chord imports",
+    "pet animation/rotation pools, poem cards and typing statistics",
+    "complete pixel-level iOS equivalence"
+  ],
+  "evidence_directory": ".build/android-dev7-validation",
+  "evidence": {
+    "apk.json": {
+      "sha256": "948ea4fe95298a0c4835ad57638db851d9931b7e1d227a3675061fa6555cb9b4",
+      "size": 629
+    },
+    "installed-apk.json": {
+      "sha256": "b9f594e6969765e0a2886c004c3e02b02d9f73150c6c344892735f1bc69553c4",
+      "size": 165
+    },
+    "upgrade-preservation.json": {
+      "sha256": "d171f7b36ea1fb82484d88e7d0428e0e423e8a649ac42b6f835fd5ee1b2bda1b",
+      "size": 5478
+    },
+    "restoration.json": {
+      "sha256": "dff8babbe989942053c00ab00ff46dd556b8e7fb75853a2cc664dd73a09c0427",
+      "size": 872
+    },
+    "manual.json": {
+      "sha256": "97a4b202ae5f2bd0511dc37022f99c6cd5a64f2d5b38bdeb27e5e14296a7be17",
+      "size": 905
+    },
+    "jvm.json": {
+      "sha256": "e8f4b55ede2d0a5854a4d907b6f51492ac2d0075bb4a238226c283bf99aaf4c4",
+      "size": 66
+    },
+    "lint.json": {
+      "sha256": "cf42a80de0f46c2b9d26ccb0cd6cac95f4945937c46cec05e90aeb4a17f1ed59",
+      "size": 107
+    },
+    "ui-benchmark.json": {
+      "sha256": "7366dc2e0bbc86d403443c639d9eb323027945b0ebb16c26d6a6f7c1134d027a",
+      "size": 535
+    },
+    "benchmark-comparison.json": {
+      "sha256": "f02fe3e199f81d320672a5256ffe53a8d0b070c728d302f5a5707f7ccf1b424b",
+      "size": 252
+    },
+    "build.log": {
+      "sha256": "5760cb94d33d35a2432640e53e70c4fd4f733f5d3a1cc27f3f353dd43f3b27bc",
+      "size": 10549
+    },
+    "core-test.log": {
+      "sha256": "bf253e9c864d316ed65be7e41671f7dcaf61ccc31151292b781f60c966d4592d",
+      "size": 393
+    },
+    "settings-test-build.log": {
+      "sha256": "6ccc4deeeac4cbf98873f4e7323a62e23c36c4ae4fe6f2443c6ce6c640a46e4f",
+      "size": 4704
+    },
+    "icon-build.log": {
+      "sha256": "509ec7b151044becfe63da090818a5cf0667ea13fb766fb747dbd52e58a975f1",
+      "size": 5796
+    },
+    "compact-final-build.log": {
+      "sha256": "47d5fd0541be7aa7b4f29d78c68dcdc3e818c108573854391effce0cf514e381",
+      "size": 3282
+    },
+    "app-settings.log": {
+      "sha256": "3ecca0f7d8c92a336d2ec4947fc1dc9dcccbb3bdfe9e26c259c66640132c3d28",
+      "size": 38
+    },
+    "app-settings-final.log": {
+      "sha256": "3ecca0f7d8c92a336d2ec4947fc1dc9dcccbb3bdfe9e26c259c66640132c3d28",
+      "size": 38
+    },
+    "delivery.log": {
+      "sha256": "3434dc380fc908fba378e43c57eec7bb0311bd44a2d91ac765e6c80b1e0dcd43",
+      "size": 34
+    },
+    "backend.log": {
+      "sha256": "f8300a707da6639dfcc0d56963cf335d1bdf26cacd8a4efcbe66ef8038cb503b",
+      "size": 127
+    },
+    "plugins.log": {
+      "sha256": "22e404895e40049de2766f2fad03e6d5d261d06c69b614bf193f620d3394f661",
+      "size": 218
+    },
+    "input-contract.log": {
+      "sha256": "c54c0159042e95e8db32f9256ce8b9f8d86efca23e5dfb605e9800c9ae930c9f",
+      "size": 224
+    },
+    "chord.log": {
+      "sha256": "e7bf6c49c0895e575bb9e298ddcc10752e32b96e605d6cb6d395662f1e66bfd1",
+      "size": 261
+    },
+    "benchmark.log": {
+      "sha256": "0de8bd3a5586729b64d54a37be6a48f7a7e27d03a31c3cf648025f9e319b9986",
+      "size": 547
+    },
+    "jni-rendering-final.log": {
+      "sha256": "85341142dbe48eccd045de194d1158db193bf0fbd678b0e9331adf705d44f1f3",
+      "size": 791
+    },
+    "zipalign.log": {
+      "sha256": "022a8cb3b145f8eb072d0b126b2265195fc2c1d7ffd7cfe8ffd5bee11f217e92",
+      "size": 5385
+    },
+    "signature.log": {
+      "sha256": "0f4f93153ba571afb4e794ce749fbcf58207fd068007bf638c01155d1cc1a921",
+      "size": 955
+    },
+    "dictionary-apk.log": {
+      "sha256": "6e7e14106793d2c771e1fbe72cc6cd2327dd80bfe810eba23598297e84a64a6b",
+      "size": 264
+    },
+    "engine-resources.log": {
+      "sha256": "b967dce7c22e30eef6f661721dea6e0dad6355c202791b447f30af9ccbcba0b8",
+      "size": 265
+    },
+    "settings-before.png": {
+      "sha256": "bfeb0f961a0f2962e7bea21569847551f36fbe56778e1bffdc92ac8c64a01ef3",
+      "size": 272089
+    },
+    "ios-home-reference-2026-10-02.png": {
+      "sha256": "f08391c1fe9cdfd6748dffacc2163560763e00d60f5f041ee5e9b1974fe5191c",
+      "size": 235663
+    },
+    "gallery.html": {
+      "sha256": "4f51f2b6eae7db43e968041a13765f7f4b6a19339a16cd618ca7e391671986ce",
+      "size": 3057
+    },
+    "home-light-zh-ea8.png": {
+      "sha256": "24f32e1d141f92f089366a008b0ee5f54eb7e0a0b74ffe5dfbd74693748942eb",
+      "size": 200441
+    },
+    "home-dark-zh-ea8.png": {
+      "sha256": "2042e3cc4e07b428a685d3cff54b52e99f2061270e7d9e34fd3e0dd46e36df51",
+      "size": 202282
+    },
+    "home-lower-zh-ea8.png": {
+      "sha256": "c4aa1f478abd05299c9040335190f82329e4709208dc3d906b64cef7f1ed3932",
+      "size": 215397
+    },
+    "appearance-dark-zh-ea8.png": {
+      "sha256": "44c9cac3f305103e495938a2669c6431b7ea60c973a162af985182185eed7d08",
+      "size": 243732
+    },
+    "ai-light-zh-ea8.png": {
+      "sha256": "da5200c92aabd437e289ddb06cd354caaa88bc46f3bb612cdc10f68197abbf4c",
+      "size": 262052
+    },
+    "data-light-zh-ea8.png": {
+      "sha256": "6ce1552596849234fce380d42f76a0d19cba9a626bb06b7b520cc53fdeac49c8",
+      "size": 225382
+    },
+    "system-ime-entry.png": {
+      "sha256": "b2d8aeb44fe550d87abd7a08f163f1d8888d0978281c7923e4b5aa22aeec2e12",
+      "size": 217532
+    },
+    "system-manage-keyboards.png": {
+      "sha256": "fc22ea33a6dd395e448263997ae42b2a43296f24ba8892bbcb15c9aeea006522",
+      "size": 197866
+    },
+    "appearance-light-zh-view.png": {
+      "sha256": "683bbce5bec1087b1edcd752ed89a19bd0610171815d1920d50e08c07ca4cdc6",
+      "size": 241113
+    },
+    "translation-light-zh.png": {
+      "sha256": "0351edb0f1603266c28ff49f2a1c3dc5648d6e5f42eeb37b005662438528052e",
+      "size": 197096
+    }
+  }
+}
