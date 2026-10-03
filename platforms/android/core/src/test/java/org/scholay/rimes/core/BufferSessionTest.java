@@ -101,5 +101,42 @@ public class BufferSessionTest {
         buffer.deleteLastBlock();
         assertEquals("Hello ", buffer.text());
     }
-}
 
+    @Test public void capturedSourceIsFrozenAndConsumesOnlyItsExactRevision() {
+        BufferSession buffer = editing();
+        buffer.appendCommittedBlock("你好😀");
+        buffer.appendLiteral(" keep");
+        BufferSession.Capture old = buffer.capture();
+        assertEquals("你好😀 keep", old.text);
+        assertTrue(buffer.isCurrent(old));
+        buffer.appendLiteral(" me");
+        assertEquals("你好😀 keep", old.text);
+        assertFalse(buffer.isCurrent(old));
+        assertFalse(buffer.acknowledge(old));
+        assertEquals("你好😀 keep me", buffer.text());
+        BufferSession.Capture current = buffer.capture();
+        assertTrue(buffer.acknowledge(current));
+        assertFalse(buffer.acknowledge(current));
+        assertEquals("", buffer.text());
+    }
+
+    @Test public void capturesCannotCrossSessionsDisabledBufferOrTargets() {
+        BufferSession buffer = editing();
+        assertNull(buffer.capture());
+        buffer.appendLiteral("source");
+        BufferSession.Capture capture = buffer.capture();
+        BufferSession other = editing();
+        other.appendLiteral("source");
+        assertFalse(other.isCurrent(capture));
+        assertFalse(other.acknowledge(capture));
+        buffer.setEnabled(false);
+        assertNull(buffer.capture());
+        buffer.setEnabled(true);
+        assertFalse(buffer.isCurrent(capture));
+        capture = buffer.capture();
+        buffer.beginTarget(false);
+        assertNull(buffer.capture());
+        assertFalse(buffer.acknowledge(capture));
+        assertEquals("source", other.text());
+    }
+}

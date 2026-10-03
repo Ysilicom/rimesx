@@ -107,6 +107,37 @@ public final class BufferSession {
         return true;
     }
 
+    /** Freeze the complete source for one plugin request; it never changes with later edits. */
+    public Capture capture() {
+        if (!enabled || !permitted || blocks.isEmpty()) return null;
+        return new Capture(this, target, revision, text());
+    }
+
+    public boolean isCurrent(Capture capture) {
+        return capture != null && capture.owner == this && enabled && permitted
+                && capture.target == target && capture.revision == revision;
+    }
+
+    /** Consume the source only after the complete generated output was accepted by the host. */
+    public boolean acknowledge(Capture capture) {
+        if (!isCurrent(capture)) return false;
+        clear();
+        return true;
+    }
+
+    public static final class Capture {
+        private final BufferSession owner;
+        public final long target;
+        public final long revision;
+        public final String text;
+        private Capture(BufferSession owner, long target, long revision, String text) {
+            this.owner = owner;
+            this.target = target;
+            this.revision = revision;
+            this.text = text;
+        }
+    }
+
     public static final class Delivery {
         private final BufferSession owner;
         private final long target;
