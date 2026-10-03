@@ -11,6 +11,9 @@ public final class EngineInstrumentation extends Instrumentation {
     @Override public void onStart() {
         Bundle result=new Bundle();
         try {
+            if(arguments!=null && "appsettings".equals(arguments.getString("mode"))) {
+                result.putString("stream","PASS grouped app settings checks="+AppSettingsContract.run(this)+"\n"); finish(-1,result); return;
+            }
             if(arguments!=null && "delivery".equals(arguments.getString("mode"))) {
                 result.putString("stream","PASS service delivery checks="+ServiceDeliveryContract.run(this)+"\n"); finish(-1,result); return;
             }

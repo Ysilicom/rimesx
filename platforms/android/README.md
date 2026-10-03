@@ -1,9 +1,27 @@
 # RIMES Android
 
-**0.1.0-dev.6** is a native Java Android input method for daily Chinese input and
+**0.1.0-dev.7** is a native Java Android input method for daily Chinese input and
 local dictionary learning. Minimum Android 8.0 / API 26; development package
 `org.scholay.rimes.android.debug`. This is a local development build, not a store release.
 Current evidence and remaining acceptance are in [VALIDATION.md](VALIDATION.md).
+
+## Main app settings
+
+Open **RIMES Dev** from the launcher, or the system input-method settings entry.
+The home follows the iOS grouped navigation: welcome, getting started, typing,
+and data/privacy. Try typing has its own page; trial text is never restored.
+Settings include the default Chinese scheme, standard and chord layouts, an
+actual geometry preview, 18 themes, all 427 built-in chord mappings, local
+translation direction, the AI Mock enable switch, word learning and bundled licenses.
+The keyboard and main app share validated preferences. Nine-key selects Pinyin;
+another Chinese scheme returns it to QWERTY. Selecting a regular scheme exits
+chord mode. Turning Mock off cancels existing AI work and revokes its output while
+preserving Buffer source; local translation remains available.
+
+The Android feature-status page lists remaining iOS differences. Real AI provider
+URL/credentials/models, Apple translation packs, custom Rime/chord imports,
+pet animation/rotation pools, poem word cards and typing-stat cards are not
+implemented in this Android revision.
 
 ## Input
 

@@ -8,8 +8,8 @@ android {
         targetSdk = 37
         testInstrumentationRunner = "org.scholay.rimes.android.EngineInstrumentation"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
-        versionCode = 6
-        versionName = "0.1.0-dev.6"
+        versionCode = 7
+        versionName = "0.1.0-dev.7"
     }
     ndkVersion = "29.0.14206865"
     sourceSets.getByName("main") {

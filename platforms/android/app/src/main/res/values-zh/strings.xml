@@ -1,11 +1,7 @@
 <resources>
     <string name="app_name">RIMES 开发版</string>
     <string name="english_keyboard">中文 / 英文</string>
-    <string name="welcome">RIMES 安卓版</string>
-    <string name="scope">开发预览：离线拼音、自然码双拼、五笔、并击、英文、Buffer、本机中英词典查译与 AI Mock。</string>
     <string name="privacy">输入留在本机。关闭键盘或切换输入框时清除 Buffer 草稿；密码框和私密输入框禁用 Buffer。</string>
-    <string name="enable_keyboard">启用键盘</string>
-    <string name="choose_keyboard">选择键盘</string>
     <string name="try_typing">在此试打</string>
     <string name="second_field">第二个输入框：测试切换目标</string>
     <string name="password_field">密码框：Buffer 应保持关闭</string>
@@ -27,6 +23,5 @@
     <string name="engine_failed">中文暂不可用，点重试；仍可输入英文</string>
     <string name="delivery_pending">文字已保留，请腾出 Buffer 空间或重试插入</string>
     <string name="retry">重试</string>
-    <string name="keyboard_appearance">键位布局与配色 · 26 键 / 9 键</string>
 </resources>
 

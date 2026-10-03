@@ -3,10 +3,14 @@ package org.scholay.rimes.android;
 import android.app.Instrumentation;
 import android.content.Context;
 import android.content.ContextWrapper;
+import android.content.SharedPreferences;
 import android.inputmethodservice.InputMethodService;
 import android.os.Binder;
+import android.os.Handler;
 import android.os.Looper;
+import android.os.Message;
 import android.os.Process;
+import android.os.SystemClock;
 import android.view.View;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.InputBinding;
@@ -15,12 +19,20 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.scholay.rimes.core.BufferSession;
 import org.scholay.rimes.core.ChordGesture;
 import org.scholay.rimes.core.ChordLayout;
 import org.scholay.rimes.core.PluginSession;
+import org.scholay.rimes.core.RimeEngine;
 
 /**
  * Calls the real service delivery methods with a local, synchronously rejecting connection.
@@ -41,10 +53,9 @@ final class ServiceDeliveryContract {
     static int run(Instrumentation instrumentation) {
         if(Looper.myLooper()==Looper.getMainLooper()) throw new IllegalStateException("ServiceDeliveryContract must run off main");
         AtomicReference<Throwable> failure=new AtomicReference<>();
-        int[] count={0};
+        ServiceDeliveryContract contract=new ServiceDeliveryContract(instrumentation.getTargetContext());
         instrumentation.runOnMainSync(() -> {
             try {
-                ServiceDeliveryContract contract=new ServiceDeliveryContract(instrumentation.getTargetContext());
                 contract.rejectThenRetry(false,false);
                 contract.rejectThenRetry(false,true);
                 contract.rejectThenRetry(true,true);
@@ -53,11 +64,18 @@ final class ServiceDeliveryContract {
                     contract.lostFrameworkBinding(plugin,true);
                     contract.retireDuringCommit(plugin);
                 }
-                count[0]=contract.checks;
+                contract.translationDirectionPolicy();
+                contract.disabledMockPolicy();
+                contract.translationSurvivesMockPolicy();
             } catch(Throwable error) { failure.set(error); }
         });
         if(failure.get()!=null) throw new AssertionError("Service delivery contract failed",failure.get());
-        return count[0];
+        try {
+            contract.runningMockPolicy(instrumentation);
+            contract.atomicSettingsPair(instrumentation);
+            contract.deferredSettingsPair(instrumentation);
+        } catch(Throwable error) { throw new AssertionError("Service settings contract failed",error); }
+        return contract.checks;
     }
 
     private void check(boolean condition,String label) {
@@ -139,12 +157,182 @@ final class ServiceDeliveryContract {
         }
     }
 
+    private void translationDirectionPolicy() throws Exception {
+        try(Fixture fixture=new Fixture(true)) {
+            PluginSession.Request old=fixture.preparedRequest;
+            long serial=fixture.plugins.snapshot(fixture.buffer).requestSerial;
+            fixture.settings.setTranslationDirection("auto");
+            check(fixture.plugins.snapshot(fixture.buffer).status==PluginSession.Status.READY
+                    && fixture.plugins.snapshot(fixture.buffer).requestSerial==serial,"unchanged direction preserves a completed translation");
+            fixture.settings.setTranslationDirection("en-zh");
+            check("en-zh".equals(get(fixture.service,"translationDirection")),"external direction notification updates service policy");
+            check(fixture.plugins.snapshot(fixture.buffer).status==PluginSession.Status.IDLE
+                    && fixture.plugins.snapshot(fixture.buffer).output.isEmpty(),"external direction change invalidates old output");
+            check(SOURCE.equals(fixture.buffer.text()) && fixture.connection.attempts==0,"direction change retains source without host delivery");
+            check(!fixture.plugins.update(old,fixture.buffer,OUTPUT,true)
+                    && !fixture.plugins.fail(old,fixture.buffer,"late failure"),"old direction request rejects late success and failure");
+            fixture.settings.setTranslationDirection("auto");
+            check(!fixture.plugins.update(old,fixture.buffer,OUTPUT,true)
+                    && fixture.plugins.prepare(fixture.buffer)==null,"returning to old direction cannot revive its request");
+            fixture.send(true);
+            check(fixture.connection.attempts==0 && SOURCE.equals(fixture.buffer.text()),"invalidated translation is unsendable");
+        }
+        try(Fixture fixture=new Fixture(false)) {
+            fixture.prepare("ask",OUTPUT);
+            fixture.settings.setTranslationDirection("zh-en");
+            check(fixture.plugins.snapshot(fixture.buffer).status==PluginSession.Status.READY
+                    && OUTPUT.equals(fixture.plugins.snapshot(fixture.buffer).output),"translation direction does not discard unrelated AI output");
+        }
+    }
+
+    private void disabledMockPolicy() throws Exception {
+        try(Fixture fixture=new Fixture(false)) {
+            PluginSession.Request old=fixture.prepare("ask",OUTPUT);
+            fixture.settings.setAiMockEnabled(false);
+            check(!(Boolean)get(fixture.service,"aiMockEnabled"),"external Mock setting reaches service");
+            check(fixture.plugins.snapshot(fixture.buffer).status==PluginSession.Status.IDLE
+                    && fixture.plugins.snapshot(fixture.buffer).output.isEmpty(),"disabling Mock invalidates completed AI output");
+            check(SOURCE.equals(fixture.buffer.text()) && fixture.connection.attempts==0,"disabling Mock preserves source and host");
+            invoke(fixture.service,"runPlugin",new Class<?>[0]);
+            fixture.send(false);
+            check(get(fixture.service,"pluginJob")==null && fixture.connection.attempts==0
+                    && fixture.plugins.snapshot(fixture.buffer).status==PluginSession.Status.IDLE,"disabled Mock rejects Run and Send");
+            // Exercise the insertion gate independently from request invalidation.
+            PluginSession.Request injected=fixture.prepare("ask",OUTPUT);
+            fixture.send(true);
+            check(fixture.plugins.snapshot(fixture.buffer).status==PluginSession.Status.READY
+                    && fixture.connection.attempts==0 && SOURCE.equals(fixture.buffer.text()),"disabled Mock rejects even a current completed result");
+            fixture.settings.setAiMockEnabled(true);
+            check(!fixture.plugins.update(old,fixture.buffer,OUTPUT,true)
+                    && !fixture.plugins.update(injected,fixture.buffer,OUTPUT,true)
+                    && fixture.plugins.prepare(fixture.buffer)==null,"re-enabling Mock never revives pre-policy results");
+        }
+    }
+
+    private void translationSurvivesMockPolicy() throws Exception {
+        try(Fixture fixture=new Fixture(true)) {
+            fixture.settings.setAiMockEnabled(false);
+            check(fixture.plugins.snapshot(fixture.buffer).status==PluginSession.Status.READY
+                    && SOURCE.equals(fixture.buffer.text()),"Mock switch preserves offline translation and source");
+            fixture.connection.accept=true; fixture.send(true);
+            check(fixture.connection.accepted.size()==1 && OUTPUT.equals(fixture.connection.accepted.get(0))
+                    && fixture.buffer.text().isEmpty(),"translation remains sendable while AI Mock is disabled");
+        }
+    }
+
+    private interface MainAction { void run() throws Exception; }
+    private void onMain(Instrumentation instrumentation,MainAction action) throws Exception {
+        AtomicReference<Throwable> failure=new AtomicReference<>();
+        instrumentation.runOnMainSync(() -> { try { action.run(); } catch(Throwable error) { failure.set(error); } });
+        Throwable error=failure.get();
+        if(error instanceof Error) throw (Error)error;
+        if(error instanceof Exception) throw (Exception)error;
+    }
+    private void engineIdle(Instrumentation instrumentation) throws Exception {
+        EngineWorker.QUEUE.submit(() -> {}).get(10,TimeUnit.SECONDS);
+        instrumentation.waitForIdleSync();
+    }
+
+    /** Hold the real service's posted worker callbacks, then replay them after an off/on cycle. */
+    private void runningMockPolicy(Instrumentation instrumentation) throws Exception {
+        AtomicReference<Fixture> reference=new AtomicReference<>();
+        onMain(instrumentation,() -> {
+            Fixture fixture=new Fixture(false); reference.set(fixture);
+            fixture.holding=new HoldingHandler(); set(fixture.service,"main",fixture.holding);
+            set(fixture.service,"activePlugin","ask"); fixture.plugins.select("ask");
+            invoke(fixture.service,"runPlugin",new Class<?>[0]);
+            check(fixture.plugins.snapshot(fixture.buffer).status==PluginSession.Status.RUNNING
+                    && get(fixture.service,"pluginJob")!=null,"real Mock worker starts under enabled policy");
+        });
+        try {
+            AtomicInteger held=new AtomicInteger(); long deadline=SystemClock.elapsedRealtime()+15000;
+            do {
+                onMain(instrumentation,() -> held.set(reference.get().holding.callbacks.size()));
+                if(held.get()>0) break;
+                SystemClock.sleep(20);
+            } while(SystemClock.elapsedRealtime()<deadline);
+            check(held.get()>0,"real worker posted an observable callback within 15s");
+            onMain(instrumentation,() -> {
+                Fixture fixture=reference.get();
+                BufferPluginExecutor.Job old=(BufferPluginExecutor.Job)get(fixture.service,"pluginJob");
+                fixture.settings.setAiMockEnabled(false);
+                Field token=old.getClass().getDeclaredField("cancellation"); token.setAccessible(true);
+                check(((PluginCancellation)token.get(old)).isCancelled() && get(fixture.service,"pluginJob")==null,"disabling Mock cancels and detaches the actual Job");
+                invoke(fixture.service,"runPlugin",new Class<?>[0]); fixture.send(true);
+                check(fixture.connection.attempts==0 && fixture.plugins.snapshot(fixture.buffer).status==PluginSession.Status.IDLE,"disabled running Mock cannot restart or send");
+                fixture.settings.setAiMockEnabled(true);
+                fixture.holding.replay();
+                check(fixture.plugins.snapshot(fixture.buffer).status==PluginSession.Status.IDLE
+                        && fixture.plugins.snapshot(fixture.buffer).output.isEmpty(),"already-posted callbacks cannot revive request after off/on");
+                check(SOURCE.equals(fixture.buffer.text()) && fixture.connection.attempts==0,"cancelled callback replay retains source and host");
+            });
+        } finally { onMain(instrumentation,() -> { if(reference.get()!=null) reference.get().close(); }); }
+    }
+
+    private void atomicSettingsPair(Instrumentation instrumentation) throws Exception {
+        AtomicReference<Fixture> reference=new AtomicReference<>(); RecordingEngine engine=new RecordingEngine("nihk");
+        onMain(instrumentation,() -> {
+            Fixture fixture=new Fixture(false); reference.set(fixture);
+            fixture.preferences.edit().putString(KeyboardSettings.KEY_SCHEMA,"rimes_wubi").apply();
+            set(fixture.service,"engine",engine); set(fixture.service,"session",1L); set(fixture.service,"ready",true);
+            set(fixture.service,"snapshot",engine.current);
+            for(String flag:new String[]{"numeric","symbols","emoji","uppercase","english"}) set(fixture.service,flag,true);
+            fixture.settings.setLayout("nineKey");
+            check("rimes_pinyin".equals(get(fixture.service,"schema")) && "nineKey".equals(get(fixture.service,"layout")),"per-key notifications apply the final schema/layout pair");
+            check((Integer)get(fixture.service,"pending")==1,"one atomic pair dispatches one old-code settlement");
+            for(String flag:new String[]{"numeric","symbols","emoji","uppercase","english"}) check(!(Boolean)get(fixture.service,flag),"external nine-key change resets "+flag);
+        });
+        try {
+            engineIdle(instrumentation);
+            onMain(instrumentation,() -> {
+                Fixture fixture=reference.get();
+                check(engine.clears.get()==1 && engine.snapshots.get()==1 && engine.selections.get()==1,"atomic notifications clear/read/switch engine exactly once");
+                check("rimes_pinyin9".equals(engine.selected),"final pair selects the nine-key Pinyin engine");
+                check((SOURCE+"nihk").equals(fixture.buffer.text()) && fixture.connection.attempts==0,"old raw code settles once into existing Buffer");
+                check((Integer)get(fixture.service,"pending")==0,"single settlement finishes without stale pending count");
+            });
+        } finally { onMain(instrumentation,() -> { if(reference.get()!=null) reference.get().close(); }); }
+    }
+
+    private void deferredSettingsPair(Instrumentation instrumentation) throws Exception {
+        AtomicReference<Fixture> reference=new AtomicReference<>(); RecordingEngine engine=new RecordingEngine("");
+        onMain(instrumentation,() -> {
+            Fixture fixture=new Fixture(false); reference.set(fixture);
+            char[] full=new char[BufferSession.MAX_CHARACTERS]; java.util.Arrays.fill(full,'x');
+            fixture.buffer.clear(); fixture.buffer.appendCommittedBlock(new String(full));
+            // The service itself creates an undeliverable literal and retains it at the capacity bound.
+            invoke(fixture.service,"type",new Class<?>[]{String.class},"!");
+            check(!((String)get(fixture.service,"retained")).isEmpty(),"capacity failure creates real retained delivery");
+            set(fixture.service,"engine",engine); set(fixture.service,"session",1L); set(fixture.service,"ready",true);
+            set(fixture.service,"snapshot",engine.current);
+            fixture.settings.setLayout("nineKey");
+            check("qwerty".equals(get(fixture.service,"layout")) && get(fixture.service,"deferredSettingsPair")!=null,"settings pair defers while old delivery cannot be consumed");
+            check(engine.clears.get()==0 && (Integer)get(fixture.service,"pending")==0,"deferred mode does not prematurely settle or switch engine");
+            fixture.buffer.deleteLastBlock();
+            invoke(fixture.service,"retryRetained",new Class<?>[0]);
+            check("nineKey".equals(get(fixture.service,"layout")) && get(fixture.service,"deferredSettingsPair")==null,"successful retained retry applies saved settings pair");
+        });
+        try {
+            engineIdle(instrumentation);
+            onMain(instrumentation,() -> {
+                Fixture fixture=reference.get();
+                check("!".equals(fixture.buffer.text()) && fixture.connection.attempts==0,"retry preserves old literal without sending it to the host");
+                check(engine.clears.get()==0 && engine.snapshots.get()==1 && engine.selections.get()==1,"deferred atomic pair switches once after successful retry");
+            });
+        } finally { onMain(instrumentation,() -> { if(reference.get()!=null) reference.get().close(); }); }
+    }
+
     private final class Fixture implements AutoCloseable {
         final RimesInputMethodService service=new RimesInputMethodService();
         final InputMethodService.InputMethodImpl input;
         final BufferSession buffer;
         final PluginSession plugins;
+        final MemoryPreferences preferences=new MemoryPreferences();
+        final KeyboardSettings settings=new KeyboardSettings(preferences);
+        final BufferPluginExecutor executor=new BufferPluginExecutor(context);
         final Connection connection=new Connection(context);
+        PluginSession.Request preparedRequest;
+        HoldingHandler holding;
         Fixture(boolean plugin) throws Exception {
             Method attach=ContextWrapper.class.getDeclaredMethod("attachBaseContext",Context.class);
             attach.setAccessible(true); attach.invoke(service,context);
@@ -152,6 +340,9 @@ final class ServiceDeliveryContract {
             bind(connection);
             check(service.getCurrentInputConnection()==connection,"public framework bind installs the exact fake connection");
             set(service,"target",connection); set(service,"selection",7); set(service,"selectionStart",7);
+            set(service,"preferences",preferences); set(service,"settings",settings); set(service,"pluginExecutor",executor);
+            preferences.registerOnSharedPreferenceChangeListener((SharedPreferences.OnSharedPreferenceChangeListener)get(service,"preferenceListener"));
+            invoke(service,"restoreSettings",new Class<?>[0]);
             // No UI is created. A real idle ChordSurface satisfies the ordinary send policy gate.
             set(service,"chords",new ChordSurface(context,new ChordSurface.Handler() {
                 public void onChord(String code) {}
@@ -164,11 +355,13 @@ final class ServiceDeliveryContract {
             buffer=(BufferSession)get(service,"buffer"); plugins=(PluginSession)get(service,"pluginSession");
             buffer.beginTarget(true); buffer.setEnabled(true); buffer.appendCommittedBlock(SOURCE);
             expected().add(3);
-            if(plugin) {
-                set(service,"activePlugin","translate"); plugins.select("translate");
-                PluginSession.Request request=plugins.start(buffer);
-                check(request!=null && plugins.update(request,buffer,OUTPUT,true),"real model prepares a completed captured-source result");
-            }
+            if(plugin) preparedRequest=prepare("translate",OUTPUT);
+        }
+        PluginSession.Request prepare(String plugin,String output) throws Exception {
+            set(service,"activePlugin",plugin); plugins.select(plugin);
+            PluginSession.Request request=plugins.start(buffer);
+            check(request!=null && plugins.update(request,buffer,output,true),"real model prepares a completed captured-source result");
+            return request;
         }
         void bind(Connection target) { input.bindInput(new InputBinding(target,new Binder(),Process.myUid(),Process.myPid())); }
         void send(boolean all) throws Exception { invoke(service,"insertNow",new Class<?>[]{boolean.class},all); }
@@ -176,7 +369,80 @@ final class ServiceDeliveryContract {
         int selectionStart() throws Exception { return (Integer)get(service,"selectionStart"); }
         @SuppressWarnings("unchecked") ArrayDeque<Integer> expected() throws Exception { return (ArrayDeque<Integer>)get(service,"expectedSelections"); }
         List<Integer> expectations() throws Exception { return new ArrayList<>(expected()); }
-        @Override public void close() { input.unbindInput(); }
+        @Override public void close() throws Exception {
+            executor.close(); preferences.unregisterOnSharedPreferenceChangeListener((SharedPreferences.OnSharedPreferenceChangeListener)get(service,"preferenceListener"));
+            ((Handler)get(service,"main")).removeCallbacksAndMessages(null);
+            if(holding!=null) holding.callbacks.clear();
+            input.unbindInput();
+        }
+    }
+
+    /** Main-Looper messages are genuinely dispatched, but their app callbacks await explicit replay. */
+    private static final class HoldingHandler extends Handler {
+        final ArrayDeque<Runnable> callbacks=new ArrayDeque<>();
+        HoldingHandler() { super(Looper.getMainLooper()); }
+        @Override public void dispatchMessage(Message message) {
+            Runnable callback=message.getCallback();
+            if(callback==null) super.dispatchMessage(message); else callbacks.add(callback);
+        }
+        void replay() { while(!callbacks.isEmpty()) callbacks.remove().run(); }
+    }
+
+    private static final class RecordingEngine implements RimeEngine {
+        final AtomicInteger snapshots=new AtomicInteger(),clears=new AtomicInteger(),selections=new AtomicInteger();
+        volatile Snapshot current;
+        volatile String selected="";
+        RecordingEngine(String raw) { current=new Snapshot(true,raw,raw,raw.length(),"",new String[0],new String[0],0,0,true); }
+        private void offMain() { if(Looper.myLooper()==Looper.getMainLooper()) throw new AssertionError("engine policy operation ran on main"); }
+        public void initialize(String system,String user) { throw new AssertionError("fixture cannot initialize a native engine"); }
+        public long createSession() { throw new AssertionError("fixture cannot create a native session"); }
+        public void destroySession(long session) { offMain(); }
+        public boolean selectSchema(long session,String schema) { offMain(); selected=schema; selections.incrementAndGet(); return true; }
+        public Snapshot processKey(long session,int key) { throw new AssertionError("fixture cannot invent key processing"); }
+        public Snapshot selectCandidate(long session,int index) { throw new AssertionError("fixture cannot invent candidates"); }
+        public Snapshot snapshot(long session) { offMain(); snapshots.incrementAndGet(); return current; }
+        public void clearComposition(long session) { offMain(); clears.incrementAndGet(); current=Snapshot.EMPTY; }
+    }
+
+    /** Isolated atomic storage; uses the production Settings model and production service listener. */
+    private static final class MemoryPreferences implements SharedPreferences {
+        private final Map<String,Object> values=new HashMap<>();
+        private final Set<OnSharedPreferenceChangeListener> listeners=new LinkedHashSet<>();
+        public Map<String,?> getAll() { return new HashMap<>(values); }
+        public String getString(String key,String fallback) { return (String)values.getOrDefault(key,fallback); }
+        @SuppressWarnings("unchecked") public Set<String> getStringSet(String key,Set<String> fallback) { return (Set<String>)values.getOrDefault(key,fallback); }
+        public int getInt(String key,int fallback) { return (Integer)values.getOrDefault(key,fallback); }
+        public long getLong(String key,long fallback) { return (Long)values.getOrDefault(key,fallback); }
+        public float getFloat(String key,float fallback) { return (Float)values.getOrDefault(key,fallback); }
+        public boolean getBoolean(String key,boolean fallback) { return (Boolean)values.getOrDefault(key,fallback); }
+        public boolean contains(String key) { return values.containsKey(key); }
+        public void registerOnSharedPreferenceChangeListener(OnSharedPreferenceChangeListener listener) { listeners.add(listener); }
+        public void unregisterOnSharedPreferenceChangeListener(OnSharedPreferenceChangeListener listener) { listeners.remove(listener); }
+        public Editor edit() { return new Editor() {
+            private final Map<String,Object> pending=new LinkedHashMap<>();
+            private boolean clear;
+            public Editor putString(String key,String value) { pending.put(key,value); return this; }
+            public Editor putStringSet(String key,Set<String> value) { pending.put(key,value==null?null:new LinkedHashSet<>(value)); return this; }
+            public Editor putInt(String key,int value) { pending.put(key,value); return this; }
+            public Editor putLong(String key,long value) { pending.put(key,value); return this; }
+            public Editor putFloat(String key,float value) { pending.put(key,value); return this; }
+            public Editor putBoolean(String key,boolean value) { pending.put(key,value); return this; }
+            public Editor remove(String key) { pending.put(key,null); return this; }
+            public Editor clear() { clear=true; return this; }
+            public boolean commit() { apply(); return true; }
+            public void apply() {
+                if(Looper.myLooper()!=Looper.getMainLooper()) throw new AssertionError("fixture preferences must notify on main");
+                Set<String> changed=new LinkedHashSet<>();
+                if(clear) { changed.addAll(values.keySet()); values.clear(); }
+                for(Map.Entry<String,Object> entry:pending.entrySet()) {
+                    String key=entry.getKey(); Object value=entry.getValue();
+                    if(!java.util.Objects.equals(values.get(key),value)) changed.add(key);
+                    if(value==null) values.remove(key); else values.put(key,value);
+                }
+                // Publish all mutations before individual notifications, matching SharedPreferences.
+                for(String key:changed) for(OnSharedPreferenceChangeListener listener:new ArrayList<>(listeners)) listener.onSharedPreferenceChanged(MemoryPreferences.this,key);
+            }
+        }; }
     }
 
     private interface BeforeReturn { void run() throws Exception; }

@@ -40,6 +40,10 @@ public final class RimesInputMethodService extends InputMethodService {
     private final ArrayDeque<Integer> expectedSelections=new ArrayDeque<>();
     private InputConnection target;
     private SharedPreferences preferences;
+    private KeyboardSettings settings;
+    private String translationDirection="auto";
+    private boolean aiMockEnabled=true,learningEnabled=true,changingSettingsPair;
+    private KeyboardSettings.Snapshot deferredSettingsPair;
     private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener=this::preferenceChanged;
     private KeyboardRoot keyboard;
     private LinearLayout bufferRow, candidateRow, spellingRow, chordFooter;
@@ -93,11 +97,10 @@ public final class RimesInputMethodService extends InputMethodService {
 
     @Override public void onCreate() {
         super.onCreate();
-        preferences=getSharedPreferences("keyboard",MODE_PRIVATE);
+        preferences=getSharedPreferences(KeyboardSettings.PREFERENCES_NAME,MODE_PRIVATE);
+        settings=new KeyboardSettings(preferences);
         preferences.registerOnSharedPreferenceChangeListener(preferenceListener);
-        schema=preferences.getString("schema","rimes_pinyin");
-        layout=readLayout(); theme=KeyboardTheme.named(preferences.getString("theme","apple"));
-        if(!java.util.Arrays.asList(SCHEMAS).contains(schema)) schema=SCHEMAS[0];
+        restoreSettings();
         pluginExecutor=new BufferPluginExecutor(getApplicationContext());
         initialize();
     }
@@ -126,9 +129,7 @@ public final class RimesInputMethodService extends InputMethodService {
         configure(info);
     }
     private void configure(EditorInfo info) {
-        layout=readLayout(); theme=KeyboardTheme.named(preferences.getString("theme","apple"));
-        String savedSchema=preferences.getString("schema","rimes_pinyin");
-        if(java.util.Arrays.asList(SCHEMAS).contains(savedSchema)) schema=savedSchema;
+        restoreSettings();
         int kind=info.inputType&InputType.TYPE_MASK_CLASS;
         numeric=kind==InputType.TYPE_CLASS_NUMBER || kind==InputType.TYPE_CLASS_PHONE || kind==InputType.TYPE_CLASS_DATETIME;
         directOnly=numeric || isPassword(info) || kind!=InputType.TYPE_CLASS_TEXT;
@@ -143,7 +144,7 @@ public final class RimesInputMethodService extends InputMethodService {
         if(target==null) { target=getCurrentInputConnection(); configure(info); }
         render();
     }
-    private String effectiveSchema() { return (chordLayout()?"rimes_ziranma":nineKeyEngine()?"rimes_pinyin9":schema)+(privateField || !preferences.getBoolean("learning",true) ? "_private" : ""); }
+    private String effectiveSchema() { return (chordLayout()?"rimes_ziranma":nineKeyEngine()?"rimes_pinyin9":schema)+(privateField || !learningEnabled ? "_private" : ""); }
     private void resetEngine() {
         if(!ready) return;
         final String selected=effectiveSchema();
@@ -164,9 +165,27 @@ public final class RimesInputMethodService extends InputMethodService {
         preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener);
         endTarget(); destroyed=true; pluginExecutor.close(); super.onDestroy();
     }
-    private String readLayout() {
-        String value=preferences.getString("layout","qwerty");
-        return java.util.Arrays.asList("qwerty","nineKey","orthogonal","splitOrthogonal").contains(value)?value:"qwerty";
+    private void restoreSettings() {
+        KeyboardSettings.Snapshot saved=settings.snapshot();
+        schema=saved.schema; layout=saved.layout; theme=KeyboardTheme.named(saved.theme);
+        translationDirection=saved.translationDirection; aiMockEnabled=saved.aiMockEnabled; learningEnabled=saved.learning;
+    }
+    private void changeSettingsPair(Runnable write) {
+        changingSettingsPair=true;
+        try { write.run(); KeyboardSettings.Snapshot saved=settings.snapshot(); schema=saved.schema; layout=saved.layout; }
+        finally { changingSettingsPair=false; }
+    }
+    private void applySettingsPair(KeyboardSettings.Snapshot saved) {
+        if(saved.schema.equals(schema) && saved.layout.equals(layout)) { deferredSettingsPair=null; return; }
+        // A failed host insertion must be retried with its original route before switching modes.
+        if(!retained.isEmpty()) { deferredSettingsPair=saved; return; }
+        deferredSettingsPair=null;
+        boolean layoutChanged=!layout.equals(saved.layout);
+        Runnable change=() -> {
+            schema=saved.schema; layout=saved.layout; spellingOpen=false;
+            if(layoutChanged) { numeric=false; symbols=false; emoji=false; uppercase=false; if(chordLayout() || layout.equals("nineKey")) english=false; }
+        };
+        if(ownsTarget()) settleAndSwitch(change); else { cancelChord(); change.run(); render(); }
     }
     private boolean chordLayout() { return layout.equals("orthogonal") || layout.equals("splitOrthogonal"); }
     private boolean chordVisible() { return ready && chordLayout() && !directOnly && !numeric && !emoji; }
@@ -175,30 +194,38 @@ public final class RimesInputMethodService extends InputMethodService {
         heldPreview=null; chordPreview=""; if(chords!=null) chords.cancel();
     }
     private void chooseSchema(String selected) {
-        settleAndSwitch(() -> { schema=selected; if(chordLayout()) layout="qwerty"; spellingOpen=false;
-            preferences.edit().putString("schema",schema).putString("layout",layout).apply(); });
+        settleAndSwitch(() -> { changeSettingsPair(() -> settings.setSchema(selected)); spellingOpen=false; });
     }
     private boolean nineKeyEngine() { return layout.equals("nineKey") && schema.equals("rimes_pinyin"); }
     private boolean nineKeyVisible() { return ready && nineKeyEngine() && !directOnly && !english && !numeric && !emoji && !uppercase; }
     private void preferenceChanged(SharedPreferences changed,String key) {
-        if(destroyed) return;
-        if("theme".equals(key)) { theme=KeyboardTheme.named(changed.getString("theme","apple")); render(); return; }
-        if("schema".equals(key)) {
-            String selected=changed.getString("schema","rimes_pinyin");
-            if(!selected.equals(schema) && java.util.Arrays.asList(SCHEMAS).contains(selected)) {
-                if(ownsTarget()) settleAndSwitch(() -> schema=selected); else { schema=selected; render(); }
+        if(destroyed || changingSettingsPair) return;
+        KeyboardSettings.Snapshot saved=settings.snapshot();
+        if(KeyboardSettings.KEY_THEME.equals(key)) { theme=KeyboardTheme.named(saved.theme); render(); return; }
+        if(KeyboardSettings.KEY_SCHEMA.equals(key) || KeyboardSettings.KEY_LAYOUT.equals(key)) {
+            // Both per-key notifications see the same atomic pair. Settle the old code only once.
+            applySettingsPair(saved);
+            return;
+        }
+        if(KeyboardSettings.KEY_TRANSLATION_DIRECTION.equals(key)) {
+            if(!saved.translationDirection.equals(translationDirection)) {
+                translationDirection=saved.translationDirection;
+                if("translate".equals(activePlugin)) invalidatePlugin();
+                render();
             }
             return;
         }
-        if("layout".equals(key)) {
-            String selected=readLayout();
-            if(!selected.equals(layout)) {
-                if(ownsTarget()) settleAndSwitch(() -> { layout=selected; spellingOpen=false; });
-                else { layout=selected; render(); }
+        if(KeyboardSettings.KEY_AI_MOCK_ENABLED.equals(key)) {
+            if(saved.aiMockEnabled!=aiMockEnabled) {
+                aiMockEnabled=saved.aiMockEnabled;
+                if(activePlugin!=null && !"translate".equals(activePlugin)) invalidatePlugin();
+                render();
             }
             return;
         }
-        if(!"learning".equals(key) || destroyed || !ready || !ownsTarget() || privateField) return;
+        if(!KeyboardSettings.KEY_LEARNING.equals(key) || saved.learning==learningEnabled) return;
+        learningEnabled=saved.learning;
+        if(!ready || !ownsTarget() || privateField) return;
         final String selected=effectiveSchema();
         // Serialize policy changes before subsequent keys. Existing confirmed blocks stay intact;
         // unfinished code settles exactly like a schema switch, without selecting/learning a word.
@@ -209,6 +236,7 @@ public final class RimesInputMethodService extends InputMethodService {
         },true);
     }
     private void endTarget() {
+        deferredSettingsPair=null;
         cancelPlugin(); pluginSession.clear();
         // Clear the old composition before revoking its connection, never through the new target.
         if(target!=null && target==getCurrentInputConnection() && hostComposing) { target.setComposingText("",1); target.finishComposingText(); }
@@ -362,7 +390,7 @@ public final class RimesInputMethodService extends InputMethodService {
             retainedResults.remove();
         }
         retained=retainedResults.isEmpty()?"":"pending";
-        if(retained.isEmpty()) updateComposition();
+        if(retained.isEmpty()) { updateComposition(); if(deferredSettingsPair!=null) applySettingsPair(deferredSettingsPair); }
         render();
     }
     private void delete() {
@@ -433,10 +461,9 @@ public final class RimesInputMethodService extends InputMethodService {
     private void chooseLayout(String selected) {
         if(selected.equals(layout) && (!selected.equals("nineKey") || schema.equals("rimes_pinyin"))) return;
         settleAndSwitch(() -> {
-            layout=selected; numeric=false; symbols=false; emoji=false; uppercase=false; spellingOpen=false;
-            if(selected.equals("nineKey")) { schema="rimes_pinyin"; english=false; }
+            changeSettingsPair(() -> settings.setLayout(selected)); numeric=false; symbols=false; emoji=false; uppercase=false; spellingOpen=false;
+            if(selected.equals("nineKey")) english=false;
             if(chordLayout()) english=false;
-            preferences.edit().putString("layout",layout).putString("schema",schema).apply();
         });
     }
     private void typeChord(String code) {
@@ -635,7 +662,7 @@ public final class RimesInputMethodService extends InputMethodService {
             public String label(ChordLayout.Action action) { return action==ChordLayout.Action.DELETE?"⌫":"☺"; }
             public String description(ChordLayout.Action action) { return action==ChordLayout.Action.DELETE?getString(R.string.backspace):"表情"; }
         }); surfaceContainer.addView(chords,new FrameLayout.LayoutParams(-1,-1));
-        appearancePanel=new KeyboardAppearancePanel(this,this::chooseLayout,id -> preferences.edit().putString("theme",id).apply());
+        appearancePanel=new KeyboardAppearancePanel(this,this::chooseLayout,settings::setTheme);
         appearancePanel.schemes(schema,this::chooseSchema);
         appearancePanel.action("全部插入",getString(R.string.insert_all),() -> insert(true));
         appearancePanel.action("清空 Buffer",getString(R.string.clear),() -> { if(pending==0 && !snapshot.composing()) { invalidatePlugin(); buffer.clear(); retryRetained(); render(); } });
@@ -645,7 +672,7 @@ public final class RimesInputMethodService extends InputMethodService {
             public void onPlugin(String id) { openPluginSettings(id); }
             public void onDefaultBuffer() { cancelPlugin(); pluginSession.clear(); activePlugin=null; pluginSettingsOpen=false; render(); }
             public void onClose() { pluginSettingsOpen=false; render(); }
-            public void onDirection(String direction) { if(!direction.equals(preferences.getString("translation_direction","auto"))) { invalidatePlugin(); preferences.edit().putString("translation_direction",direction).apply(); } render(); }
+            public void onDirection(String direction) { settings.setTranslationDirection(direction); render(); }
         }); surfaceContainer.addView(pluginPanel,new FrameLayout.LayoutParams(-1,-1));
         pluginOutput=new BufferRail(this);
         renderedPluginMode=false;
@@ -688,6 +715,7 @@ public final class RimesInputMethodService extends InputMethodService {
     private String pluginStatus(PluginSession.Snapshot state) {
         if(state.status==PluginSession.Status.RUNNING) return activePlugin.equals("translate")?"本机词典查译中…":"Mock 生成中…";
         if(state.status==PluginSession.Status.ERROR) return state.message;
+        if(!"translate".equals(activePlugin) && !aiMockEnabled) return "AI Mock 已关闭 · 在 RIMES 主应用中启用";
         return activePlugin.equals("translate")?"本机中英词典 · 点执行查译":"OpenAI 格式 Mock · 点执行生成";
     }
     private void runOrCancelPlugin() {
@@ -695,24 +723,25 @@ public final class RimesInputMethodService extends InputMethodService {
         else runPlugin();
     }
     private void runPlugin() {
-        if(activePlugin==null || !canSelectPlugin() || !buffer.isEnabled()) return;
+        if(activePlugin==null || !canSelectPlugin() || !buffer.isEnabled() || !pluginAllowed()) return;
         PluginSession.Request request=pluginSession.start(buffer);
         if(request==null) return;
         InputEpoch.Ticket ticket=epoch.issue(); InputConnection connection=target;
         pluginSettingsOpen=false; render();
-        pluginJob=pluginExecutor.run(request.plugin,request.source.text,preferences.getString("translation_direction","auto"),new BufferPluginExecutor.Listener() {
+        pluginJob=pluginExecutor.run(request.plugin,request.source.text,translationDirection,new BufferPluginExecutor.Listener() {
             public void onUpdate(String text,boolean complete) { main.post(() -> {
-                if(!epoch.current(ticket) || connection!=target || !ownsTarget() || privateField) return;
+                if(!epoch.current(ticket) || connection!=target || !ownsTarget() || privateField || !pluginAllowed()) return;
                 if(pluginSession.update(request,buffer,text,complete)) { if(pluginSession.snapshot(buffer).status==PluginSession.Status.ERROR) cancelPlugin(); else if(complete) pluginJob=null; render(); }
             }); }
             public void onFailure(String message) { main.post(() -> {
-                if(!epoch.current(ticket) || connection!=target || !ownsTarget() || privateField) return;
+                if(!epoch.current(ticket) || connection!=target || !ownsTarget() || privateField || !pluginAllowed()) return;
                 if(pluginSession.fail(request,buffer,message)) { pluginJob=null; render(); }
             }); }
         });
     }
+    private boolean pluginAllowed() { return "translate".equals(activePlugin) || aiMockEnabled; }
     private void insertPluginResult() {
-        if(!canSelectPlugin() || !buffer.isEnabled()) return;
+        if(!canSelectPlugin() || !buffer.isEnabled() || !pluginAllowed()) return;
         PluginSession.Delivery delivery=pluginSession.prepare(buffer); InputConnection connection=target;
         if(!ownsTarget() || !pluginSession.isCurrent(delivery,buffer)) return;
         int end=selection<0?-1:Math.min(selectionStart,selection)+delivery.text.length();
@@ -805,7 +834,7 @@ public final class RimesInputMethodService extends InputMethodService {
         PluginSession.Status pluginState=pluginSession.snapshot(buffer).status;
         pluginRunButton.setVisibility(plugin?View.VISIBLE:View.GONE); pluginRunButton.setContentDescription(pluginState==PluginSession.Status.RUNNING?"取消执行":"执行"+pluginName(activePlugin));
         pluginRunButton.icon(pluginState==PluginSession.Status.RUNNING?KeyboardIcon.STOP:KeyboardIcon.PLAY);
-        pluginRunButton.setEnabled(plugin && pending==0 && !snapshot.composing() && !chords.isChordActive() && buffer.blockCount()>0);
+        pluginRunButton.setEnabled(plugin && pluginAllowed() && pending==0 && !snapshot.composing() && !chords.isChordActive() && buffer.blockCount()>0);
         pluginButton.setSelected(plugin);
         insertNext.setEnabled(pending==0 && !snapshot.composing() && buffer.blockCount()>0 && !chords.isChordActive() && (!plugin || pluginState==PluginSession.Status.READY));
         retryButton.setVisibility(failed || !retained.isEmpty()?View.VISIBLE:View.GONE);
@@ -835,7 +864,7 @@ public final class RimesInputMethodService extends InputMethodService {
         appearancePanel.setVisibility(appearanceOpen?View.VISIBLE:View.GONE);
         if(appearanceOpen) appearancePanel.render(layout,theme);
         pluginPanel.setVisibility(pluginSettingsOpen?View.VISIBLE:View.GONE);
-        if(pluginSettingsOpen) pluginPanel.render(theme,activePlugin,preferences.getString("translation_direction","auto"));
+        if(pluginSettingsOpen) pluginPanel.render(theme,activePlugin,translationDirection);
     }
     private static void setText(TextView view,String value) {
         if(!android.text.TextUtils.equals(view.getText(),value)) view.setText(value);

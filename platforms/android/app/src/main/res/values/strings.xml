@@ -1,18 +1,13 @@
 <resources>
     <string name="app_name">RIMES Dev</string>
     <string name="english_keyboard">Chinese / English</string>
-    <string name="welcome">RIMES for Android</string>
-    <string name="scope">Development preview: offline Pinyin, natural-code Shuangpin, Wubi, two-thumb chord input, English, Buffer, local Chinese-English dictionary lookup and AI mock.</string>
     <string name="privacy">Typing stays on this device. Buffer drafts clear when the keyboard closes or the input field changes. Buffer is disabled in password and private fields.</string>
-    <string name="enable_keyboard">Enable keyboard</string>
-    <string name="choose_keyboard">Choose keyboard</string>
     <string name="try_typing">Try typing here</string>
     <string name="second_field">Second field — test target switching</string>
     <string name="password_field">Password — Buffer must stay off</string>
     <string name="buffer_on">Buffer on</string>
     <string name="buffer_off">Buffer off</string>
     <string name="buffer_empty">Confirmed text stays here</string>
-    <string name="keyboard_appearance">Keyboard layout and colors · QWERTY / 9-key / Chord</string>
     <string name="insert_next">Insert</string>
     <string name="insert_all">Insert all</string>
     <string name="clear">Clear</string>
