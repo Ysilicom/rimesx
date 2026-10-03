@@ -32,6 +32,12 @@ constexpr int kToggle = 100, kSettings = 101, kDeploy = 102, kStartup = 103,
               kAbout = 105, kExit = 104, kPasteMenu = 106;
 constexpr int kModeInput = 110, kModeGenerate = 111, kModeTranslate = 112;
 
+DWORD ForegroundProcess() {
+  DWORD process = 0;
+  GetWindowThreadProcessId(GetForegroundWindow(), &process);
+  return process;
+}
+
 struct Window {
   Runtime& runtime;
   std::function<void()> stop, deploy;
@@ -103,8 +109,8 @@ ui::BufferPaintState Window::MakePaintState(const core::Json& state) const {
   const auto status = state.value("status", std::string());
   static const std::map<std::string, std::wstring> messages = {
       {"Buffer", L"已绑定"}, {"Ready", L"结果就绪"},
-      {"Copy only - no input target", L"未绑定输入框，可复制"},
-      {"Target changed. Rebind to send.", L"输入框已切换，请重新绑定"},
+      {"Copy only - no input target", L"未绑定：先选输入框，再点原文区"},
+      {"Target changed. Rebind to send.", L"输入已暂停：点击原文区重新绑定"},
       {"Protected", L"已暂停"},
       {"Waiting for response...", L"等待响应…"},
       {"Receiving...", L"接收中…"},
@@ -135,7 +141,8 @@ ui::BufferPaintState Window::MakePaintState(const core::Json& state) const {
   paint.scroll_result = scroll[1];
   paint.hover = hover;
   paint.pressed = static_cast<int>(pressed_hit);
-  paint.empty_hint = L"等待输入";
+  paint.empty_hint = paint.capturing ? L"等待输入"
+      : L"先点击宿主输入框，再点击这里开始输入（需选中 RIMES）";
   for (const auto& block : state["source_blocks"])
     paint.source_blocks.push_back(
         {Wide(block.value("text", std::string())), false});
@@ -319,6 +326,9 @@ void Window::UpdateTooltip(int hit) {
     case ui::BufferHitKind::kSend:
       text = L"发送";
       break;
+    case ui::BufferHitKind::kBind:
+      text = L"在当前输入框接收输入到 Buffer";
+      break;
     default:
       break;
   }
@@ -374,7 +384,7 @@ void Window::Paste() {
 void Window::Action(int index) {
   switch (index) {
     case 0:
-      runtime.Toggle();
+      runtime.Toggle(ForegroundProcess());
       break;
     case 1:
       Paste();
@@ -417,6 +427,9 @@ void Window::ApplyHit(ui::BufferHitKind hit) {
       (hit == ui::BufferHitKind::kSend && !state.send_enabled))
     return;
   switch (hit) {
+    case ui::BufferHitKind::kBind:
+      runtime.Bind(ForegroundProcess());
+      break;
     case ui::BufferHitKind::kMode:
       PopupModeMenu();
       break;
@@ -541,7 +554,7 @@ LRESULT CALLBACK Window::Procedure(HWND hwnd, UINT message, WPARAM wparam,
       case WM_ERASEBKGND:
         return 1;
       case WM_HOTKEY:
-        if (wparam == 1) self->runtime.Toggle();
+        if (wparam == 1) self->runtime.Toggle(ForegroundProcess());
         return 0;
       case kChanged:
         self->Update();
@@ -605,6 +618,20 @@ LRESULT CALLBACK Window::Procedure(HWND hwnd, UINT message, WPARAM wparam,
         TrackMouseEvent(&track);
         return 0;
       }
+      case WM_SETCURSOR:
+        if (LOWORD(lparam) == HTCLIENT) {
+          POINT cursor{};
+          GetCursorPos(&cursor);
+          ScreenToClient(hwnd, &cursor);
+          const float dpi = static_cast<float>(GetDpiForWindow(hwnd)) / 96.0f;
+          const auto hit = ui::HitTestBuffer(self->last_layout,
+              static_cast<float>(cursor.x) / dpi,
+              static_cast<float>(cursor.y) / dpi);
+          SetCursor(LoadCursorW(nullptr, hit == ui::BufferHitKind::kBind
+              ? IDC_IBEAM : hit == ui::BufferHitKind::kNone ? IDC_ARROW : IDC_HAND));
+          return TRUE;
+        }
+        break;
       case WM_MOUSELEAVE:
         if (self->hover >= 0 || self->pressed_hit != ui::BufferHitKind::kNone) {
           self->hover = -1;
@@ -717,7 +744,7 @@ LRESULT CALLBACK Window::Procedure(HWND hwnd, UINT message, WPARAM wparam,
       }
       case kTray:
         if (lparam == WM_LBUTTONUP) {
-          self->runtime.Toggle();
+          self->runtime.Toggle(ForegroundProcess());
           return 0;
         }
         if (lparam == WM_RBUTTONUP) {
@@ -728,7 +755,7 @@ LRESULT CALLBACK Window::Procedure(HWND hwnd, UINT message, WPARAM wparam,
       case WM_COMMAND:
         switch (LOWORD(wparam)) {
           case kToggle:
-            self->runtime.Toggle();
+            self->runtime.Bind(ForegroundProcess());
             break;
           case kSettings:
             self->OpenSettings();

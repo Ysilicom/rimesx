@@ -640,7 +640,9 @@ HRESULT RequestEdit(ITfContext* context, TfClientId client_id,
 
 }  // namespace
 
-TextService::TextService() noexcept : broker_client_(CreateBrokerClient()) {
+TextService::TextService() noexcept : TextService(CreateBrokerClient()) {}
+TextService::TextService(std::unique_ptr<BrokerClient> broker_client) noexcept
+    : broker_client_(std::move(broker_client)) {
   module::AddObject();
   candidate_window_.SetSelect([this](std::size_t index) { SelectCandidate(index); });
 }
@@ -864,7 +866,10 @@ HRESULT STDMETHODCALLTYPE TextService::Deactivate() {
 }
 
 HRESULT STDMETHODCALLTYPE TextService::OnSetFocus(BOOL foreground) {
-  if (foreground == FALSE) RevokeContext();
+  if (foreground == FALSE)
+    RevokeContext();
+  else
+    OnPushContext(nullptr);
   return S_OK;
 }
 
@@ -1216,7 +1221,8 @@ HRESULT TextService::CommitText(ITfContext* context,
 }
 
 bool TextService::BindContext(ITfContext* context) noexcept {
-  if (!context || !AllowedContext(context)) {
+  if ((activation_flags_ & TF_TMAE_SECUREMODE) != 0 ||
+      !context || !AllowedContext(context)) {
     RevokeContext();
     return false;
   }
@@ -1299,13 +1305,15 @@ HRESULT STDMETHODCALLTYPE TextService::OnUninitDocumentMgr(ITfDocumentMgr*) {
 }
 HRESULT STDMETHODCALLTYPE TextService::OnSetFocus(ITfDocumentMgr* focused,
                                                   ITfDocumentMgr*) {
+  RefreshBrokerConnection();
   if (!focused) {
     RevokeContext();
     return S_OK;
   }
   ITfContext* context = nullptr;
   if (SUCCEEDED(focused->GetTop(&context)) && context) {
-    BindContext(context);
+    if (BindContext(context) && broker_client_)
+      broker_client_->SetContext(context_generation_);
     context->Release();
   } else
     RevokeContext();
@@ -1317,7 +1325,8 @@ HRESULT STDMETHODCALLTYPE TextService::OnPushContext(ITfContext*) {
       focused) {
     OnSetFocus(focused, nullptr);
     focused->Release();
-  }
+  } else
+    RevokeContext();
   return S_OK;
 }
 HRESULT STDMETHODCALLTYPE TextService::OnPopContext(ITfContext* context) {
@@ -1368,6 +1377,14 @@ LRESULT CALLBACK TextService::NotificationProcedure(HWND window, UINT message,
     } catch (...) {
       self->RevokeContext();
     }
+    return 0;
+  }
+  if (message == kBrokerConnected && self && self->IsBrokerConnected()) {
+    DWORD foreground_process = 0;
+    GetWindowThreadProcessId(GetForegroundWindow(), &foreground_process);
+    // A background application's late connection must not replace live focus.
+    if (foreground_process == GetCurrentProcessId())
+      self->OnSetFocus(TRUE);
     return 0;
   }
   return DefWindowProcW(window, message, wparam, lparam);

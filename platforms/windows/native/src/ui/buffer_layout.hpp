@@ -291,6 +291,10 @@ struct BufferLayout {
     return BufferHitKind::kCopy;
   if (layout.show_send && layout.send.contains(x, y))
     return BufferHitKind::kSend;
+  // Only the source rail establishes capture. Result/status surfaces are
+  // passive, and the action overlay keeps priority over the rail below it.
+  if (!layout.toolbar_only && layout.source_rail.contains(x, y))
+    return BufferHitKind::kBind;
   return BufferHitKind::kNone;
 }
 

@@ -69,9 +69,46 @@ class FakeThreadMgr final : public ITfThreadMgr, public ITfKeystrokeMgr {
                                                  BOOL*) override;
 
  private:
-  ~FakeThreadMgr() = default;
+  ~FakeThreadMgr();
+  ITfDocumentMgr* focus_ = nullptr;
   std::atomic_ulong reference_count_{1};
   TfClientId client_id_ = 1;
+};
+
+class FakeDocumentMgr final : public ITfDocumentMgr {
+ public:
+  explicit FakeDocumentMgr(ITfContext* context) : context_(context) {
+    if (context_) context_->AddRef();
+  }
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** object) override;
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++refs_; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const auto refs = --refs_;
+    if (!refs) delete this;
+    return refs;
+  }
+  HRESULT STDMETHODCALLTYPE CreateContext(TfClientId, DWORD, IUnknown*,
+                                          ITfContext**, TfEditCookie*) override {
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE Push(ITfContext*) override { return E_NOTIMPL; }
+  HRESULT STDMETHODCALLTYPE Pop(DWORD) override { return E_NOTIMPL; }
+  HRESULT STDMETHODCALLTYPE GetTop(ITfContext** context) override {
+    if (!context) return E_POINTER;
+    *context = context_;
+    if (context_) context_->AddRef();
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE GetBase(ITfContext** context) override {
+    return GetTop(context);
+  }
+  HRESULT STDMETHODCALLTYPE EnumContexts(IEnumTfContexts**) override {
+    return E_NOTIMPL;
+  }
+ private:
+  ~FakeDocumentMgr() { if (context_) context_->Release(); }
+  std::atomic_ulong refs_{1};
+  ITfContext* context_;
 };
 
 class FakeContext final : public ITfContext,

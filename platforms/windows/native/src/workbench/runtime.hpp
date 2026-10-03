@@ -27,7 +27,8 @@ class Runtime {
   Settings Configuration();
   bool Configure(Settings value, const std::wstring& key, bool replace_key,
                  std::string* error);
-  void Toggle();
+  void Toggle(std::uint32_t foreground_process);
+  void Bind(std::uint32_t foreground_process);
   void Close();
   void Protect();
   void Paste(std::string text);
@@ -59,6 +60,7 @@ class Runtime {
   void Changed();
   void Queue(const std::optional<Delivery>& delivery);
   void CaptureChanged();
+  void BindLocked(std::uint32_t foreground_process);
   void StartGeneration(bool translation, bool complete_sentence_only = false);
   void RunAPI();
 };

@@ -13,6 +13,7 @@
 namespace rimes::windows::tsf {
 
 inline constexpr UINT kBrokerNotification = WM_APP + 72;
+inline constexpr UINT kBrokerConnected = WM_APP + 73;
 
 enum class BrokerKeyPhase {
   kTestKeyDown,

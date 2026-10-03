@@ -2,6 +2,10 @@
 
 Branch: `codex/windows-daily-buffer`, based on main `b02fe9c`, with Windows data and Session 0 fixes cherry-picked as `f23d4c9`, `689e84d`. macOS/iOS/Android sources are not part of this change.
 
+The product's chord scheme is named **isaac2026**. The native preview still exposes the five ordinary schemes; bundled legacy `my_combo` data is not a completed isaac2026 frontend or configuration UI.
+
+Buffer capture is explicitly bound by the shortcut or by clicking its source rail while a RIMES host input field is focused. A tray open with no live field stays unbound: select the host field, then click the source rail. Focus loss pauses capture and delivery; returning to a field publishes a fresh TSF target but does not automatically resume capture. Repeated source clicks are idempotent, and passive target/status labels do not change routing.
+
 ## Boundaries
 
 - Protocol v2 uses authenticated per-user/per-logon named pipes, with an independent long-poll notification connection. A target is a verified peer PID, globally unique Broker session, and TSF context/focus generation.

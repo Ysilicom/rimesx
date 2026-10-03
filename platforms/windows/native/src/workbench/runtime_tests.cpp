@@ -14,7 +14,7 @@ int main() {
   const auto peer = GetCurrentProcessId() + 1;
   auto target = runtime.Register(peer, 1, 1);
   runtime.Focus(target);
-  runtime.Toggle();
+  runtime.Toggle(peer);
   Check(runtime.Capturing(target), "explicit binding captures input");
   engine::EngineSnapshot text;
   text.handled = true;
@@ -63,6 +63,25 @@ int main() {
   runtime.Focus(other);
   Check(!runtime.Capturing(target) && !runtime.Capturing(other),
         "focus change pauses without automatic retarget");
+  Check(runtime.Snapshot()["target_pid"] == 0,
+        "paused snapshot never advertises the saved target as bound");
+  runtime.Bind(peer + 2);
+  Check(!runtime.Capturing(other), "background target cannot bind from a tray");
+  runtime.Focus(other);
+  runtime.Bind(peer);
+  Check(runtime.Capturing(other), "source click explicitly binds the new field");
+  runtime.Bind(peer);
+  Check(runtime.Capturing(other) && runtime.Snapshot()["visible"] == true,
+        "repeated source clicks keep capture open instead of toggling closed");
+  runtime.Remove(other);
+  runtime.Bind(peer);
+  Check(!runtime.Snapshot()["capture"].get<bool>() &&
+            runtime.Snapshot()["target_pid"] == 0,
+        "removed context cannot be revived by a click");
+  auto own = runtime.Register(GetCurrentProcessId(), 3, 3);
+  runtime.Focus(own);
+  runtime.Bind(GetCurrentProcessId());
+  Check(!runtime.Capturing(own), "settings window never becomes a Buffer target");
   runtime.Close();
   Check(runtime.Snapshot()["source"] == "Second.", "close retains content");
   runtime.Protect();

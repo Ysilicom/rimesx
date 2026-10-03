@@ -90,7 +90,7 @@ The command writes the ZIP and a sibling `.sha256` file under `platforms/windows
 
 ## Known limitations
 
-- No Windows machine has yet validated typing behavior, Lua plugin availability, deployment time, application compatibility, or the FlyYao chord timing in Weasel. This must therefore be published as an untested preview, not a stable cross-platform RIMES release.
+- No Windows machine has yet validated typing behavior, Lua plugin availability, deployment time, application compatibility, or the isaac2026 chord timing in this Weasel data preview. This must therefore be published as an untested preview, not a stable cross-platform RIMES release.
 - RIMES's macOS buffer/workbench behavior is not reproduced by Weasel.
 - The package supplies the `my_combo` Rime chord schema, including literal `v`
   behavior. RIMES's cross-batch mutual-pairing logic lives in the macOS Swift

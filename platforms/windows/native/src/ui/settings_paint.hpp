@@ -327,7 +327,7 @@ inline void PaintSettingsShell(HDC dc, const SettingsLayout& layout,
     RECT help = px(layout.body);
     DrawTextW(dc, L"输入先进入缓冲区，再由你发送到已绑定的输入框。\n\n"
                  L"Return 轻按发送下一块，长按 1.2 秒发送全部。\n"
-                 L"输入框切换后暂停发送；请重新绑定，或复制内容。\n"
+                 L"切换输入框后暂停输入和发送。先点宿主输入框，再点 Buffer 原文区重新绑定；也可按快捷键。\n"
                  L"关闭窗口保留本次内容，退出后不恢复正文。", -1, &help,
               DT_LEFT | DT_WORDBREAK);
   } else if (draft.page == SettingsPage::kApi) {

@@ -22,6 +22,7 @@ class TextService final : public ITfTextInputProcessorEx,
                           public ITfTextEditSink {
  public:
   TextService() noexcept;
+  explicit TextService(std::unique_ptr<BrokerClient> broker_client) noexcept;
 
   TextService(const TextService&) = delete;
   TextService& operator=(const TextService&) = delete;

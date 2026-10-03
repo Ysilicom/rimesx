@@ -56,10 +56,28 @@ HRESULT STDMETHODCALLTYPE
 FakeThreadMgr::EnumDocumentMgrs(IEnumTfDocumentMgrs**) {
   return NotImpl();
 }
-HRESULT STDMETHODCALLTYPE FakeThreadMgr::GetFocus(ITfDocumentMgr**) {
-  return NotImpl();
+FakeThreadMgr::~FakeThreadMgr() {
+  if (focus_) focus_->Release();
 }
-HRESULT STDMETHODCALLTYPE FakeThreadMgr::SetFocus(ITfDocumentMgr*) {
+HRESULT STDMETHODCALLTYPE FakeThreadMgr::GetFocus(ITfDocumentMgr** focus) {
+  if (!focus) return E_POINTER;
+  *focus = focus_;
+  if (focus_) focus_->AddRef();
+  return S_OK;
+}
+HRESULT STDMETHODCALLTYPE FakeThreadMgr::SetFocus(ITfDocumentMgr* focus) {
+  if (focus) focus->AddRef();
+  if (focus_) focus_->Release();
+  focus_ = focus;
+  return S_OK;
+}
+HRESULT STDMETHODCALLTYPE FakeDocumentMgr::QueryInterface(REFIID iid,
+                                                          void** object) {
+  if (!object) return E_POINTER;
+  *object = nullptr;
+  if (iid != IID_IUnknown && iid != IID_ITfDocumentMgr) return E_NOINTERFACE;
+  *object = static_cast<ITfDocumentMgr*>(this);
+  AddRef();
   return S_OK;
 }
 HRESULT STDMETHODCALLTYPE FakeThreadMgr::AssociateFocus(HWND, ITfDocumentMgr*,

@@ -26,6 +26,10 @@ void Expect(bool condition, std::string_view message) {
   }
 }
 
+}  // namespace
+#include "focus_tests.hpp"
+namespace {
+
 void DumpDocument(std::string_view label,
                   const rimes::windows::e2e::FakeDocument& document) {
   rimes::windows::tsf::CandidateSnapshot snapshot;
@@ -305,6 +309,7 @@ int RunTypingScenarios() {
   }
 
   ClearCapsLockIfLatched();
+  CheckFocusRestoration();
   std::cerr << "caps_lock=" << ((GetKeyState(VK_CAPITAL) & 1) != 0)
             << " shift=" << ((GetKeyState(VK_SHIFT) & 0x8000) != 0) << '\n';
 

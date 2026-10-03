@@ -1245,7 +1245,7 @@ class NamedPipeBrokerClient final : public BrokerClient {
         return;
       }
 
-      std::lock_guard lock(io_mutex_);
+      std::unique_lock lock(io_mutex_);
       if (stopping_.load(std::memory_order_acquire)) {
         LogDiagnosticStage(DiagnosticStage::kConnectCancelledBeforePublish);
         return;
@@ -1263,6 +1263,11 @@ class NamedPipeBrokerClient final : public BrokerClient {
       connected_.store(true, std::memory_order_release);
       reconnecting_.store(false, std::memory_order_release);
       LogDiagnosticStage(DiagnosticStage::kConnectSucceeded);
+      lock.unlock();
+      // Publish focus on the TSF thread even before the first key. Buffer can
+      // then bind a freshly activated input field without typing into it first.
+      if (const auto window = notification_window_.load())
+        PostMessageW(window, kBrokerConnected, 0, 0);
     } catch (...) {
       LogDiagnosticStage(DiagnosticStage::kConnectWorkerException);
       connected_.store(false, std::memory_order_release);

@@ -128,6 +128,23 @@ void TestPrimaryActionCluster() {
       for (const bool busy : {false, true}) {
         state.busy = busy;
         const auto layout = LayoutBuffer(state, width);
+        using Hit = rimes::windows::ui::BufferHitKind;
+        Check(HitTestBuffer(layout, layout.source_text.left + 1,
+                            layout.source_text.top + 1) == Hit::kBind,
+              "clicking source text explicitly binds capture in every mode");
+        Check(HitTestBuffer(layout, layout.status_label.left + 1,
+                            layout.status_label.top + 1) == Hit::kNone,
+              "target status remains passive");
+        Check(HitTestBuffer(layout, layout.paste.left + 1,
+                            layout.paste.top + 1) == Hit::kPaste,
+              "paste overlay cannot accidentally bind capture");
+        Check(HitTestBuffer(layout, layout.send.left + 1,
+                            layout.send.top + 1) == Hit::kSend,
+              "send overlay cannot accidentally bind capture");
+        if (layout.show_result)
+          Check(HitTestBuffer(layout, layout.result_text.left + 1,
+                              layout.result_text.top + 1) == Hit::kNone,
+                "clicking generated results cannot silently retarget input");
         const auto& primary = layout.show_result ? layout.result_rail
                                                 : layout.source_rail;
         Check(BufferLayoutFullyContained(layout), "every mode clears inner chrome");

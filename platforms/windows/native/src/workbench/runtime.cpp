@@ -203,7 +203,8 @@ Json Runtime::Snapshot() {
           {"preedit", model_.preedit},
           {"status", model_.status},
           {"translate", model_.translate},
-          {"target_pid", model_.bound.process}};
+          {"target_pid", model_.capture && model_.bound == model_.live
+                             ? model_.bound.process : 0}};
 }
 Settings Runtime::Configuration() {
   std::lock_guard lock(mutex_);
@@ -234,12 +235,28 @@ bool Runtime::Configure(Settings value, const std::wstring& key,
   Changed();
   return true;
 }
-void Runtime::Toggle() {
+void Runtime::BindLocked(std::uint32_t foreground_process) {
+  // A tray/menu or delayed TSF focus notification is not authority to capture
+  // input from a background process. Never revive the previous bound target.
+  const auto found = sessions_.find(model_.live.session);
+  if (!foreground_process || foreground_process == GetCurrentProcessId() ||
+      model_.live.process != foreground_process || found == sessions_.end() ||
+      found->second.target != model_.live)
+    model_.Focus({});
+  model_.Open();
+}
+void Runtime::Bind(std::uint32_t foreground_process) {
+  std::lock_guard lock(mutex_);
+  BindLocked(foreground_process);
+  CaptureChanged();
+  Changed();
+}
+void Runtime::Toggle(std::uint32_t foreground_process) {
   std::lock_guard lock(mutex_);
   if (model_.visible && model_.capture)
     model_.Close();
   else
-    model_.Open();
+    BindLocked(foreground_process);
   CaptureChanged();
   Changed();
 }
