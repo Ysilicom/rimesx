@@ -143,7 +143,7 @@ struct BufferLayout {
   layout.width_dip = width_dip;
   const float inset = static_cast<float>(metrics.chrome_inset_dip);
   const float toolbar_h = static_cast<float>(metrics.toolbar_height_dip);
-  const float source_h = static_cast<float>(metrics.source_rail_height_dip);
+  const float preferred_rail_h = static_cast<float>(metrics.source_rail_height_dip);
   const float icon = static_cast<float>(metrics.icon_size_dip);
   const float gap = static_cast<float>(metrics.icon_gap_dip);
   const float rail_inset = static_cast<float>(metrics.rail_inset_dip);
@@ -196,51 +196,47 @@ struct BufferLayout {
   const float rail_top = layout.divider.bottom;
   const float rail_left = inset + 4.0f;
   const float rail_right = width_dip - inset - 4.0f;
-  layout.source_rail = {rail_left, rail_top, rail_right, rail_top + source_h};
+  const float rail_gap = static_cast<float>(metrics.rail_spacing_dip);
+  // Both rows must clear the inner chrome, including its bottom stroke.
+  const float available = layout.chrome.bottom - 1.0f - rail_top;
+  const float rail_h = (std::min)(preferred_rail_h,
+      show_result ? (available - rail_gap) * 0.5f : available);
+  layout.source_rail = {rail_left, rail_top, rail_right, rail_top + rail_h};
+  if (show_result) {
+    const float top = layout.source_rail.bottom + rail_gap;
+    layout.result_rail = {rail_left, top, rail_right, top + rail_h};
+  }
 
   layout.show_paste = true;
   layout.show_copy = show_result || state.mode != BufferMode::kInput;
   layout.show_send = true;
-
+  // Mac's paste/copy/send cluster overlays the primary (result when present)
+  // rail. Hidden copy has no empty slot; neither row's outer width changes.
+  const DipRect& primary = show_result ? layout.result_rail : layout.source_rail;
+  const float action_y = primary.top + (rail_h - icon) * 0.5f;
+  layout.send = {primary.right - icon - rail_inset, action_y,
+                 primary.right - rail_inset, action_y + icon};
+  float next_right = layout.send.left - gap;
+  if (layout.show_copy) {
+    layout.copy = {next_right - icon, action_y, next_right, action_y + icon};
+    next_right = layout.copy.left - gap;
+  }
+  layout.paste = {next_right - icon, action_y, next_right, action_y + icon};
+  if (show_result && state.busy) {
+    layout.waiting = {layout.paste.left - gap - icon, action_y,
+                      layout.paste.left - gap, action_y + icon};
+  }
+  const float text_right = (show_result && state.busy
+      ? layout.waiting.left : layout.paste.left) - clearance;
+  layout.source_text = {layout.source_rail.left + rail_inset,
+                        layout.source_rail.top,
+                        show_result ? layout.source_rail.right - rail_inset
+                                    : text_right,
+                        layout.source_rail.bottom};
   if (show_result) {
-    const float top =
-        layout.source_rail.bottom + static_cast<float>(metrics.rail_spacing_dip);
-    layout.result_rail = {rail_left, top, rail_right, top + source_h};
-
-    // Translation / two-rail: paste on source top-right; copy/send on result.
-    const float src_y =
-        layout.source_rail.top + (source_h - icon) * 0.5f;
-    layout.paste = {layout.source_rail.right - icon - rail_inset, src_y,
-                    layout.source_rail.right - rail_inset, src_y + icon};
-    const float dst_y =
-        layout.result_rail.top + (source_h - icon) * 0.5f;
-    layout.send = {layout.result_rail.right - icon - rail_inset, dst_y,
-                   layout.result_rail.right - rail_inset, dst_y + icon};
-    layout.copy = {layout.send.left - gap - icon, dst_y, layout.send.left - gap,
-                   dst_y + icon};
-    layout.waiting = {layout.copy.left - gap - icon, dst_y,
-                      layout.copy.left - gap, dst_y + icon};
-
-    layout.source_text = {layout.source_rail.left + rail_inset,
-                          layout.source_rail.top,
-                          layout.paste.left - clearance, layout.source_rail.bottom};
-    layout.result_text = {
-        layout.result_rail.left + rail_inset, layout.result_rail.top,
-        (state.busy ? layout.waiting.left : layout.copy.left) - clearance,
-        layout.result_rail.bottom};
-  } else {
-    // Source-only: full rail with paste / copy / send on the right.
-    const float action_y =
-        layout.source_rail.top + (source_h - icon) * 0.5f;
-    layout.send = {layout.source_rail.right - icon - rail_inset, action_y,
-                   layout.source_rail.right - rail_inset, action_y + icon};
-    layout.copy = {layout.send.left - gap - icon, action_y,
-                   layout.send.left - gap, action_y + icon};
-    layout.paste = {layout.copy.left - gap - icon, action_y,
-                    layout.copy.left - gap, action_y + icon};
-    layout.source_text = {layout.source_rail.left + rail_inset,
-                          layout.source_rail.top, layout.paste.left - clearance,
-                          layout.source_rail.bottom};
+    layout.result_text = {layout.result_rail.left + rail_inset,
+                          layout.result_rail.top, text_right,
+                          layout.result_rail.bottom};
   }
 
   return layout;
@@ -268,11 +264,11 @@ struct BufferLayout {
            layout.paste.height() <= 0.0f && layout.copy.height() <= 0.0f &&
            layout.send.height() <= 0.0f;
   }
-  if (!RectInside(layout.source_rail, bounds)) return false;
+  if (!RectInside(layout.source_rail, layout.chrome)) return false;
   if (!RectInside(layout.source_text, bounds)) return false;
   if (layout.show_paste && !RectInside(layout.paste, bounds)) return false;
   if (layout.show_result) {
-    if (!RectInside(layout.result_rail, bounds)) return false;
+    if (!RectInside(layout.result_rail, layout.chrome)) return false;
     if (!RectInside(layout.result_text, bounds)) return false;
     if (layout.show_copy && !RectInside(layout.copy, bounds)) return false;
     if (layout.show_send && !RectInside(layout.send, bounds)) return false;

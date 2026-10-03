@@ -72,6 +72,7 @@ struct SettingsDraft {
   int subpage = 0;
   int schema_index = 0;
   int theme_index = 0;
+  int theme_detail = -1;
   // Keyboard focus: -1 none, 0..4 sidebar, 100+ scheme, 200+ theme.
   int focus = -1;
   bool keyboard_focus = false;
@@ -103,6 +104,8 @@ struct SettingsLayout {
   std::array<DipRect, kSettingsPageCount> nav{};
   std::vector<DipRect> scheme_cards;
   std::vector<DipRect> theme_cards;
+  std::vector<DipRect> theme_details;
+  DipRect theme_popover{};
   std::array<DipRect, 2> subpage_tabs{};
   DipRect font_edit{};
   DipRect hotkey_edit{};
@@ -204,6 +207,7 @@ struct SettingsLayout {
     const float card_h = static_cast<float>(m.theme_card_height_dip);
     const float card_w = (body_w - gap) / 2.0f;
     layout.theme_cards.resize(4);
+    layout.theme_details.resize(4);
     for (int i = 0; i < 4; ++i) {
       const int row = i / columns;
       const int col = i % columns;
@@ -212,6 +216,8 @@ struct SettingsLayout {
                       static_cast<float>(row) * (card_h + gap);
       layout.theme_cards[static_cast<std::size_t>(i)] = {x, y, x + card_w,
                                                          y + card_h};
+      layout.theme_details[static_cast<std::size_t>(i)] = {
+          x + card_w - 31, y + card_h - 30, x + card_w - 9, y + card_h - 8};
     }
   } else if (draft.page == SettingsPage::kAppearance) {
     const float fy = layout.body.top;
@@ -234,7 +240,38 @@ struct SettingsLayout {
       place(layout.key_edit);
     }
   }
+  if (draft.page == SettingsPage::kAppearance && draft.subpage == 0 &&
+      draft.theme_detail >= 0 && draft.theme_detail < 4) {
+    const auto& anchor = layout.theme_details[static_cast<std::size_t>(draft.theme_detail)];
+    const float left = (std::clamp)(anchor.right - 260.0f,
+                                    layout.content.left + 12.0f, width_dip - 272.0f);
+    const float top = (std::min)(anchor.bottom + 8.0f, layout.save.top - 148.0f);
+    layout.theme_popover = {left, top, left + 260.0f, top + 136.0f};
+  }
   return layout;
+}
+
+// The details button owns its region before its parent theme card. This also
+// supplies one stable mouse-down/up identity to the production settings host.
+[[nodiscard]] inline int HitTestSettings(const SettingsLayout& layout,
+                                          float x, float y) noexcept {
+  const auto hit = [&](const DipRect& r) {
+    return r.width() > 0 && r.height() > 0 && r.contains(x, y);
+  };
+  if (hit(layout.theme_popover)) return 600;
+  for (std::size_t i = 0; i < layout.theme_details.size(); ++i)
+    if (hit(layout.theme_details[i])) return 400 + static_cast<int>(i);
+  for (std::size_t i = 0; i < layout.nav.size(); ++i)
+    if (hit(layout.nav[i])) return static_cast<int>(i);
+  for (std::size_t i = 0; i < layout.subpage_tabs.size(); ++i)
+    if (hit(layout.subpage_tabs[i])) return 500 + static_cast<int>(i);
+  for (std::size_t i = 0; i < layout.scheme_cards.size(); ++i)
+    if (hit(layout.scheme_cards[i])) return 100 + static_cast<int>(i);
+  for (std::size_t i = 0; i < layout.theme_cards.size(); ++i)
+    if (hit(layout.theme_cards[i])) return 200 + static_cast<int>(i);
+  if (hit(layout.save)) return 300;
+  if (hit(layout.close)) return 301;
+  return -1;
 }
 
 }  // namespace rimes::windows::ui

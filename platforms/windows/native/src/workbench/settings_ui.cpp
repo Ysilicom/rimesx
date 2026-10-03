@@ -1,5 +1,7 @@
 #include "settings_ui.hpp"
 
+#include <dwmapi.h>
+
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -62,6 +64,7 @@ void SettingsUiHost::SyncDraftFromConfig(const Settings& config) {
                                        : ui::ThemeIdOrDefault(config.theme);
   draft_.preview_theme = draft_.theme;
   draft_.theme_index = static_cast<int>(draft_.theme);
+  draft_.theme_detail = -1;
   opened_theme_ = draft_.theme;
   draft_.ascii = config.ascii;
   draft_.traditional = config.traditional;
@@ -175,12 +178,16 @@ bool SettingsUiHost::HandleDialogMessage(MSG* message) {
         const int current = draft_.focus;
         if (!back) {
           if (current < 5 && grid != sidebar) focus_shell(grid);
+          else if (current >= 200 && current < 204) focus_shell(400 + current - 200);
+          else if (current >= 400 && current < 404) focus_shell(300);
           else if (current < 300 && !controls.empty()) SetFocus(controls.front());
           else if (current < 300) focus_shell(300);
           else focus_shell(current == 300 ? 301 : sidebar);
         } else {
           if (current < 5) focus_shell(301);
           else if (current == 301) focus_shell(300);
+          else if (current == 300 && grid >= 200 && grid < 204) focus_shell(400 + grid - 200);
+          else if (current >= 400 && current < 404) focus_shell(200 + current - 400);
           else if (current == 300 && !controls.empty()) SetFocus(controls.back());
           else focus_shell(current == 300 ? grid : sidebar);
         }
@@ -235,6 +242,13 @@ void SettingsUiHost::CreateOrUpdateChildren() {
 void SettingsUiHost::ThemeEdits() {
   fonts_.Ensure(dpi_);
   const auto& p = ui::Palette(draft_.preview_theme);
+  // Documented Windows 11 attributes; older systems keep the native fallback.
+  const BOOL dark = p.dark ? TRUE : FALSE;
+  const COLORREF caption = ui::ToColorRef(p.settings_background);
+  const COLORREF text = ui::ToColorRef(p.text_primary);
+  DwmSetWindowAttribute(hwnd_, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
+  DwmSetWindowAttribute(hwnd_, DWMWA_CAPTION_COLOR, &caption, sizeof(caption));
+  DwmSetWindowAttribute(hwnd_, DWMWA_TEXT_COLOR, &text, sizeof(text));
   if (edit_brush_) DeleteObject(edit_brush_);
   edit_brush_ = CreateSolidBrush(ui::ToColorRef(p.surface));
   HWND edits[] = {edit_font_, edit_hotkey_, edit_base_,
@@ -252,6 +266,10 @@ void SettingsUiHost::ThemeEdits() {
 }
 
 void SettingsUiHost::Relayout() {
+  pressed_hit_ = -2;
+  if (GetCapture() == hwnd_) ReleaseCapture();
+  if (draft_.page != ui::SettingsPage::kAppearance || draft_.subpage != 0)
+    draft_.theme_detail = -1;
   RECT client{};
   GetClientRect(hwnd_, &client);
   dpi_ = GetDpiForWindow(hwnd_);
@@ -339,6 +357,41 @@ bool SettingsUiHost::CommitSave() {
 
 void SettingsUiHost::Paint(HDC dc) {
   ui::PaintSettingsShell(dc, layout_, draft_, fonts_, dpi_);
+}
+
+void SettingsUiHost::ActivateHit(int hit) {
+  if (hit >= 0 && hit < ui::kSettingsPageCount) {
+    draft_.page = static_cast<ui::SettingsPage>(hit);
+    draft_.subpage = 0;
+    draft_.focus = hit;
+    Relayout();
+  } else if (hit >= 500 && hit < 502) {
+    draft_.subpage = hit - 500;
+    draft_.focus = static_cast<int>(draft_.page);
+    Relayout();
+  } else if (hit >= 100 && hit < 105 &&
+             draft_.page == ui::SettingsPage::kInput && draft_.subpage == 0) {
+    draft_.schema_index = hit - 100;
+    draft_.focus = hit;
+    InvalidateRect(hwnd_, nullptr, FALSE);
+  } else if (hit >= 200 && hit < 204 &&
+             draft_.page == ui::SettingsPage::kAppearance && draft_.subpage == 0) {
+    draft_.theme_index = hit - 200;
+    draft_.theme_detail = -1;
+    draft_.preview_theme = static_cast<ui::ThemeId>(draft_.theme_index);
+    draft_.focus = hit;
+    if (callbacks_.on_theme_preview) callbacks_.on_theme_preview(draft_.preview_theme);
+    Relayout();
+  } else if (hit >= 400 && hit < 404 &&
+             draft_.page == ui::SettingsPage::kAppearance && draft_.subpage == 0) {
+    draft_.theme_detail = draft_.theme_detail == hit - 400 ? -1 : hit - 400;
+    draft_.focus = hit;
+    Relayout();
+  } else if (hit == 300) {
+    Close(true);
+  } else if (hit == 301) {
+    Close(false);
+  }
 }
 
 LRESULT CALLBACK SettingsUiHost::Procedure(HWND hwnd, UINT message,
@@ -439,77 +492,55 @@ LRESULT CALLBACK SettingsUiHost::Procedure(HWND hwnd, UINT message,
         self->edit_brush_ = CreateSolidBrush(ui::ToColorRef(p.surface));
       return reinterpret_cast<LRESULT>(self->edit_brush_);
     }
-    case WM_LBUTTONUP: {
+    case WM_LBUTTONDOWN: {
       SetFocus(hwnd);
       self->draft_.keyboard_focus = false;
-      const float dpi = static_cast<float>(self->dpi_);
       const float x = static_cast<float>(static_cast<short>(LOWORD(lparam))) *
-                      96.0f / dpi;
+                      96.0f / self->dpi_;
       const float y = static_cast<float>(static_cast<short>(HIWORD(lparam))) *
-                      96.0f / dpi;
-      for (int i = 0; i < ui::kSettingsPageCount; ++i) {
-        if (self->layout_.nav[static_cast<std::size_t>(i)].contains(x, y)) {
-          self->draft_.page = static_cast<ui::SettingsPage>(i);
-          self->draft_.subpage = 0;
-          self->draft_.focus = i;
-          self->Relayout();
-          return 0;
-        }
-      }
-      for (int i = 0; i < 2; ++i) {
-        if (self->layout_.subpage_tabs[static_cast<std::size_t>(i)].contains(
-                x, y)) {
-          self->draft_.subpage = i;
-          self->draft_.focus = static_cast<int>(self->draft_.page);
-          self->Relayout();
-          return 0;
-        }
-      }
-      if (self->draft_.page == ui::SettingsPage::kInput) {
-        for (std::size_t i = 0; i < self->layout_.scheme_cards.size(); ++i) {
-          if (self->layout_.scheme_cards[i].contains(x, y)) {
-            self->draft_.schema_index = static_cast<int>(i);
-            self->draft_.focus = 100 + static_cast<int>(i);
-            InvalidateRect(hwnd, nullptr, FALSE);
-            return 0;
-          }
-        }
-      } else if (self->draft_.page == ui::SettingsPage::kAppearance) {
-        for (std::size_t i = 0; i < self->layout_.theme_cards.size(); ++i) {
-          if (self->layout_.theme_cards[i].contains(x, y)) {
-            self->draft_.theme_index = static_cast<int>(i);
-            self->draft_.preview_theme = static_cast<ui::ThemeId>(i);
-            self->draft_.focus = 200 + static_cast<int>(i);
-            if (self->callbacks_.on_theme_preview)
-              self->callbacks_.on_theme_preview(self->draft_.preview_theme);
-            self->ThemeEdits();
-            InvalidateRect(hwnd, nullptr, FALSE);
-            return 0;
-          }
-        }
-      }
-      if (self->layout_.save.contains(x, y)) {
-        if (self->CommitSave()) DestroyWindow(hwnd);
-        return 0;
-      }
-      if (self->layout_.close.contains(x, y)) {
-        DestroyWindow(hwnd);
-        return 0;
-      }
+                      96.0f / self->dpi_;
+      self->pressed_hit_ = ui::HitTestSettings(self->layout_, x, y);
+      SetCapture(hwnd);
       return 0;
     }
+    case WM_LBUTTONUP: {
+      const int pressed = self->pressed_hit_;
+      self->pressed_hit_ = -2;
+      if (GetCapture() == hwnd) ReleaseCapture();
+      if (pressed == -2) return 0;
+      const float x = static_cast<float>(static_cast<short>(LOWORD(lparam))) *
+                      96.0f / self->dpi_;
+      const float y = static_cast<float>(static_cast<short>(HIWORD(lparam))) *
+                      96.0f / self->dpi_;
+      const int hit = ui::HitTestSettings(self->layout_, x, y);
+      if (hit != pressed) return 0;
+      if (self->draft_.theme_detail >= 0 && hit != 600 &&
+          !(hit >= 400 && hit < 404)) {
+        self->draft_.theme_detail = -1;
+        self->Relayout();
+        return 0;
+      }
+      self->ActivateHit(hit);
+      return 0;
+    }
+    case WM_ACTIVATE:
+      if (LOWORD(wparam) == WA_INACTIVE && self->draft_.theme_detail >= 0) {
+        self->draft_.theme_detail = -1;
+        self->Relayout();
+      }
+      break;
+    case WM_CANCELMODE:
+      if (GetCapture() == hwnd) ReleaseCapture();
+      [[fallthrough]];
+    case WM_CAPTURECHANGED:
+      self->pressed_hit_ = -2;
+      return 0;
     case WM_MOUSEMOVE: {
       const float x = static_cast<float>(static_cast<short>(LOWORD(lparam))) *
                       96.0f / self->dpi_;
       const float y = static_cast<float>(static_cast<short>(HIWORD(lparam))) *
                       96.0f / self->dpi_;
-      int hover = -1;
-      for (std::size_t i = 0; i < self->layout_.nav.size(); ++i)
-        if (self->layout_.nav[i].contains(x, y)) hover = static_cast<int>(i);
-      for (std::size_t i = 0; i < self->layout_.scheme_cards.size(); ++i)
-        if (self->layout_.scheme_cards[i].contains(x, y)) hover = 100 + static_cast<int>(i);
-      for (std::size_t i = 0; i < self->layout_.theme_cards.size(); ++i)
-        if (self->layout_.theme_cards[i].contains(x, y)) hover = 200 + static_cast<int>(i);
+      const int hover = ui::HitTestSettings(self->layout_, x, y);
       if (self->draft_.hover != hover) {
         self->draft_.hover = hover;
         InvalidateRect(hwnd, nullptr, FALSE);
@@ -529,22 +560,19 @@ LRESULT CALLBACK SettingsUiHost::Procedure(HWND hwnd, UINT message,
         ScreenToClient(hwnd, &point);
         const float x = static_cast<float>(point.x) * 96.0f / self->dpi_;
         const float y = static_cast<float>(point.y) * 96.0f / self->dpi_;
-        bool actionable = self->layout_.save.contains(x, y) ||
-                          self->layout_.close.contains(x, y);
-        for (const auto& item : self->layout_.nav)
-          actionable = actionable || item.contains(x, y);
-        for (const auto& item : self->layout_.subpage_tabs)
-          actionable = actionable || item.contains(x, y);
-        for (const auto& item : self->layout_.scheme_cards)
-          actionable = actionable || item.contains(x, y);
-        for (const auto& item : self->layout_.theme_cards)
-          actionable = actionable || item.contains(x, y);
+        const int hit = ui::HitTestSettings(self->layout_, x, y);
+        const bool actionable = hit >= 0 && hit != 600;
         SetCursor(LoadCursorW(nullptr, actionable ? IDC_HAND : IDC_ARROW));
         return TRUE;
       }
       break;
     case WM_KEYDOWN:
       if (wparam == VK_ESCAPE) {
+        if (self->draft_.theme_detail >= 0) {
+          self->draft_.theme_detail = -1;
+          self->Relayout();
+          return 0;
+        }
         DestroyWindow(hwnd);
         return 0;
       }
@@ -578,45 +606,20 @@ LRESULT CALLBACK SettingsUiHost::Procedure(HWND hwnd, UINT message,
           return 0;
         }
         if (self->draft_.page == ui::SettingsPage::kAppearance &&
-            self->draft_.subpage == 0 && focus >= 200 && focus < 204) {
-          int idx = focus - 200;
+            self->draft_.subpage == 0 &&
+            ((focus >= 200 && focus < 204) || (focus >= 400 && focus < 404))) {
+          const int base = focus >= 400 ? 400 : 200;
+          int idx = focus - base;
           if (wparam == VK_RIGHT || wparam == VK_DOWN) idx = (idx + 1) % 4;
           else idx = (idx + 3) % 4;
-          focus = 200 + idx;
+          focus = base + idx;
           InvalidateRect(hwnd, nullptr, FALSE);
           return 0;
         }
       }
       if (wparam == VK_SPACE || wparam == VK_RETURN) {
-        const int focus = self->draft_.focus;
-        if (focus == 300) {
-          self->Close(true);
-          return 0;
-        }
-        if (focus == 301) {
-          self->Close(false);
-          return 0;
-        }
-        if (focus >= 0 && focus < ui::kSettingsPageCount) {
-          self->draft_.page = static_cast<ui::SettingsPage>(focus);
-          self->Relayout();
-          return 0;
-        }
-        if (focus >= 100 && focus < 105) {
-          self->draft_.schema_index = focus - 100;
-          InvalidateRect(hwnd, nullptr, FALSE);
-          return 0;
-        }
-        if (focus >= 200 && focus < 204) {
-          self->draft_.theme_index = focus - 200;
-          self->draft_.preview_theme =
-              static_cast<ui::ThemeId>(self->draft_.theme_index);
-          if (self->callbacks_.on_theme_preview)
-            self->callbacks_.on_theme_preview(self->draft_.preview_theme);
-          self->ThemeEdits();
-          InvalidateRect(hwnd, nullptr, FALSE);
-          return 0;
-        }
+        self->ActivateHit(self->draft_.focus);
+        return 0;
       }
       break;
     case WM_DESTROY:

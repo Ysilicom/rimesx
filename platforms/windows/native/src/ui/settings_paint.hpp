@@ -91,7 +91,7 @@ inline void PaintSettingsShell(HDC dc, const SettingsLayout& layout,
                     ToColorRef(Blend(p.settings_background, p.accent, 0.16f)));
     } else if (draft.hover == i) {
       FillRoundRect(dc, row, MulDiv(8, static_cast<int>(dpi), 96),
-                    ToColorRef(Blend(p.settings_background, p.text_muted, 0.08f)));
+                    ToColorRef(p.surface_tertiary));
     }
     if (draft.keyboard_focus && draft.focus == i) {
       HPEN focus_pen =
@@ -111,9 +111,10 @@ inline void PaintSettingsShell(HDC dc, const SettingsLayout& layout,
     icon.right = icon.left + MulDiv(18, static_cast<int>(dpi), 96);
     icon.top += (row.bottom - row.top - MulDiv(18, static_cast<int>(dpi), 96)) / 2;
     icon.bottom = icon.top + MulDiv(18, static_cast<int>(dpi), 96);
-    DrawIconGlyph(dc, kSettingsPageIcons[i], icon, ToColorRef(p.text_primary));
+    DrawIconGlyph(dc, kSettingsPageIcons[i], icon,
+                  ToColorRef(selected ? p.text_primary : p.text_secondary));
     SelectObject(dc, fonts.sidebar);
-    SetTextColor(dc, ToColorRef(p.text_primary));
+    SetTextColor(dc, ToColorRef(selected ? p.text_primary : p.text_secondary));
     RECT text = row;
     text.left = icon.right + MulDiv(8, static_cast<int>(dpi), 96);
     DrawTextW(dc, kSettingsPageTitles[i], -1, &text,
@@ -202,7 +203,7 @@ inline void PaintSettingsShell(HDC dc, const SettingsLayout& layout,
       }
     }
   } else if (draft.page == SettingsPage::kAppearance && draft.subpage == 0) {
-    SelectObject(dc, fonts.sidebar);
+    SelectObject(dc, fonts.title);
     SetTextColor(dc, ToColorRef(p.text_secondary));
     RECT section = px({layout.body.left, layout.body.top, layout.body.right,
                        layout.body.top + 18});
@@ -274,9 +275,21 @@ inline void PaintSettingsShell(HDC dc, const SettingsLayout& layout,
       SelectObject(dc, fonts.family);
       SetTextColor(dc, ToColorRef(tp.text_muted));
       RECT family = name;
+      family.top += MulDiv(2, static_cast<int>(dpi), 96);
       family.left = name.left + size.cx + MulDiv(8, static_cast<int>(dpi), 96);
       DrawTextW(dc, kThemeFamilies[i], -1, &family,
                 DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+      RECT info = px(layout.theme_details[i]);
+      if (draft.hover == 400 + static_cast<int>(i))
+        FillRoundRect(dc, info, MulDiv(5, static_cast<int>(dpi), 96),
+                      ToColorRef(tp.surface_tertiary));
+      RECT glyph = info;
+      InflateRect(&glyph, -MulDiv(4, static_cast<int>(dpi), 96),
+                  -MulDiv(4, static_cast<int>(dpi), 96));
+      DrawIconGlyph(dc, IconId::kInfo, glyph, ToColorRef(tp.text_secondary));
+      if (draft.keyboard_focus && draft.focus == 400 + static_cast<int>(i))
+        StrokeRoundRect(dc, info, MulDiv(5, static_cast<int>(dpi), 96),
+                        ToColorRef(tp.accent));
       if (draft.keyboard_focus && draft.focus == 200 + static_cast<int>(i)) {
         HPEN focus_pen = CreatePen(
             PS_SOLID, (std::max)(1, MulDiv(1, static_cast<int>(dpi), 96)),
@@ -388,6 +401,37 @@ inline void PaintSettingsShell(HDC dc, const SettingsLayout& layout,
   DrawTextW(dc, L"选择与修改将在保存后生效", -1, &status,
             DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
+  if (layout.theme_popover.width() > 0 && draft.theme_detail >= 0 &&
+      draft.theme_detail < 4) {
+    RECT panel = px(layout.theme_popover);
+    RECT shadow = panel;
+    OffsetRect(&shadow, 0, MulDiv(3, static_cast<int>(dpi), 96));
+    FillRoundRect(dc, shadow, MulDiv(8, static_cast<int>(dpi), 96),
+                  ToColorRef(Blend(p.settings_background, 0x000000, 0.28f)));
+    FillRoundRect(dc, panel, MulDiv(8, static_cast<int>(dpi), 96),
+                  ToColorRef(p.surface_secondary));
+    StrokeRoundRect(dc, panel, MulDiv(8, static_cast<int>(dpi), 96),
+                    ToColorRef(p.border_strong));
+    RECT text = panel;
+    text.left += MulDiv(14, static_cast<int>(dpi), 96);
+    text.right -= MulDiv(14, static_cast<int>(dpi), 96);
+    text.top += MulDiv(12, static_cast<int>(dpi), 96);
+    text.bottom = text.top + MulDiv(20, static_cast<int>(dpi), 96);
+    SelectObject(dc, fonts.sidebar);
+    SetTextColor(dc, ToColorRef(p.text_primary));
+    DrawTextW(dc, kThemeTitles[draft.theme_detail], -1, &text, DT_LEFT | DT_SINGLELINE);
+    OffsetRect(&text, 0, MulDiv(24, static_cast<int>(dpi), 96));
+    SelectObject(dc, fonts.family);
+    SetTextColor(dc, ToColorRef(p.text_muted));
+    DrawTextW(dc, draft.theme_detail == 3 ? L"独立主题" : L"经典配色", -1, &text,
+              DT_LEFT | DT_SINGLELINE);
+    OffsetRect(&text, 0, MulDiv(20, static_cast<int>(dpi), 96));
+    text.bottom = panel.bottom - MulDiv(14, static_cast<int>(dpi), 96);
+    SelectObject(dc, fonts.body);
+    SetTextColor(dc, ToColorRef(p.text_secondary));
+    DrawTextW(dc, kThemeDetails[draft.theme_detail], -1, &text,
+              DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+  }
   SelectObject(dc, old);
 }
 

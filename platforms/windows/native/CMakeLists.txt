@@ -91,7 +91,7 @@ add_library(RimesWorkbench STATIC
     src/workbench/settings_ui.cpp
     src/workbench/window.cpp
 )
-target_link_libraries(RimesWorkbench PUBLIC RimesCore winhttp advapi32 user32 d2d1 dwrite shell32 wtsapi32 ole32 comctl32 gdi32)
+target_link_libraries(RimesWorkbench PUBLIC RimesCore winhttp advapi32 user32 d2d1 dwrite shell32 wtsapi32 ole32 comctl32 gdi32 dwmapi)
 rimes_harden_target(RimesWorkbench)
 
 add_executable(RimesBroker
@@ -260,6 +260,11 @@ if(RIMES_BUILD_TESTS)
     rimes_harden_target(RimesSettingsTests)
     add_test(NAME RimesSettings COMMAND RimesSettingsTests)
 
+    add_executable(RimesSettingsUiTests src/workbench/settings_ui_tests.cpp)
+    target_link_libraries(RimesSettingsUiTests PRIVATE RimesWorkbench)
+    rimes_harden_target(RimesSettingsUiTests)
+    add_test(NAME RimesSettingsUi COMMAND RimesSettingsUiTests)
+
     # Fail-open contract for a disconnected BrokerClient. Does not launch a
     # Broker or touch Session 1; safe as a default CTest.
     add_executable(RimesBrokerClientContractTests
@@ -323,6 +328,7 @@ if(RIMES_BUILD_TESTS)
     )
     target_link_libraries(RimesVisualPreview PRIVATE
         RimesCore
+        dwmapi
         d2d1
         dwrite
         gdi32

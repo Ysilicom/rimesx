@@ -17,6 +17,12 @@ inline constexpr const wchar_t* kThemeTitles[] = {L"墨竹", L"翡翠", L"静谧
 inline constexpr const wchar_t* kThemeFamilies[] = {L"经典", L"经典", L"经典",
                                                     L"拉斯塔"};
 
+inline constexpr const wchar_t* kThemeDetails[] = {
+    L"经典深色配色，层级清晰，适合长时间输入。",
+    L"经典浅色配色，柔和边界与固定产品绿。",
+    L"经典去色配色，降低视觉刺激。",
+    L"深色精致骨架，以红、黄、绿三色共同组织状态与操作。"};
+
 struct ThemePalette {
   std::uint32_t brand_red;
   std::uint32_t brand_yellow;

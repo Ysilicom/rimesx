@@ -151,7 +151,7 @@ inline float MeasureBufferContent(IDWriteFactory* write,
     if (preedit) layout->SetFontSize(13, {0, static_cast<UINT32>(text.size())});
     DWRITE_TEXT_METRICS metrics{};
     layout->GetMetrics(&metrics);
-    width += metrics.widthIncludingTrailingWhitespace + 13.0f;
+    width += metrics.widthIncludingTrailingWhitespace + 5.0f;
     layout->Release();
   };
   for (const auto& block : blocks) add(block.text, false);
@@ -168,6 +168,8 @@ inline void DrawBufferWorkbench(const BufferPaintContext& ctx,
   auto* label = ctx.label;
   auto* brush = ctx.brush;
   if (!target || !write || !body || !label || !brush) return;
+
+  label->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
   // Never clear the caller's full render target; host clears its canvas.
   const ThemePalette& p = Palette(state.theme);
@@ -204,38 +206,42 @@ inline void DrawBufferWorkbench(const BufferPaintContext& ctx,
     return normal;
   };
 
-  auto draw_control_bg = [&](const DipRect& box, BufferHitKind kind) {
-    if (state.hover != static_cast<int>(kind) &&
-        state.pressed != static_cast<int>(kind))
-      return;
-    brush->SetColor(ColorF(
-        Blend(p.buffer, p.surface_tertiary,
-              state.pressed == static_cast<int>(kind) ? 0.55f : 0.35f)));
-    target->FillRoundedRectangle(
-        D2D1::RoundedRect(
-            D2D1::RectF(box.left, box.top, box.right, box.bottom), 5, 5),
-        brush);
+  auto draw_control_bg = [&](const DipRect& box, BufferHitKind kind,
+                             bool enabled, std::uint32_t base) {
+    const bool pressed = enabled && state.pressed == static_cast<int>(kind);
+    const bool hovered = enabled && state.hover == static_cast<int>(kind);
+    const float fill_alpha = !enabled ? 0.34f : (pressed ? 1.0f : 0.78f);
+    std::uint32_t fill = Blend(base, p.surface_secondary, fill_alpha);
+    if (hovered) fill = Blend(fill, p.text_primary, pressed ? 0.14f : 0.08f);
+    brush->SetColor(ColorF(fill));
+    const auto shape = D2D1::RoundedRect(
+        D2D1::RectF(box.left + hairline * 0.5f, box.top + hairline * 0.5f,
+                    box.right - hairline * 0.5f, box.bottom - hairline * 0.5f),
+        6, 6);
+    target->FillRoundedRectangle(shape, brush);
+    brush->SetColor(ColorF(Blend(base,
+        hovered ? p.border_strong : p.border, enabled ? 0.82f : 0.40f)));
+    target->DrawRoundedRectangle(shape, brush, hairline);
   };
 
-  draw_control_bg(layout.mode_button, BufferHitKind::kMode);
+  draw_control_bg(layout.mode_button, BufferHitKind::kMode, true, p.buffer);
   DrawD2DIcon(target, brush, IconId::kGrid, layout.mode_button,
-              icon_color(BufferHitKind::kMode, true, p.text_primary));
+              icon_color(BufferHitKind::kMode, true, p.text_secondary));
 
-  // Mode chip
-  brush->SetColor(ColorF(p.surface_secondary));
-  target->FillRoundedRectangle(
-      D2D1::RoundedRect(D2D1::RectF(layout.mode_chip.left, layout.mode_chip.top,
-                                    layout.mode_chip.right,
-                                    layout.mode_chip.bottom),
-                        6, 6),
-      brush);
+  // The mode popup shares the persistent surface and disclosure separator.
+  draw_control_bg(layout.mode_chip, BufferHitKind::kMode, true, p.buffer);
+  brush->SetColor(ColorF(p.border));
+  const float disclosure_x = layout.mode_chip.right - 20;
+  target->DrawLine(D2D1::Point2F(disclosure_x, layout.mode_chip.top + 4),
+                   D2D1::Point2F(disclosure_x, layout.mode_chip.bottom - 4),
+                   brush, hairline);
   const wchar_t* mode_name = L"输入";
   if (state.mode == BufferMode::kGenerate) mode_name = L"生成";
   if (state.mode == BufferMode::kTranslate) mode_name = L"翻译";
   brush->SetColor(ColorF(p.text_primary));
   target->DrawTextW(mode_name, static_cast<UINT32>(wcslen(mode_name)), label,
                     D2D1::RectF(layout.mode_chip.left + 8, layout.mode_chip.top,
-                                layout.mode_chip.right - 14,
+                                disclosure_x - 4,
                                 layout.mode_chip.bottom),
                     brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
   DrawD2DIcon(target, brush, IconId::kChevron,
@@ -262,10 +268,10 @@ inline void DrawBufferWorkbench(const BufferPaintContext& ctx,
                       brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
   }
 
-  draw_control_bg(layout.more_button, BufferHitKind::kMore);
+  draw_control_bg(layout.more_button, BufferHitKind::kMore, true, p.buffer);
   DrawD2DIcon(target, brush, IconId::kMore, layout.more_button,
               icon_color(BufferHitKind::kMore, true, p.text_secondary));
-  draw_control_bg(layout.close_button, BufferHitKind::kClose);
+  draw_control_bg(layout.close_button, BufferHitKind::kClose, true, p.buffer);
   DrawD2DIcon(target, brush, IconId::kClose, layout.close_button,
               icon_color(BufferHitKind::kClose, true, p.text_secondary));
 
@@ -294,15 +300,16 @@ inline void DrawBufferWorkbench(const BufferPaintContext& ctx,
               text_box.height(), &layout_obj)))
         return;
       layout_obj->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+      layout_obj->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
       if (preedit)
         layout_obj->SetFontSize(13, {0, static_cast<UINT32>(text.size())});
       DWRITE_TEXT_METRICS metrics{};
       layout_obj->GetMetrics(&metrics);
-      const float w = metrics.widthIncludingTrailingWhitespace + 8.0f;
+      const float w = metrics.widthIncludingTrailingWhitespace;
       brush->SetColor(ColorF(p.text_primary));
-      target->DrawTextLayout(D2D1::Point2F(x, text_box.top + 6.0f), layout_obj,
+      target->DrawTextLayout(D2D1::Point2F(x, text_box.top), layout_obj,
                              brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
-      brush->SetColor(ColorF(streaming ? p.accent : p.buffer_divider));
+      brush->SetColor(ColorF(streaming ? p.accent : p.border_strong));
       target->DrawLine(D2D1::Point2F(x, rail.bottom - 4.0f),
                        D2D1::Point2F(x + w, rail.bottom - 4.0f), brush,
                        hairline);
@@ -314,7 +321,7 @@ inline void DrawBufferWorkbench(const BufferPaintContext& ctx,
       brush->SetColor(ColorF(p.text_muted));
       target->DrawTextW(state.empty_hint.c_str(),
                         static_cast<UINT32>(state.empty_hint.size()), label,
-                        D2D1::RectF(text_box.left, text_box.top + 6.0f,
+                        D2D1::RectF(text_box.left, text_box.top,
                                     text_box.right, text_box.bottom),
                         brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
     } else {
@@ -323,8 +330,8 @@ inline void DrawBufferWorkbench(const BufferPaintContext& ctx,
       if (!tail.empty()) paint_item(tail, true, !result_lane);
       if (!result_lane && state.capturing) {
         brush->SetColor(ColorF(p.accent));
-        target->DrawLine(D2D1::Point2F(x - 8, rail.top + 7),
-                         D2D1::Point2F(x - 8, rail.bottom - 7), brush, 2);
+        target->DrawLine(D2D1::Point2F(x - 3, rail.top + 7),
+                         D2D1::Point2F(x - 3, rail.bottom - 7), brush, 2);
       }
     }
     target->PopAxisAlignedClip();
@@ -340,20 +347,21 @@ inline void DrawBufferWorkbench(const BufferPaintContext& ctx,
                state.result_blocks, state.preview, true, state.scroll_result);
   }
 
+  const auto action_surface = layout.show_result ? p.buffer_target_rail : p.candidate;
   if (layout.show_paste) {
-    draw_control_bg(layout.paste, BufferHitKind::kPaste);
+    draw_control_bg(layout.paste, BufferHitKind::kPaste, state.paste_enabled, action_surface);
     DrawD2DIcon(target, brush, IconId::kPaste, layout.paste,
                 icon_color(BufferHitKind::kPaste, state.paste_enabled,
                            p.text_secondary));
   }
   if (layout.show_copy) {
-    draw_control_bg(layout.copy, BufferHitKind::kCopy);
+    draw_control_bg(layout.copy, BufferHitKind::kCopy, state.copy_enabled, action_surface);
     DrawD2DIcon(target, brush, IconId::kCopy, layout.copy,
                 icon_color(BufferHitKind::kCopy, state.copy_enabled,
                            p.text_secondary));
   }
   if (layout.show_send) {
-    draw_control_bg(layout.send, BufferHitKind::kSend);
+    draw_control_bg(layout.send, BufferHitKind::kSend, state.send_enabled, action_surface);
     // Send remains a static plane — never a spinner.
     DrawD2DIcon(target, brush, IconId::kPlane, layout.send,
                 icon_color(BufferHitKind::kSend, state.send_enabled,

@@ -21,6 +21,7 @@ using rimes::windows::ui::BufferPaintState;
 using rimes::windows::ui::ClampScroll;
 using rimes::windows::ui::HitTestBuffer;
 using rimes::windows::ui::LayoutBuffer;
+using rimes::windows::ui::RectInside;
 
 BufferPaintState BaseState() {
   BufferPaintState state;
@@ -58,11 +59,11 @@ void TestGenerationReadyTwoRails() {
   const auto layout = LayoutBuffer(state, 760);
   Check(layout.height_dip == 105, "generation-ready uses 105 DIP");
   Check(layout.show_result, "generation shows result rail");
-  Check(layout.result_rail.bottom <= layout.height_dip + 0.01f,
+  Check(layout.result_rail.bottom < layout.chrome.bottom,
         "result rail fits inside height");
   Check(BufferLayoutFullyContained(layout), "generation-ready contained");
-  Check(layout.paste.top < layout.result_rail.top,
-        "paste stays on source rail for two-rail mode");
+  Check(layout.paste.top >= layout.result_rail.top,
+        "paste joins copy and send on the primary result rail");
   Check(layout.copy.top >= layout.result_rail.top - 0.01f,
         "copy sits on result rail");
   Check(layout.send.top >= layout.result_rail.top - 0.01f,
@@ -118,6 +119,37 @@ void TestScrollClamp() {
   Check(ClampScroll(50, 100, 200) == 0, "short content forces zero scroll");
 }
 
+void TestPrimaryActionCluster() {
+  for (const float width : {520.0f, 760.0f, 1100.0f}) {
+    auto state = BaseState();
+    for (const auto mode : {BufferMode::kInput, BufferMode::kGenerate,
+                            BufferMode::kTranslate}) {
+      state.mode = mode;
+      for (const bool busy : {false, true}) {
+        state.busy = busy;
+        const auto layout = LayoutBuffer(state, width);
+        const auto& primary = layout.show_result ? layout.result_rail
+                                                : layout.source_rail;
+        Check(BufferLayoutFullyContained(layout), "every mode clears inner chrome");
+        Check(RectInside(layout.paste, primary) && RectInside(layout.send, primary),
+              "action rectangles remain within primary rail");
+        Check(layout.source_rail.left == primary.left &&
+                  layout.source_rail.right == primary.right,
+              "overlay never narrows either outer rail");
+        Check(layout.show_copy ? layout.paste.right < layout.copy.left &&
+                                  layout.copy.right < layout.send.left
+                               : layout.send.left - layout.paste.right == 4,
+              "paste copy send stay ordered without a hidden copy gap");
+        const auto& text = layout.show_result ? layout.result_text : layout.source_text;
+        Check(text.right < layout.paste.left, "text clears the primary action cluster");
+        if (layout.show_result && busy)
+          Check(text.right < layout.waiting.left && layout.waiting.right < layout.paste.left,
+                "waiting indicator cannot overlap text or actions");
+      }
+    }
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -128,6 +160,7 @@ int main() {
   TestErrorStatus();
   TestFoldedHasNoOffWindowHits();
   TestScrollClamp();
+  TestPrimaryActionCluster();
   ExpectContained(BaseState(), "default contained");
   if (g_failures) {
     std::cerr << g_failures << " buffer layout failures\n";

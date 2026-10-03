@@ -45,6 +45,7 @@ class SettingsUiHost {
   void ThemeEdits();
   bool CommitSave();
   void Paint(HDC dc);
+  void ActivateHit(int hit);
   static LRESULT CALLBACK Procedure(HWND, UINT, WPARAM, LPARAM);
 
   SettingsUiCallbacks callbacks_;
@@ -66,6 +67,7 @@ class SettingsUiHost {
   HWND check_punct_ = nullptr;
   HBRUSH edit_brush_ = nullptr;
   unsigned dpi_ = 96;
+  int pressed_hit_ = -2;
 };
 
 }  // namespace rimes::windows::workbench

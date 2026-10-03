@@ -35,6 +35,7 @@ enum class IconId {
   kEnglish,
   kPalette,
   kLink,
+  kInfo,
 };
 
 [[nodiscard]] inline COLORREF ToColorRef(std::uint32_t rgb) noexcept {
@@ -93,6 +94,13 @@ inline void DrawIconGlyph(HDC dc, IconId id, const RECT& box,
   };
 
   switch (id) {
+    case IconId::kInfo:
+      Ellipse(dc, cx - s + 1, cy - s + 1, cx + s, cy + s);
+      SelectObject(dc, brush);
+      Ellipse(dc, cx - 1, cy - s / 2, cx + 2, cy - s / 2 + 3);
+      line(cx, cy, cx, cy + s / 2);
+      line(cx - 2, cy + s / 2, cx + 3, cy + s / 2);
+      break;
     case IconId::kKeyboard: {
       RoundRect(dc, box.left + 1, cy - s / 2 - 1,
                 box.right - 1, cy + s / 2 + 2, 3, 3);
