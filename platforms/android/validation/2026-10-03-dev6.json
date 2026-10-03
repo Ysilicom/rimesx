@@ -1,0 +1,446 @@
+{
+  "format_version": 1,
+  "date": "2026-10-03",
+  "version": "0.1.0-dev.6",
+  "versionCode": 6,
+  "package": "org.scholay.rimes.android.debug",
+  "min_sdk": 26,
+  "branch": "codex/android-chinese-input",
+  "status": "local_delivery_verified_with_remaining_acceptance",
+  "application_source": "bba5842550d87cc8eb2b9730337137bc6c17b08f",
+  "artifact": {
+    "application_source": "bba5842550d87cc8eb2b9730337137bc6c17b08f",
+    "branch": "codex/android-chinese-input",
+    "apk_name": "RIMES-Android-0.1.0-dev.6-bba5842.apk",
+    "sha256": "6ee219fce2a9f73474fd6a2d49db420f70e4cad70e632f2c99ae351886591e58",
+    "size": 17383632,
+    "installed_apk_matches": true,
+    "versionName": "0.1.0-dev.6",
+    "versionCode": 6,
+    "pushed": false,
+    "published": false
+  },
+  "publication": {
+    "pushed": false,
+    "published": false,
+    "hosted_ci_run_claimed": false
+  },
+  "scope": {
+    "translation": "Offline CC-CEDICT longest word/phrase lookup, simplified/traditional Chinese and ASCII English; not contextual sentence translation",
+    "directions": [
+      "auto",
+      "zh-en",
+      "en-zh"
+    ],
+    "ai": [
+      "ask",
+      "polish",
+      "poem",
+      "art"
+    ],
+    "ai_transport": "Local OpenAI Chat Completions JSON/SSE Mock; no HTTP/model/credentials/INTERNET permission; art is text only",
+    "input_output_UTF16_unit_limit": 16384,
+    "mock_echo_limit_UTF16_units": 512,
+    "stream_wire_byte_limit": 1048576,
+    "stream_line_byte_limit": 131072,
+    "captured_source_and_output_persisted": false
+  },
+  "dictionary": {
+    "lock": "resources/dictionary/cedict.lock.json",
+    "source_release": "2026-10-01T23:26:37Z",
+    "source_entries": 125166,
+    "source_sha256": "d434b5e90470877952fcbae02de42e4272a09d88783ce2ffa66f571e6871c2f9",
+    "index_sha256": "4dcd01007f78cb1d2857b51593cd6c70d22fa049446e5c4fee2a2a16806f5e8c",
+    "index_bytes": 4663964,
+    "runtime_primitive_arrays_and_pools_bytes": 10578032,
+    "zh_en_keys": 183491,
+    "en_zh_keys": 103644,
+    "license": "CC-BY-SA-4.0",
+    "full_license_attribution_and_modifications_packaged": true
+  },
+  "automatic": {
+    "jvm": {
+      "tests": 47,
+      "failures": 0,
+      "errors": 0
+    },
+    "lint": {
+      "app": {
+        "Error": 0,
+        "Warning": 12
+      },
+      "testhost": {
+        "Error": 0,
+        "Warning": 5
+      }
+    },
+    "local_gradle": "gradle-delivery-final.log",
+    "compact_apk_build": "gradle-compact-apk.log",
+    "native_libraries": {
+      "arm64-v8a": {
+        "sha256": "717c7869deb86eead97a7ac603e69e79b46f4e80a75d7327adafc64131f8d11d",
+        "same_as_dev5": true
+      },
+      "x86_64": {
+        "sha256": "aaffc2f34729fb25dade3b4c5605f12d8f3ed2574e922b038d486bd3842f80da",
+        "same_as_dev5": true
+      }
+    },
+    "ELF_LOAD_alignment_bytes": 16384,
+    "APK_zip_16KB_alignment": true,
+    "apk_v2_signature_verified": true,
+    "packaged_dictionary_exact_paths_and_bytes": true
+  },
+  "device": {
+    "model": "25098PN5AC",
+    "android": 16,
+    "api": 36,
+    "abi": "arm64-v8a",
+    "pages_bytes": 4096,
+    "display": "1220x2656",
+    "density_dpi": 520,
+    "navigation": "three_button",
+    "physical_16KB_runtime_verified": false
+  },
+  "physical": {
+    "backend_checks": 68,
+    "below_IPC_service_delivery_checks": 90,
+    "input_host_assertions": {
+      "plugins": 358,
+      "input-contract": 335,
+      "chord": 117,
+      "touch": 90,
+      "benchmark": 787,
+      "soak": 767
+    },
+    "JNI_rendering": {
+      "native_touch": 18,
+      "icons": 840,
+      "chord_surface": 23,
+      "Buffer_rendering": 24,
+      "Chinese_non_BMP_NUL_UTF16_and_nine_key": true
+    },
+    "short_soak": {
+      "seconds": 120,
+      "cycles": 40,
+      "assertions": 767,
+      "mixed_chords": true,
+      "full_30_minute_dev6_run": false
+    },
+    "manual": {
+      "scope": "Actual Android Setup keyboard buttons; no helper input method or injected host text",
+      "translation": {
+        "source": "你好",
+        "result": "hello",
+        "hostBeforeSend": "",
+        "hostAfterSend": "hello",
+        "sourceRetainedBeforeSend": true,
+        "sourceConsumedAfterAcceptedSend": true,
+        "resultAboveSource": true
+      },
+      "aiMock": {
+        "source": "你好",
+        "result": "【本机 AI Mock · 快问】\n这是固定模拟回复，用于验证 OpenAI 兼容流式协议；没有调用 AI 模型。\n问题：你好",
+        "hostBeforeSend": "",
+        "hostReceivedCompleteResultExactlyOnce": true,
+        "mockLabelInOutput": true,
+        "sourceConsumedAfterAcceptedSend": true
+      },
+      "settings": {
+        "automaticChineseEnglish": true,
+        "chineseToEnglishVisible": true,
+        "englishToChineseVisible": true,
+        "returnToKeyboardPassed": true
+      },
+      "cleanup": {
+        "syntheticSetupTextCleared": true,
+        "BufferEmpty": true,
+        "keyboardHidden": true,
+        "deviceSessionClosed": true
+      },
+      "screenshots": [
+        "manual-translation.png",
+        "manual-translation-sent.png",
+        "manual-ai-mock.png",
+        "manual-ai-mock-sent.png",
+        "manual-translation-settings.png"
+      ]
+    },
+    "crash": {
+      "observation_start_device_local": "10-03 16:29:59.000",
+      "earliest_retained_main_system_event": "10-03 16:29:59.567",
+      "main_system_fatal_or_ANR_marker_lines": [],
+      "crash_buffer_empty": true,
+      "package_exit_info_since_start": {
+        "rimes": [
+          {
+            "timestamp": "2026-10-03 16:47:16.475",
+            "reason": 16,
+            "label": "PACKAGE UPDATED"
+          },
+          {
+            "timestamp": "2026-10-03 16:39:26.591",
+            "reason": 10,
+            "label": "USER REQUESTED"
+          },
+          {
+            "timestamp": "2026-10-03 16:39:22.863",
+            "reason": 10,
+            "label": "USER REQUESTED"
+          },
+          {
+            "timestamp": "2026-10-03 16:39:19.152",
+            "reason": 10,
+            "label": "USER REQUESTED"
+          },
+          {
+            "timestamp": "2026-10-03 16:37:16.590",
+            "reason": 10,
+            "label": "USER REQUESTED"
+          },
+          {
+            "timestamp": "2026-10-03 16:31:21.892",
+            "reason": 16,
+            "label": "PACKAGE UPDATED"
+          },
+          {
+            "timestamp": "2026-10-03 16:30:02.857",
+            "reason": 10,
+            "label": "USER REQUESTED"
+          }
+        ],
+        "host": [
+          {
+            "timestamp": "2026-10-03 16:49:19.355",
+            "reason": 13,
+            "label": "OTHER KILLS BY SYSTEM"
+          },
+          {
+            "timestamp": "2026-10-03 16:49:19.338",
+            "reason": 10,
+            "label": "USER REQUESTED"
+          },
+          {
+            "timestamp": "2026-10-03 16:47:56.098",
+            "reason": 13,
+            "label": "OTHER KILLS BY SYSTEM"
+          },
+          {
+            "timestamp": "2026-10-03 16:47:56.086",
+            "reason": 10,
+            "label": "USER REQUESTED"
+          },
+          {
+            "timestamp": "2026-10-03 16:37:07.775",
+            "reason": 13,
+            "label": "OTHER KILLS BY SYSTEM"
+          },
+          {
+            "timestamp": "2026-10-03 16:37:07.759",
+            "reason": 10,
+            "label": "USER REQUESTED"
+          },
+          {
+            "timestamp": "2026-10-03 16:35:05.063",
+            "reason": 13,
+            "label": "OTHER KILLS BY SYSTEM"
+          },
+          {
+            "timestamp": "2026-10-03 16:35:05.047",
+            "reason": 10,
+            "label": "USER REQUESTED"
+          },
+          {
+            "timestamp": "2026-10-03 16:33:41.899",
+            "reason": 13,
+            "label": "OTHER KILLS BY SYSTEM"
+          },
+          {
+            "timestamp": "2026-10-03 16:33:41.890",
+            "reason": 10,
+            "label": "USER REQUESTED"
+          },
+          {
+            "timestamp": "2026-10-03 16:33:32.986",
+            "reason": 13,
+            "label": "OTHER KILLS BY SYSTEM"
+          },
+          {
+            "timestamp": "2026-10-03 16:33:32.969",
+            "reason": 10,
+            "label": "USER REQUESTED"
+          },
+          {
+            "timestamp": "2026-10-03 16:33:16.694",
+            "reason": 13,
+            "label": "OTHER KILLS BY SYSTEM"
+          },
+          {
+            "timestamp": "2026-10-03 16:33:16.685",
+            "reason": 10,
+            "label": "USER REQUESTED"
+          },
+          {
+            "timestamp": "2026-10-03 16:32:02.095",
+            "reason": 13,
+            "label": "OTHER KILLS BY SYSTEM"
+          },
+          {
+            "timestamp": "2026-10-03 16:32:02.085",
+            "reason": 10,
+            "label": "USER REQUESTED"
+          }
+        ]
+      },
+      "observed_RIMES_host_crash_or_ANR": false,
+      "interpretation": "Bounded retained logs and package exit-info only. Deliberate force-stops, package updates, instrumentation completion and isolated WebView release are normal exit reasons."
+    },
+    "restoration": {
+      "all_six_settings_match": true,
+      "before": "device-before.json",
+      "after": "device-after.json",
+      "manual_session_closed": true,
+      "synthetic_Setup_text_and_Buffer_cleared": true,
+      "application_test_preferences_intentionally_changed": true
+    },
+    "OEM_secure_password_UI_automation": "pending/skipped"
+  },
+  "benchmarks": {
+    "ui": {
+      "scope": "accessibility ACTION_CLICK request to actual host TextWatcher; includes IPC/scheduling; no touch hardware or frame presentation",
+      "warmup": 5,
+      "first_key_ms": {
+        "samples": 60,
+        "mean": 13.21442435,
+        "p50": 13.240781,
+        "p95": 18.424739,
+        "max": 24.16276
+      },
+      "candidate_commit_ms": {
+        "samples": 60,
+        "mean": 10.085637116666668,
+        "p50": 10.043698,
+        "p95": 14.748959,
+        "max": 16.234375
+      },
+      "ime": "org.scholay.rimes.android.debug/org.scholay.rimes.android.RimesInputMethodService"
+    },
+    "historical_dev5_reference": {
+      "first_key_p95_ms": 22.682656,
+      "candidate_commit_p95_ms": 14.346355,
+      "same_device": true,
+      "contemporaneous_baseline_rerun": false
+    },
+    "dictionary": {
+      "first_asset_load_and_lookup_samples": 1,
+      "first_asset_load_and_lookup_ms": 241.613334,
+      "warm_short_word_samples": 1000,
+      "warm_total_ms": 12.124218,
+      "warm_mean_ms": 0.012124218,
+      "scope": "Actual production index/runtime in fresh instrumentation process; not UI latency or a cold/long-text distribution"
+    },
+    "mock": {
+      "performance_benchmark": false,
+      "deliberate_chunk_pause_ms": 40
+    },
+    "ui_before_compaction": {
+      "scope": "accessibility ACTION_CLICK request to actual host TextWatcher; includes IPC/scheduling; no touch hardware or frame presentation",
+      "warmup": 5,
+      "first_key_ms": {
+        "samples": 60,
+        "mean": 14.918714366666666,
+        "p50": 14.975885,
+        "p95": 23.052292,
+        "max": 24.500208
+      },
+      "candidate_commit_ms": {
+        "samples": 60,
+        "mean": 9.416387966666667,
+        "p50": 9.580729,
+        "p95": 13.964375,
+        "max": 16.638177
+      },
+      "ime": "org.scholay.rimes.android.debug/org.scholay.rimes.android.RimesInputMethodService"
+    }
+  },
+  "upgrade": {
+    "preserved": true,
+    "files": 73,
+    "install_r": true,
+    "data_cleared": false,
+    "scope": "Quiesced first dev5 to dev6 install-r; 73 observed app-private resource/database/preference/test files, including synthetic benchmark files. Not 73 real dictionaries; later validation intentionally changes test preferences."
+  },
+  "packaging_optimization": {
+    "all_zip_entries_identical": true,
+    "entry_count": 82,
+    "before_bytes": 21748725,
+    "after_bytes": 17383632,
+    "saved_bytes": 4365093
+  },
+  "evidence_interpretation": "Service/JNI/manual/input/chord/touch/short-soak checks precede archive compaction; all 82 ZIP entries including DEX/resources/libraries are byte-identical. Plugin host and UI benchmark rerun on final compact installed APK; no source changes after application_source.",
+  "remaining_coverage": [
+    "Dev6 30-minute plugin/input acceptance",
+    "Real OpenAI HTTP transport/model/credentials/live-provider failure behavior",
+    "Contextual sentence translation or semantic quality evaluation",
+    "Actual image generation",
+    "Older Android and other manufacturers",
+    "x86_64 emulator UI",
+    "Actual 16KB runtime",
+    "Screen-reader and gesture navigation",
+    "New light/large-font plugin-panel and cross-platform pixel-diff acceptance",
+    "Full Buffer editing and custom layout/profile imports"
+  ],
+  "evidence_sha256": {
+    "gradle-core.log": "f4bf8532aecd4aebfd352dbed98b5c7bdfd869ec85e9ebfd941292e719a7532e",
+    "gradle-delivery-final.log": "8439e891558d8aeb941aefd8b1a98c32041639a5c8126f1845567ac95f10ffe1",
+    "gradle-buffer-acceptance.log": "54e9932c2abefb0588a000285c86dbed55aa65bb07f373e6b6dec75928726075",
+    "gradle-host-send-label.log": "aa20b0af05e9929fdb6e0061e26d94dde4a8551ea4b4a7045a8313d43c648995",
+    "gradle-compact-apk.log": "59c468f2b88305586e2392208e63d9bdf95e3a9c8fbe54ee77d71a11d9b84c5c",
+    "jvm.json": "e58c41c64a4cfd5bc27b13fd1baeeb5be2d0713ba2d637805f6d056d3f94b0b9",
+    "lint.json": "cf42a80de0f46c2b9d26ccb0cd6cac95f4945937c46cec05e90aeb4a17f1ed59",
+    "backend.log": "e8606c0bc388578f7d2b77e47b28e951cb5d1bc39e17a4f318c753eb36831242",
+    "delivery.log": "da704f2b91075a5030d78da5250802bc674b4042a951b1730c5ec2a0f70250a1",
+    "jni-rendering.log": "eccf94f4db7ef33c52944602b5400e61ff93b2e3cad093293ded4eb6db576cc9",
+    "plugins.log": "22e404895e40049de2766f2fad03e6d5d261d06c69b614bf193f620d3394f661",
+    "plugins-before-compaction.log": "22e404895e40049de2766f2fad03e6d5d261d06c69b614bf193f620d3394f661",
+    "input-contract.log": "c54c0159042e95e8db32f9256ce8b9f8d86efca23e5dfb605e9800c9ae930c9f",
+    "chord.log": "e7bf6c49c0895e575bb9e298ddcc10752e32b96e605d6cb6d395662f1e66bfd1",
+    "touch.log": "624d834a40c078f86ac6ec237b0528ec6d7d833ceef4ec046a198af190a8ceec",
+    "benchmark.log": "d5ab7d43d86024659fd208942ddf65648281f996ed2bc8113e0ebdc708dda082",
+    "benchmark-before-compaction.log": "b041d4705244ca03ddbf2f116e1015fe0dc2d71f4e15329bc4dfeac302d65865",
+    "ui-benchmark.json": "9a3f62c9550edd43f077009cc72ab61e179f991709ca654b87f0ceab2286bfeb",
+    "ui-benchmark-before-compaction.json": "18f86015d2465954d287817081d47703d5ed95d38b553d533443511804040ac2",
+    "soak.log": "41a3d7a24f8e35b4f417002ff1810f6b91e12cde38348e2bb7d456333c9682c3",
+    "engine-resources.log": "36d76a32e22d8e3432b79a405b819fe5c664f90b6a5924b3b5b2384cc54482f2",
+    "native-libraries.json": "424d3b75e443fc5e59619be763809674608ca1b77e79f916434f4dd96ddb02c7",
+    "dictionary-apk.log": "6e7e14106793d2c771e1fbe72cc6cd2327dd80bfe810eba23598297e84a64a6b",
+    "zipalign.log": "676663336275b71b6c4b3b5014728e9d7ee1fff2977c7a9d8b94e5b55bbf64f9",
+    "apk-signature.log": "0f4f93153ba571afb4e794ce749fbcf58207fd068007bf638c01155d1cc1a921",
+    "permissions.txt": "ec1d05caef99102b43c5cd7780dbdbf54c8e66c69ac1845113a68bba457b396c",
+    "implementation-snapshot.json": "2923b1f2c51a41a961d945abbaae45c1026d0507c2b5321d578d5afb620cc115",
+    "device-before.json": "71866153908e1e1d88d5254879b4c913106c7a89a5292a27e58823ff18667adf",
+    "device-after.json": "71866153908e1e1d88d5254879b4c913106c7a89a5292a27e58823ff18667adf",
+    "restoration.json": "f74229f3b4ec0195ce8c3ae710f98f05d5ef9116d39cb3aea62d074a6a004de1",
+    "upgrade.json": "9e8d45683000e252b40aabc7304e28d9b59fdae6463576fc78f058dafcc7a85c",
+    "upgrade-before.txt": "9ef6ae0801a3b1c346ca1a9efb84b8a80c660696dc2ec1d1fb7bcd300c04556b",
+    "upgrade-after.txt": "9ef6ae0801a3b1c346ca1a9efb84b8a80c660696dc2ec1d1fb7bcd300c04556b",
+    "physical-start.json": "0433499e4389c13df01f1d820952041c72bf3888ce5d6ac8b3098bd55bbc1aef",
+    "apk-compaction.json": "fdc68d9042fccd33df2b91cfce71780a936f89bba9a804457e8e1800d909a0c7",
+    "incremental-apk-gaps.json": "a4911a7423e1bd69e78916e5a3919174cbb8de127f6e6c20f807b9f4ed05439d",
+    "manual.json": "5460e6f69100d8c605ea88f2d97f3504fa2e5c017a74c2423104e8259708d458",
+    "crash-check.json": "20b1f0f8a407ac56a7250231903fd705d4231c1577bfb7ecb5982d5591a7cea3",
+    "logcat-main-system.log": "d09a1ec8b7494c55b31c0dbf9b7b90e0e7aafa211c5f02953fd3c410b3a239a5",
+    "logcat-crash.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "logcat-capacity.log": "154ed7421492270fd700c8fef844b276c641dc46b1e6de75ee1831ef49234cac",
+    "exit-info-rimes.log": "e332c62f7128810dd9714210f50ea40d892526bea40a36a328b11d482635b504",
+    "exit-info-host.log": "22ad658ffdc83532c4e59017b0fa191fc1eeae702d67c62b584858d19cb437d5",
+    "meminfo-ui.txt": "0fcbe5ae8525f747e1208ac402f46e82b4d709d345cc2e824c71b768c2f46817",
+    "RIMES-Android-0.1.0-dev.6-bba5842.apk": "6ee219fce2a9f73474fd6a2d49db420f70e4cad70e632f2c99ae351886591e58",
+    "RIMES-Android-0.1.0-dev.6-bba5842.apk.sha256": "e400ad16505884dfefdce37fe3715fa21cb671ac53a7cba258d490add20c1eab",
+    "manual-translation.png": "cc4f7669d5a393ee12adea11307db4866bc4966f714ac50a319f9245138205b0",
+    "manual-translation-sent.png": "5e80f9d9298c6e983b8d484ba1e64ecc2fcb4e41f13d992778713166d4daa20b",
+    "manual-ai-mock.png": "234a67cbd186cdd4e1fb9b63910e8e1918d0526f7f01eaa2d58a831e39266db7",
+    "manual-ai-mock-sent.png": "72d5a3490aba74a878b58d384bf97772241242ebf891b5c7fbe6cc5857e8c26c",
+    "manual-translation-settings.png": "02be70c6bc5509bb17af81e0f0d9cfaf15ac000ecd827afb7a75ad85ccb57c29"
+  }
+}
