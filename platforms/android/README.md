@@ -1,6 +1,6 @@
 # RIMES Android
 
-**0.1.0-dev.5** is a native Java Android input method for daily Chinese input and
+**0.1.0-dev.6** is a native Java Android input method for daily Chinese input and
 local dictionary learning. Minimum Android 8.0 / API 26; development package
 `org.scholay.rimes.android.debug`. This is a local development build, not a store release.
 Current evidence and remaining acceptance are in [VALIDATION.md](VALIDATION.md).
@@ -100,9 +100,9 @@ independent of their hit areas. Nine-key Return spans two visible rows (98 / 69 
   翻译, 快问, 润色, 作诗 and 画画. Each is 68 × 30 dp with a 6 dp gap.
   Tap enables Buffer and selects the plugin; tapping it again returns to ordinary
   Buffer. Long-press opens its settings; switching keeps source blocks intact.
-  The Android plugin executors remain deferred: output explicitly says the service
-  is not connected, and Run opens that explanation. Plugin Send/Return never send
-  raw source as a result. Private/password fields have no plugin entries.
+  Translation uses the bundled local Chinese–English dictionary; AI entries use
+  a clearly labelled OpenAI-format local Mock. Run executes, Cancel stops work,
+  and Send/Return insert only a completed result. Private/password fields have no entries.
   Punctuation remains on the numeric/symbol page and nine-key punctuation control.
   Key labels size within fixed touch cells for system fonts.
 
@@ -139,6 +139,44 @@ Layout/language/page changes settle pending raw code through the current input
 route and preserve confirmed Buffer blocks. Switching a theme only changes colors.
 Nine-key schemas have the same private/off-learning variants and share the
 existing Pinyin user dictionary; they are compiled on the build machine.
+
+## Local translation and AI interface
+
+Translation performs CC-CEDICT word/phrase lookup in both directions, using a
+pinned **125,166-entry** source. Automatic direction follows the source script;
+Buffer settings also expose Chinese → English and English → Chinese. The build
+machine precompiles a compact radix index; phones lazily load it on the dedicated
+plugin worker. No dictionary downloads or compilation occur on the phone. Unknown
+fragments retain their original Unicode text; partial coverage is labelled and
+zero matches fail without consuming source. This is lexical lookup, not contextual
+sentence translation. [Source, license and conversion](resources/dictionary/README.md)
+include CC BY-SA 4.0 attribution for both original and derived dictionary data.
+
+The other four entries use a local **Mock**, without sockets, API credentials,
+model inference or the INTERNET permission. The adapter encodes Chat Completions
+`model` / `messages` / `stream` requests, and consumes real JSON SSE frames with
+`choices[0].delta.content`, a successful `finish_reason` and `[DONE]`. The mock
+transport deliberately fragments UTF-8 bytes and emits about ten preview chunks.
+Its 40 ms pauses make cancellation visible; they do not model provider performance.
+The transport boundary can be replaced later; `/v1/chat/completions` is currently
+metadata, not a configured remote connection. Ask/polish/poem are synthetic text;
+art produces a textual prompt example, without generating an image.
+
+Type source into the lower Buffer rail, then tap Run or press a clean Return.
+During execution Run becomes Cancel; preview remains unsendable. Complete output
+appears in the upper scrollable rail. Send, long-press Send or a subsequent Return
+inserts the complete result as **one block**. Only framework acceptance consumes
+its exact captured source. A failed host insertion retains source and completed
+output for retry; execution failure retains source and discards partial output. Repeated
+Return while running cannot duplicate the request. Composition Return still
+settles raw code only, without executing on that same press.
+
+Every callback carries a frozen source capture, plugin request identity and input
+lease. Source edits, cancellation, direction/plugin changes, host selection/field
+changes, hiding or service destruction invalidate old output. Settings reselecting
+the same plugin preserve the current result. Source/output stay in memory only;
+there is no request/response history or prompt logging. Both are bounded to 16,384
+UTF-16 units. Ordinary Buffer retains its existing next/all block delivery behavior.
 
 ## Local learning and privacy
 
@@ -226,7 +264,14 @@ engine from the system's live keyboard service.
 # Install the test APKs with install -r after approving any OEM USB-install prompts.
 adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w \
   org.scholay.rimes.android.debug.test/org.scholay.rimes.android.EngineInstrumentation
-# Select RIMES after the JNI test (instrumentation restarts the keyboard process).
+# With another enabled IME still selected: real dictionary and local OpenAI SSE mock.
+adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w -e mode plugins \
+  org.scholay.rimes.android.debug.test/org.scholay.rimes.android.EngineInstrumentation
+# Local rejecting InputConnection: source retention, retries and commit-time retirement.
+# This fixture bypasses editor IPC; it is not remote-host failure-return evidence.
+adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w -e mode delivery \
+  org.scholay.rimes.android.debug.test/org.scholay.rimes.android.EngineInstrumentation
+# Select RIMES after the app test (instrumentation restarts the keyboard process).
 adb -s "$RIMES_ANDROID_SERIAL" shell am force-stop org.scholay.rimes.android.debug
 adb -s "$RIMES_ANDROID_SERIAL" shell ime set \
   org.scholay.rimes.android.debug/org.scholay.rimes.android.RimesInputMethodService
@@ -242,7 +287,7 @@ adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w -e mode chord \
 # Ordinary held keys across target/selection changes and actual window hiding.
 adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w -e mode touch \
   org.scholay.rimes.testhost.test/org.scholay.rimes.testhost.InputContractInstrumentation
-# Idle/plugin shortcuts, retained source, private targets and unavailable execution.
+# Offline translation/mock execution, Send, source edits, cancellation and private targets.
 adb -s "$RIMES_ANDROID_SERIAL" shell am instrument -w -e mode plugins \
   org.scholay.rimes.testhost.test/org.scholay.rimes.testhost.InputContractInstrumentation
 # Continuous mixed QWERTY/chord input; the runner reports every minute.
@@ -318,7 +363,7 @@ normal app instrumentation also emits a near-capacity Buffer bitmap-draw/cache
 measurement, which should be reported separately from these two benchmarks.
 Restore the original default IME and device settings after all validation.
 
-Out of scope: complete Buffer editing, AI, translation, custom layout/profile
+Out of scope: complete Buffer editing, live AI API calls, neural sentence translation, custom layout/profile
 importing, arbitrary gesture configuration, animated pets and complete iOS feature
 parity. The shipped orthogonal/split chord surface and built-in slide shortcuts
-are included in dev.5.
+are included since dev.5.

@@ -7,17 +7,21 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-/** Honest settings entry for plugins whose Android service is not connected yet. */
+/** Plugin settings keep execution local and make dictionary/mock limits visible. */
 final class BufferPluginPanel extends ScrollView {
     interface Listener {
         void onPlugin(String id);
         void onDefaultBuffer();
         void onClose();
+        void onDirection(String direction);
     }
 
     private final TextView title,notice;
     private final PluginShortcutBar shortcuts;
     private final KeyButton defaultBuffer,close;
+    private final LinearLayout directions;
+    private final KeyButton[] directionButtons=new KeyButton[3];
+    private static final String[] DIRECTION_IDS={"auto","zh-en","en-zh"};
     private String displayedPlugin;
     private boolean rendered;
 
@@ -39,6 +43,15 @@ final class BufferPluginPanel extends ScrollView {
         notice=text(context,14,false); notice.setLineSpacing(dp(4),1); notice.setPadding(0,dp(8),0,dp(8));
         LinearLayout.LayoutParams message=new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT,LayoutParams.WRAP_CONTENT);
         message.topMargin=dp(4); column.addView(notice,message);
+        directions=new LinearLayout(context); directions.setOrientation(LinearLayout.HORIZONTAL);
+        column.addView(directions,new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT,dp(32)));
+        String[] labels={"自动中英","中 → 英","英 → 中"};
+        for(int i=0;i<labels.length;i++) {
+            final String direction=DIRECTION_IDS[i];
+            KeyButton value=button(context,labels[i],KeyboardIcon.TRANSLATE); value.setContentDescription("翻译方向："+labels[i]);
+            value.setOnClickListener(view -> listener.onDirection(direction)); directionButtons[i]=value;
+            LinearLayout.LayoutParams frame=new LinearLayout.LayoutParams(0,LayoutParams.MATCH_PARENT,1); frame.rightMargin=i==2?0:dp(4); directions.addView(value,frame);
+        }
         LinearLayout actions=new LinearLayout(context); actions.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams actionRow=new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT,dp(36));
         actionRow.topMargin=dp(8); column.addView(actions,actionRow);
@@ -49,17 +62,19 @@ final class BufferPluginPanel extends ScrollView {
         close=button(context,"返回键盘",KeyboardIcon.KEYBOARD);
         close.setContentDescription("关闭 Buffer 插件设置并返回键盘"); close.setOnClickListener(view -> listener.onClose());
         actions.addView(close,new LinearLayout.LayoutParams(0,LayoutParams.MATCH_PARENT,1));
-        render(KeyboardTheme.ALL[0],null);
+        render(KeyboardTheme.ALL[0],null,"auto");
     }
 
-    void render(KeyboardTheme theme,String pluginID) {
+    void render(KeyboardTheme theme,String pluginID,String direction) {
         KeyboardTheme.Palette palette=theme.palette(getContext());
         setBackgroundColor(palette.background); title.setTextColor(palette.ink); notice.setTextColor(palette.ink);
         shortcuts.render(theme,pluginID,true); defaultBuffer.theme(theme); close.theme(theme);
+        directions.setVisibility("translate".equals(pluginID)?VISIBLE:GONE);
+        for(int i=0;i<directionButtons.length;i++) { directionButtons[i].theme(theme); directionButtons[i].setSelected(DIRECTION_IDS[i].equals(direction)); }
         if(!rendered || !java.util.Objects.equals(displayedPlugin,pluginID)) {
             String name=pluginName(pluginID);
             notice.setText(name==null?"普通 Buffer 保留本次输入，确认发送后才进入输入框。"
-                    :name+"服务尚未接通\n原文保留在本机，当前不会发送到服务或输入框。");
+                    :"translate".equals(pluginID)?"本机中英词典查译，未覆盖词保留原文。\n逐词查译不保证句子语法；点执行后可发送结果。":name+"使用 OpenAI 格式本机 Mock。\n无网络请求，不需要 API Key；画画仅生成示例提示词。");
             displayedPlugin=pluginID;
             rendered=true;
         }

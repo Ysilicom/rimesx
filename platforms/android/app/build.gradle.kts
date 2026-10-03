@@ -8,8 +8,8 @@ android {
         targetSdk = 37
         testInstrumentationRunner = "org.scholay.rimes.android.EngineInstrumentation"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
-        versionCode = 5
-        versionName = "0.1.0-dev.5"
+        versionCode = 6
+        versionName = "0.1.0-dev.6"
     }
     ndkVersion = "29.0.14206865"
     sourceSets.getByName("main") {
@@ -31,4 +31,7 @@ dependencies { implementation(project(":core")) }
 tasks.register("verifyEngineResources", Exec::class) {
     commandLine("python3", "../scripts/verify-engine.py")
 }
-tasks.named("preBuild") { dependsOn("verifyEngineResources") }
+tasks.register("verifyOfflineDictionary", Exec::class) {
+    commandLine("python3", "../resources/dictionary/verify-dictionary.py", "--check")
+}
+tasks.named("preBuild") { dependsOn("verifyEngineResources", "verifyOfflineDictionary") }

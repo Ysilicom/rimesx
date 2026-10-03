@@ -11,8 +11,14 @@ public final class EngineInstrumentation extends Instrumentation {
     @Override public void onStart() {
         Bundle result=new Bundle();
         try {
+            if(arguments!=null && "delivery".equals(arguments.getString("mode"))) {
+                result.putString("stream","PASS service delivery checks="+ServiceDeliveryContract.run(this)+"\n"); finish(-1,result); return;
+            }
             if(arguments!=null && "benchmark".equals(arguments.getString("mode"))) {
                 result.putString("stream",EngineBenchmark.run(this,arguments)); finish(-1,result); return;
+            }
+            if(arguments!=null && "plugins".equals(arguments.getString("mode"))) {
+                result.putString("stream","PASS plugin backend checks="+PluginBackendContract.run(this)+"\n"); finish(-1,result); return;
             }
             touchChecks=NativeTouchContract.run(this);
             java.util.concurrent.atomic.AtomicReference<Throwable> renderingError=new java.util.concurrent.atomic.AtomicReference<>();

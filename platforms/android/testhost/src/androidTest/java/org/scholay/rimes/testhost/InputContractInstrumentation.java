@@ -276,83 +276,98 @@ public final class InputContractInstrumentation extends Instrumentation {
         check(waitLabel("Buffer "+wanted,true)!=null,label+" retains source in keyboard");
         expect(host.first,"",label+" does not change host");
     }
-    private void pluginPanel(String name) {
-        waitLabel("Buffer 插件设置",false);
-        check(waitLabel(name+"服务尚未接通\n原文保留在本机，当前不会发送到服务或输入框。",false)!=null,
-                name+" settings honestly report unavailable execution");
-        expect(host.first,"",name+" settings never insert raw source");
+    private AccessibilityNodeInfo outputNode(AccessibilityNodeInfo node,String prefix) {
+        if(node==null) return null;
+        CharSequence desc=node.getContentDescription();
+        if(IME.contentEquals(node.getPackageName()==null?"":node.getPackageName()) && node.isVisibleToUser()
+                && desc!=null && desc.toString().startsWith(prefix)) return node;
+        for(int i=0;i<node.getChildCount();i++) { AccessibilityNodeInfo found=outputNode(node.getChild(i),prefix); if(found!=null) return found; }
+        return null;
     }
-    /** The actual IME owns entries, selection and drafts; no test-side plugin execution. */
-    private void pluginsContract() throws Exception {
-        final String[] names={"翻译","快问","润色","作诗","画画"};
-        focusAny(host.first); layout("26"); pinyin();
-        tap("Buffer off"); type("nihao"); tap("Space"); pluginSource("你好","plain Buffer");
-        for(String name:names) {
-            String shortcut="Buffer 插件："+name;
-            tap(shortcut);
-            check(waitButton("Buffer on").isEnabled(),name+" enables Buffer");
-            check(waitButton(shortcut).isSelected(),name+" shortcut selected");
-            AccessibilityNodeInfo output=waitLabel("插件输出："+name,true);
-            check((name+"服务尚未接通").contentEquals(output.getText()),name+" output is honest placeholder");
-            pluginSource("你好",name+" activation");
-            android.graphics.Rect outputBounds=new android.graphics.Rect(),sourceBounds=new android.graphics.Rect();
-            output.getBoundsInScreen(outputBounds); waitLabel("Buffer 你好",true).getBoundsInScreen(sourceBounds);
-            check(outputBounds.bottom<=sourceBounds.top,name+" output above original Buffer row");
-            AccessibilityNodeInfo send=find("Insert",false);
-            if(send==null) send=find("Insert next",false);
-            check(send!=null && !send.isEnabled(),name+" cannot send raw source through Insert");
-            tap("执行"+name); pluginPanel(name);
-            if(name.equals("快问")) {
-                clickPluginPanel(shortcut); pluginPanel(name);
+    private AccessibilityNodeInfo pluginOutput(String name,String status) {
+        String prefix="插件输出："+name+" · "+status+" · ";
+        long until=SystemClock.uptimeMillis()+15000;
+        do {
+            for(AccessibilityWindowInfo window:getUiAutomation().getWindows()) {
+                AccessibilityNodeInfo value=outputNode(window.getRoot(),prefix); if(value!=null) return value;
             }
-            tap("返回键盘"); pluginSource("你好",name+" execution entry");
-            check(waitButton(shortcut).isSelected(),name+" settings selection remains active");
-            tap("Enter"); pluginPanel(name); tap("返回键盘"); pluginSource("你好",name+" Return entry");
-            tap(shortcut);
-            check(!waitButton(shortcut).isSelected(),name+" same shortcut returns ordinary Buffer");
-            check(findLabel("插件输出："+name,true)==null,name+" ordinary Buffer removes plugin output");
-            check(find("执行"+name,false)==null,name+" ordinary Buffer removes execution control");
-            pluginSource("你好",name+" deactivation");
+            SystemClock.sleep(30);
+        } while(SystemClock.uptimeMillis()<until);
+        throw new AssertionError("Missing plugin output "+prefix);
+    }
+    private String resultText(AccessibilityNodeInfo output,String name) {
+        return output.getContentDescription().toString().substring(("插件输出："+name+" · READY · ").length());
+    }
+    private void translationDirection(String label) {
+        tap("Buffer 设置"); waitLabel("Buffer 插件设置",false); tap("翻译方向："+label);
+        for(int i=0;find("返回键盘",false)==null && i<8;i++) {
+            for(AccessibilityWindowInfo window:getUiAutomation().getWindows()) if(scrollChooser(window.getRoot())) break;
+            SystemClock.sleep(100);
         }
-        tap("Buffer 插件：翻译"); type("ni");
-        for(String name:names) check(find("Buffer 插件："+name,false)==null,"composition hides shortcut "+name);
-        check(waitLabel("Buffer 你好ni",true)!=null,"plugin composition remains in source Buffer");
-        expect(host.first,"","plugin composition never reaches host");
-        String selected=candidate(0); tap("Space"); String source="你好"+selected;
-        pluginSource(source,"plugin candidate confirmation");
-        tap("Buffer 插件：润色");
-        check(waitButton("Buffer 插件：润色").isSelected(),"different plugin becomes selected");
-        check(findLabel("插件输出：翻译",true)==null,"switch removes previous plugin output");
-        pluginSource(source,"switching plugins");
-        tap("Buffer 插件设置"); waitLabel("Buffer 插件设置",false); tap("普通 Buffer");
-        check(!waitButton("Buffer 插件：润色").isSelected(),"settings returns ordinary Buffer");
-        pluginSource(source,"ordinary Buffer settings action");
-        tap("Buffer 插件：翻译"); tap("Buffer on");
-        check(!waitButton("Buffer 插件：翻译").isSelected(),"Buffer off clears plugin selection");
-        check(findLabel("插件输出：翻译",true)==null,"Buffer off hides plugin output");
-        expect(host.first,"","Buffer off does not send source");
-        tap("Buffer off"); pluginSource(source,"Buffer reopened");
-        check(!waitButton("Buffer 插件：翻译").isSelected(),"reopened Buffer is ordinary");
-        tap("Buffer 插件：翻译"); focus(host.second);
-        check(waitButton("Buffer off").isEnabled(),"new target starts with ordinary Buffer off");
-        check(!waitButton("Buffer 插件：翻译").isSelected(),"target retirement clears plugin selection");
-        check(findLabel("插件输出：翻译",true)==null && findLabel("Buffer "+source,true)==null,
-                "target retirement removes plugin output and source projection");
-        expect(host.first,"","retired host receives no unexecuted source"); expect(host.second,"","new host receives no unexecuted source");
-        type("nihao"); tap("Space"); expect(host.second,"你好","new target receives only its own confirmed text");
-        focus(host.privateInput);
+        tap("返回键盘");
+    }
+    private AccessibilityNodeInfo pluginSendButton() {
+        for(String label:new String[]{"Insert next","Insert","插入"}) {
+            AccessibilityNodeInfo node=find(label,false); if(node!=null) return node;
+        }
+        return null;
+    }
+    private void tapPluginSend() {
+        AccessibilityNodeInfo send=pluginSendButton();
+        check(send!=null && send.isEnabled() && send.performAction(AccessibilityNodeInfo.ACTION_CLICK),"send complete plugin output");
+        SystemClock.sleep(120);
+    }
+    private void pluginsContract() throws Exception {
+        String[] names={"翻译","快问","润色","作诗","画画"};
+        focusAny(host.first); layout("26"); pinyin();
+        tap("Buffer off"); type("nihao"); tap("Space"); pluginSource("你好","initial Buffer");
+        tap("Buffer 插件：翻译"); translationDirection("自动中英"); tap("Buffer 插件：翻译");
         for(String name:names) {
-            AccessibilityNodeInfo shortcut=find("Buffer 插件："+name,false);
-            check(shortcut==null || !shortcut.isEnabled(),"private field denies shortcut "+name);
+            tap("Buffer 插件："+name); pluginOutput(name,"IDLE");
+            pluginSource("你好",name+" selection");
+            AccessibilityNodeInfo send=pluginSendButton(); check(send!=null && !send.isEnabled(),name+" cannot send source before execution");
+            tap("执行"+name);
+            AccessibilityNodeInfo output=pluginOutput(name,"READY"); String generated=resultText(output,name);
+            check(!generated.isEmpty() && !generated.equals("你好"),name+" returns generated output");
+            if(!name.equals("翻译")) check(generated.contains("Mock"),name+" visibly labels synthetic AI output");
+            else check(generated.toLowerCase(java.util.Locale.ROOT).contains("hello"),"dictionary hello entry");
+            pluginSource("你好",name+" result keeps captured source until Send");
+            android.graphics.Rect top=new android.graphics.Rect(),bottom=new android.graphics.Rect();
+            output.getBoundsInScreen(top); waitLabel("Buffer 你好",true).getBoundsInScreen(bottom);
+            check(top.bottom<=bottom.top,name+" result above source");
+            tapPluginSend(); expect(host.first,generated,name+" sends result exactly once");
+            waitLabel("Buffer ",true); pluginOutput(name,"IDLE");
+            tap("Enter"); expectStable(host.first,generated,name+" empty Return cannot resend result");
+            focus(host.first); tap("Buffer 插件："+name); type("nihao"); tap("Space"); pluginSource("你好",name+" new target source");
+            tap("Buffer 插件："+name); // ordinary Buffer preserves source
         }
-        check(!waitLabel("Buffer off",true).isEnabled(),"private field denies Buffer");
-        check(findLabel("插件输出：翻译",true)==null,"private field has no retained plugin output");
-        expect(host.privateInput,"","private field receives no plugin source");
-        focus(host.first); layout("9"); pinyin(); nine("64426"); tap("Space");
-        expect(host.first,"你好","nine-key independent input"); tap(",");
-        expect(host.first,"你好，","nine-key explicit punctuation selector remains available");
-        layout("26"); focus(host.first);
-        report("PASS five plugin entries, Buffer source preservation, output row placement, unavailable execution, composition, privacy and target retirement");
+        focus(host.first); tap("Buffer 插件：翻译"); tap("中英切换"); type("hello");
+        tap("执行翻译"); String reverse=resultText(pluginOutput("翻译","READY"),"翻译");
+        check("你好".equals(reverse),"dictionary English to Chinese on real keyboard");
+        translationDirection("英 → 中"); pluginOutput("翻译","IDLE"); pluginSource("hello","direction change keeps source");
+        tap("执行翻译"); reverse=resultText(pluginOutput("翻译","READY"),"翻译"); tapPluginSend(); expect(host.first,reverse,"reverse dictionary Send");
+        focus(host.first); tap("Buffer 插件：翻译"); type("rimeszzunknown"); tap("执行翻译"); pluginOutput("翻译","ERROR");
+        pluginSource("rimeszzunknown","uncovered source preserved"); check(!pluginSendButton().isEnabled(),"uncovered translation cannot Send");
+        focus(host.first); tap("Buffer 插件：翻译"); translationDirection("自动中英"); focus(host.first); pinyin();
+        // Return settles unfinished code first, executes only on a later clean Return.
+        focus(host.first); tap("Buffer 插件：快问"); type("ni"); tap("Enter"); pluginSource("ni","raw Return"); pluginOutput("快问","IDLE");
+        tap("Enter"); String answer=resultText(pluginOutput("快问","READY"),"快问");
+        type("a"); pluginOutput("快问","IDLE");
+        check(!pluginSendButton().isEnabled(),"editing invalidates generated output");
+        tap("Enter"); pluginSource("nia","updated source");
+        tap("执行快问"); focus(host.second); SystemClock.sleep(700);
+        expect(host.first,"","old host receives no canceled result"); expectStable(host.second,"","new host rejects late result");
+        check(!waitButton("Buffer off").isSelected(),"new target Buffer off");
+        tap("Buffer 插件：快问"); type("nihao"); tap("Space"); tap("执行快问");
+        AccessibilityNodeInfo cancel=find("取消执行",false);
+        if(cancel!=null && cancel.isEnabled()) { check(cancel.performAction(AccessibilityNodeInfo.ACTION_CLICK),"cancel running mock"); SystemClock.sleep(700); pluginOutput("快问","IDLE"); pluginSource("你好","explicit cancellation preserves source"); }
+        else throw new AssertionError("Mock stream must expose cancellation");
+        tap("执行快问"); getUiAutomation().performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK); waitKeyboardHidden(); SystemClock.sleep(700);
+        expectStable(host.second,"","hidden keyboard cannot send late output");
+        focus(host.privateInput);
+        for(String name:names) check(find("Buffer 插件："+name,false)==null,"private denies plugin "+name);
+        check(!waitLabel("Buffer off",true).isEnabled(),"private denies Buffer"); expect(host.privateInput,"","private field unchanged");
+        focus(host.first); layout("26"); report("PASS local dictionary, four OpenAI-format mock plugins, source/output isolation, exact Send, editing/cancel/hide/target/private guards");
     }
     private void contract() throws Exception {
         focus(host.first); pinyin(); type("nihao");
