@@ -24,6 +24,7 @@ struct FakeDocument {
 class FakeThreadMgr final : public ITfThreadMgr, public ITfKeystrokeMgr {
  public:
   FakeThreadMgr() noexcept = default;
+  bool thread_focus = true;
 
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interface_id,
                                            void** object) override;

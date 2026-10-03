@@ -22,6 +22,8 @@
 namespace rimes::windows::tsf {
 namespace {
 
+constexpr UINT kRefreshFocusedContext = WM_APP + 74;
+
 // Called with a granted edit cookie; never inspect or forward protected text.
 bool AllowedContext(ITfContext* context,
                     TfEditCookie cookie = TF_INVALID_EDIT_COOKIE) {
@@ -1357,6 +1359,12 @@ HRESULT STDMETHODCALLTYPE TextService::OnEndEdit(ITfContext* context,
   if (SUCCEEDED(record->GetSelectionStatus(&changed)) && changed &&
       broker_client_->Capturing() && !own_edit) {
     RevokeContext();
+    // Chromium can move between fields using the same TSF context and only
+    // report a selection change. Retire the capture immediately, then publish
+    // the current target after the edit callback so an explicit rebind works
+    // without sending a first key into the host. This never resumes capture.
+    if (notification_window_)
+      PostMessageW(notification_window_, kRefreshFocusedContext, 0, 0);
   }
   return S_OK;
 }
@@ -1385,6 +1393,13 @@ LRESULT CALLBACK TextService::NotificationProcedure(HWND window, UINT message,
     // A background application's late connection must not replace live focus.
     if (foreground_process == GetCurrentProcessId())
       self->OnSetFocus(TRUE);
+    return 0;
+  }
+  if (message == kRefreshFocusedContext && self) {
+    BOOL focused = FALSE;
+    if (self->thread_manager_ &&
+        SUCCEEDED(self->thread_manager_->IsThreadFocus(&focused)) && focused)
+      self->OnPushContext(nullptr);
     return 0;
   }
   return DefWindowProcW(window, message, wparam, lparam);

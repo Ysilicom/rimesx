@@ -86,7 +86,7 @@ HRESULT STDMETHODCALLTYPE FakeThreadMgr::AssociateFocus(HWND, ITfDocumentMgr*,
 }
 HRESULT STDMETHODCALLTYPE FakeThreadMgr::IsThreadFocus(BOOL* focus) {
   if (focus != nullptr) {
-    *focus = TRUE;
+    *focus = thread_focus ? TRUE : FALSE;
   }
   return S_OK;
 }
