@@ -1,5 +1,7 @@
 # Windows macOS 样式还原验收 · 2026-10-02
 
+> 本文保留 preview.5 的历史证据。最新 preview.6 及第二轮改进见 [10 月 3 日验收](STYLE-ACCEPTANCE-20261003.md)。
+
 **preview.5 已安装到 Young；候选窗、Buffer、设置、托盘和菜单已按 macOS 配色与逻辑尺寸重做。双架构构建和自动化通过，安装版的候选点击、Buffer 捕获与投递、主题保存通过。Windows 日用验收仍未完成。**
 
 ## 源码、参考与产物身份
