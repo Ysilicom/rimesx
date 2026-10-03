@@ -1,0 +1,40 @@
+{
+  "format_version": 1,
+  "description": "Common word/phrase sense choices; every pair is verified against the pinned CC-CEDICT entries. These choices do not add dictionary definitions or contextual sentence rules. Derived dictionary data remains CC BY-SA 4.0.",
+  "zh_en": {
+    "谢谢": "thank you",
+    "謝謝": "thank you"
+  },
+  "en_zh": {
+    "hello": "你好",
+    "hi": "你好",
+    "good morning": "早安",
+    "good night": "晚安",
+    "thank you": "谢谢",
+    "thanks": "谢谢",
+    "goodbye": "再见",
+    "i": "我",
+    "me": "我",
+    "you": "你",
+    "he": "他",
+    "him": "他",
+    "she": "她",
+    "it": "它",
+    "we": "我们",
+    "us": "我们",
+    "they": "他们",
+    "them": "他们",
+    "no": "不",
+    "not": "不",
+    "love": "爱",
+    "good": "好",
+    "water": "水",
+    "tea": "茶",
+    "coffee": "咖啡",
+    "food": "食物",
+    "world": "世界",
+    "computer": "电脑",
+    "dictionary": "词典",
+    "please": "请"
+  }
+}
