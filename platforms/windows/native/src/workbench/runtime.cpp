@@ -1,10 +1,11 @@
 #include "runtime.hpp"
+#include "official_features.hpp"
 
 #include <algorithm>
 #include <chrono>
 namespace rimes::windows::workbench {
 using core::Json;
-Runtime::Runtime() {
+Runtime::Runtime(APIGenerator generate) : generate_(std::move(generate)) {
   std::string error;
   settings_valid_ = LoadSettings(&settings_, &error);
   if (!settings_valid_) model_.status = error;
@@ -13,6 +14,7 @@ Runtime::Runtime() {
 Runtime::~Runtime() {
   Stop();
   if (api_worker_.joinable()) api_worker_.join();
+  if (plugin_worker_.joinable()) plugin_worker_.join();
 }
 void Runtime::Changed() {
   if (notify_) notify_();
@@ -92,7 +94,7 @@ bool Runtime::BeforeKey(Target target, const core::KeyEvent& key,
       return_target_ == target) {
     if (!down) {
       if (!return_sent_ && model_.capture && model_.bound == target)
-        Queue(model_.Send(GetTickCount64() - pressed_at_ >= 1200));
+        Queue(SendAuthorized(GetTickCount64() - pressed_at_ >= 1200));
       return_held_ = false;
     }
     return true;
@@ -164,8 +166,10 @@ Json Runtime::Control(const Json& message, std::uint32_t process) {
     return {{"kind", "ok"}};
   }
   if (op == "ack") {
+    CheckPluginAuthorization();
     Queue(model_.Acknowledge(message.value("request", 0ULL), target,
                              message.value("accepted", false)));
+    CheckPluginAuthorization();
     Changed();
     return {{"kind", "ok"}};
   }
@@ -208,7 +212,9 @@ Json Runtime::Snapshot() {
 }
 Settings Runtime::Configuration() {
   std::lock_guard lock(mutex_);
-  return settings_;
+  auto effective = settings_;
+  if (effective.schema == official::kChordSchema && plugins_.Grant(official::kChord).empty()) effective.schema = "rime_ice";
+  return effective;
 }
 bool Runtime::Configure(Settings value, const std::wstring& key,
                         bool replace_key, std::string* error) {
@@ -229,7 +235,8 @@ bool Runtime::Configure(Settings value, const std::wstring& key,
     return false;
   }
   settings_ = std::move(value);
-  model_.Cancel();
+  model_.InvalidatePluginResults();
+  result_plugin_.clear(); result_grant_.clear();
   model_.capture = false;
   CaptureChanged();
   Changed();
@@ -283,16 +290,25 @@ void Runtime::Paste(std::string text) {
 }
 void Runtime::Send(bool all) {
   std::lock_guard lock(mutex_);
-  Queue(model_.Send(all));
+  Queue(SendAuthorized(all));
   Changed();
 }
 void Runtime::StartGeneration(bool translation, bool complete_sentence_only) {
   if (!settings_valid_ || stopping_ || model_.busy || model_.Pending() ||
       (!translation && !model_.result.empty()))
     return;
+  CheckPluginAuthorization();
+  const std::string plugin = translation ? official::kTranslation : official::kAI;
+  const auto grant = plugins_.Grant(plugin);
+  if (grant.empty()) { model_.translate = false; model_.status = "Install and enable the plugin in Settings > Official plugins."; Changed(); return; }
+  std::string instruction;
+  try { instruction = official::Instruction(plugins_.Package(plugin), settings_.target_language); }
+  catch (...) { model_.status = "Plugin package unavailable."; Changed(); return; }
   auto job = model_.Generate(settings_.revision, translation,
                              complete_sentence_only);
   if (!model_.busy) return;
+  job.plugin_id = plugin; job.plugin_grant = grant; job.instruction = instruction;
+  result_plugin_ = plugin; result_grant_ = grant;
   api_job_ = std::make_pair(settings_, std::move(job));
   api_event_.notify_one();
   Changed();
@@ -310,11 +326,12 @@ void Runtime::Cancel() {
 }
 void Runtime::Tick() {
   std::lock_guard lock(mutex_);
+  CheckPluginAuthorization();
   const auto now = GetTickCount64();
   if (return_held_ && !return_sent_ && now - pressed_at_ >= 1200) {
     return_sent_ = true;
     if (model_.capture && return_target_ == model_.bound)
-      Queue(model_.Send(true));
+      Queue(SendAuthorized(true));
   }
   if (model_.Pending() && pending_since_ && now - pending_since_ > 10000) {
     model_.LostAcknowledgement();
@@ -335,6 +352,43 @@ void Runtime::Stop() {
   event_.notify_all();
   Changed();
 }
+void Runtime::CheckPluginAuthorization() {
+  if (!result_plugin_.empty() && plugins_.Grant(result_plugin_) != result_grant_) {
+    model_.InvalidatePluginResults();
+    if (!model_.Pending()) { result_plugin_.clear(); result_grant_.clear(); }
+    Changed();
+  }
+}
+std::optional<Delivery> Runtime::SendAuthorized(bool all) {
+  const bool revoked = !result_plugin_.empty() && plugins_.Grant(result_plugin_) != result_grant_;
+  CheckPluginAuthorization();
+  return revoked ? std::nullopt : model_.Send(all);
+}
+std::vector<PluginView> Runtime::Plugins() { return plugins_.Entries(); }
+std::string Runtime::PluginStatus() { std::lock_guard lock(mutex_); return plugin_status_; }
+bool Runtime::ManagePlugin(const std::string& id, const std::string& action, std::string* error) {
+  std::lock_guard lock(mutex_);
+  if (stopping_ || model_.Pending()) { if(error) *error = "Wait for the current insertion to finish."; return false; }
+  if (action == "install") {
+    if (plugin_installing_) { if(error) *error = "A plugin download is already running."; return false; }
+    plugin_installing_ = true; plugin_status_ = "Downloading and verifying...";
+    plugin_worker_ = std::jthread([this, id] {
+      std::string failure; const bool ok = plugins_.Install(id, &failure);
+      std::lock_guard guard(mutex_); plugin_installing_ = false;
+      plugin_status_ = ok ? "Installed. Enable the plugin to use it." : failure; Changed();
+    });
+    Changed(); return true;
+  }
+  const bool ok = action == "uninstall" ? plugins_.Uninstall(id, error)
+      : action == "enable" || action == "disable" ? plugins_.Enable(id, action == "enable", error) : false;
+  if (ok) {
+    ++settings_.revision;
+    CheckPluginAuthorization();
+    plugin_status_ = action == "uninstall" ? "Uninstalled. User data retained." : action == "enable" ? "Enabled." : "Disabled.";
+    CaptureChanged(); Changed();
+  }
+  return ok;
+}
 void Runtime::RunAPI() {
   for (;;) {
     std::unique_lock lock(mutex_);
@@ -344,21 +398,21 @@ void Runtime::RunAPI() {
     api_job_.reset();
     lock.unlock();
     std::string error;
-    const bool ok = GenerateAPI(
+    const bool ok = generate_(
         config, job,
         [&](const std::string& text) {
           std::lock_guard l(mutex_);
-          const bool accepted = model_.Stream(job, settings_.revision, text);
+          const bool accepted = plugins_.Grant(job.plugin_id) == job.plugin_grant && model_.Stream(job, settings_.revision, text);
           Changed();
           return accepted;
         },
         [&] {
           std::lock_guard l(mutex_);
-          return stopping_ || !model_.Accepts(job, settings_.revision);
+          return stopping_ || plugins_.Grant(job.plugin_id) != job.plugin_grant || !model_.Accepts(job, settings_.revision);
         },
         &error);
     lock.lock();
-    if (model_.Accepts(job, settings_.revision)) {
+    if (plugins_.Grant(job.plugin_id) == job.plugin_grant && model_.Accepts(job, settings_.revision)) {
       const bool finished = model_.Finish(job, settings_.revision, ok);
       if (!finished) model_.translate = false;
       if (!ok) {

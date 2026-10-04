@@ -14,7 +14,7 @@ namespace {
 
 constexpr const wchar_t* kSchemas[] = {L"rime_ice", L"double_pinyin",
                                        L"double_pinyin_flypy", L"wubi86",
-                                       L"english"};
+                                       L"english", L"my_combo"};
 
 RECT DipToPx(const ui::DipRect& r, unsigned dpi) {
   RECT out{};
@@ -57,7 +57,7 @@ SettingsUiHost::~SettingsUiHost() {
 
 void SettingsUiHost::SyncDraftFromConfig(const Settings& config) {
   draft_.schema_index = 0;
-  for (int i = 0; i < 5; ++i) {
+  for (int i = 0; i < 6; ++i) {
     if (config.schema == Utf8(std::wstring(kSchemas[i]))) draft_.schema_index = i;
   }
   draft_.theme = callbacks_.load_theme ? callbacks_.load_theme()
@@ -121,6 +121,7 @@ void SettingsUiHost::Open(HWND owner) {
       owner, nullptr, wc.hInstance, this);
   if (!hwnd_) return;
   CreateOrUpdateChildren();
+  SetTimer(hwnd_, 11, 500, nullptr);
   Relayout();
   ShowWindow(hwnd_, SW_SHOWNORMAL);
   SetForegroundWindow(hwnd_);
@@ -141,7 +142,7 @@ bool SettingsUiHost::HandleDialogMessage(MSG* message) {
     draft_.keyboard_focus = true;
     const auto key = message->wParam;
     if (key == VK_ESCAPE ||
-        (key >= '1' && key <= '5' && (GetKeyState(VK_CONTROL) & 0x8000))) {
+        (key >= '1' && key <= '6' && (GetKeyState(VK_CONTROL) & 0x8000))) {
       SendMessageW(hwnd_, WM_KEYDOWN, key, message->lParam);
       return true;
     }
@@ -177,14 +178,14 @@ bool SettingsUiHost::HandleDialogMessage(MSG* message) {
       if (GetFocus() == hwnd_) {
         const int current = draft_.focus;
         if (!back) {
-          if (current < 5 && grid != sidebar) focus_shell(grid);
+          if (current < ui::kSettingsPageCount && grid != sidebar) focus_shell(grid);
           else if (current >= 200 && current < 204) focus_shell(400 + current - 200);
           else if (current >= 400 && current < 404) focus_shell(300);
           else if (current < 300 && !controls.empty()) SetFocus(controls.front());
           else if (current < 300) focus_shell(300);
           else focus_shell(current == 300 ? 301 : sidebar);
         } else {
-          if (current < 5) focus_shell(301);
+          if (current < ui::kSettingsPageCount) focus_shell(301);
           else if (current == 301) focus_shell(300);
           else if (current == 300 && grid >= 200 && grid < 204) focus_shell(400 + grid - 200);
           else if (current >= 400 && current < 404) focus_shell(200 + current - 400);
@@ -236,7 +237,34 @@ void SettingsUiHost::CreateOrUpdateChildren() {
   SetWindowTextW(edit_model_, draft_.model.c_str());
   SetWindowTextW(edit_key_, L"");
   SetWindowTextW(edit_lang_, draft_.target_language.c_str());
-  ThemeEdits();
+  for (std::size_t i = 0; i < 3; ++i) {
+    auto make = [&](HWND& control, const wchar_t* kind, const wchar_t* title, DWORD style, int action) {
+      control = CreateWindowExW(0, kind, title, WS_CHILD | style, 0, 0, 1, 1, hwnd_,
+          reinterpret_cast<HMENU>(static_cast<INT_PTR>(action < 0 ? 0 : 5100 + static_cast<int>(i) * 3 + action)), GetModuleHandleW(nullptr), nullptr);
+    };
+    make(plugin_labels_[i], L"STATIC", L"", SS_LEFT, -1);
+    make(plugin_install_[i], L"BUTTON", L"安装", WS_TABSTOP | BS_PUSHBUTTON, 0);
+    make(plugin_enable_[i], L"BUTTON", L"启用", WS_TABSTOP | BS_PUSHBUTTON, 1);
+    make(plugin_remove_[i], L"BUTTON", L"卸载", WS_TABSTOP | BS_PUSHBUTTON, 2);
+  }
+  plugin_status_ = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | SS_LEFT, 0, 0, 1, 1, hwnd_, nullptr, GetModuleHandleW(nullptr), nullptr);
+  UpdatePlugins(); ThemeEdits();
+}
+
+void SettingsUiHost::UpdatePlugins() {
+  if (callbacks_.plugins) plugin_rows_ = callbacks_.plugins();
+  for (std::size_t i = 0; i < 3; ++i) {
+    if (i >= plugin_rows_.size()) continue;
+    const auto& item = plugin_rows_[i];
+    const auto name = item.id == "builtin.apple-translation" ? std::string("翻译") : item.name;
+    const auto label = Wide(name + "  " + item.version + "\n" + (item.installed ? item.enabled ? "已启用" : "已停用" : "未安装"));
+    SetWindowTextW(plugin_labels_[i], label.c_str());
+    SetWindowTextW(plugin_install_[i], item.bundled ? L"恢复安装" : L"下载安装");
+    EnableWindow(plugin_install_[i], !item.installed);
+    SetWindowTextW(plugin_enable_[i], item.enabled ? L"停用" : L"启用");
+    EnableWindow(plugin_enable_[i], item.installed);
+  }
+  if (callbacks_.plugin_status) SetWindowTextW(plugin_status_, Wide(callbacks_.plugin_status()).c_str());
 }
 
 void SettingsUiHost::ThemeEdits() {
@@ -258,6 +286,11 @@ void SettingsUiHost::ThemeEdits() {
     SendMessageW(edit, WM_SETFONT, reinterpret_cast<WPARAM>(fonts_.control),
                  TRUE);
   }
+  for (std::size_t i = 0; i < 3; ++i) {
+    for (const auto control : {plugin_labels_[i], plugin_install_[i], plugin_enable_[i], plugin_remove_[i]})
+      SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(fonts_.body), TRUE);
+  }
+  SendMessageW(plugin_status_, WM_SETFONT, reinterpret_cast<WPARAM>(fonts_.body), TRUE);
   HWND checks[] = {check_ascii_, check_trad_, check_punct_};
   for (HWND check : checks) {
     if (!check) continue;
@@ -305,6 +338,17 @@ void SettingsUiHost::Relayout() {
   Place(check_ascii_, layout_.check_ascii, dpi_, input);
   Place(check_trad_, layout_.check_trad, dpi_, input);
   Place(check_punct_, layout_.check_punct, dpi_, input);
+  const bool plugins = draft_.page == ui::SettingsPage::kPlugins && draft_.subpage == 0;
+  UpdatePlugins();
+  for (std::size_t i = 0; i < 3; ++i) {
+    const float y = layout_.body.top + static_cast<float>(i) * 94.0f;
+    const float x = layout_.body.left; const bool visible = plugins && i < plugin_rows_.size();
+    Place(plugin_labels_[i], {x,y,x+285,y+52}, dpi_, visible);
+    Place(plugin_install_[i], {x+300,y+6,x+414,y+38}, dpi_, visible);
+    Place(plugin_enable_[i], {x+426,y+6,x+510,y+38}, dpi_, visible);
+    Place(plugin_remove_[i], {x+522,y+6,x+606,y+38}, dpi_, visible);
+  }
+  Place(plugin_status_, {layout_.body.left,layout_.body.top+296,layout_.body.right,layout_.body.top+366}, dpi_, plugins);
   InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
@@ -369,7 +413,7 @@ void SettingsUiHost::ActivateHit(int hit) {
     draft_.subpage = hit - 500;
     draft_.focus = static_cast<int>(draft_.page);
     Relayout();
-  } else if (hit >= 100 && hit < 105 &&
+  } else if (hit >= 100 && hit < 106 &&
              draft_.page == ui::SettingsPage::kInput && draft_.subpage == 0) {
     draft_.schema_index = hit - 100;
     draft_.focus = hit;
@@ -416,7 +460,21 @@ LRESULT CALLBACK SettingsUiHost::Procedure(HWND hwnd, UINT message,
     }
     case WM_ERASEBKGND:
       return 1;
+    case WM_TIMER:
+      if (wparam == 11 && self->draft_.page == ui::SettingsPage::kPlugins) self->UpdatePlugins();
+      return 0;
     case WM_COMMAND:
+      if (HIWORD(wparam) == BN_CLICKED && LOWORD(wparam) >= 5100 && LOWORD(wparam) < 5109) {
+        const auto index = static_cast<std::size_t>((LOWORD(wparam) - 5100) / 3);
+        const int action = (LOWORD(wparam) - 5100) % 3;
+        if (self->callbacks_.manage_plugin && index < self->plugin_rows_.size()) {
+          const auto item = self->plugin_rows_[index]; std::string error;
+          const std::string operation = action == 0 ? "install" : action == 2 ? "uninstall" : item.enabled ? "disable" : "enable";
+          if (!self->callbacks_.manage_plugin(item.id, operation, &error)) MessageBoxW(hwnd, Wide(error).c_str(), L"RIMES", MB_OK);
+          self->UpdatePlugins();
+        }
+        return 0;
+      }
       if (HIWORD(wparam) == BN_CLICKED) {
         switch (LOWORD(wparam)) {
           case 401: self->draft_.ascii = !self->draft_.ascii; break;
@@ -576,7 +634,7 @@ LRESULT CALLBACK SettingsUiHost::Procedure(HWND hwnd, UINT message,
         DestroyWindow(hwnd);
         return 0;
       }
-      if (wparam >= '1' && wparam <= '5' && (GetKeyState(VK_CONTROL) & 0x8000)) {
+      if (wparam >= '1' && wparam <= '6' && (GetKeyState(VK_CONTROL) & 0x8000)) {
         self->draft_.page =
             static_cast<ui::SettingsPage>(static_cast<int>(wparam - '1'));
         self->draft_.focus = static_cast<int>(wparam - '1');
@@ -597,10 +655,10 @@ LRESULT CALLBACK SettingsUiHost::Procedure(HWND hwnd, UINT message,
           return 0;
         }
         if (self->draft_.page == ui::SettingsPage::kInput &&
-            self->draft_.subpage == 0 && focus >= 100 && focus < 105) {
+            self->draft_.subpage == 0 && focus >= 100 && focus < 106) {
           int idx = focus - 100;
-          if (wparam == VK_RIGHT || wparam == VK_DOWN) idx = (idx + 1) % 5;
-          else idx = (idx + 4) % 5;
+          if (wparam == VK_RIGHT || wparam == VK_DOWN) idx = (idx + 1) % 6;
+          else idx = (idx + 5) % 6;
           focus = 100 + idx;
           InvalidateRect(hwnd, nullptr, FALSE);
           return 0;
@@ -623,6 +681,7 @@ LRESULT CALLBACK SettingsUiHost::Procedure(HWND hwnd, UINT message,
       }
       break;
     case WM_DESTROY:
+      KillTimer(hwnd, 11);
       self->hwnd_ = nullptr;
       self->edit_font_ = self->edit_hotkey_ = self->edit_base_ = nullptr;
       self->edit_model_ = self->edit_key_ = self->edit_lang_ = nullptr;

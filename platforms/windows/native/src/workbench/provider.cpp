@@ -81,7 +81,7 @@ bool ValidSettings(const Settings& value) {
   const bool schema = value.schema == "rime_ice" ||
                       value.schema == "double_pinyin" ||
                       value.schema == "double_pinyin_flypy" ||
-                      value.schema == "wubi86" || value.schema == "english";
+                      value.schema == "wubi86" || value.schema == "english" || value.schema == "my_combo";
   return schema && ValidTheme(value.theme) && value.font_size >= 10 &&
          value.font_size <= 40 && value.hotkey_key >= 'A' &&
          value.hotkey_key <= 'Z' &&
@@ -249,12 +249,10 @@ bool GenerateWithKey(const Settings& config, const Generation& job,
         L"text/event-stream\r\nAuthorization: Bearer " +
         key + L"\r\n";
     Wipe wipe_headers{headers};
-    const auto instruction =
-        job.translation
-            ? "Translate into " + config.target_language +
-                  ". Return only the translation; preserve meaning and "
-                  "punctuation."
-            : "Respond to the user's text. Return only the requested answer.";
+    if (job.instruction.empty() || job.instruction.size() > 32768) {
+      Fail(error, "Plugin instruction unavailable."); return false;
+    }
+    const auto& instruction = job.instruction;
     Json body = {{"model", config.model},
                  {"stream", true},
                  {"messages",

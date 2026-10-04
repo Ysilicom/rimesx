@@ -186,6 +186,9 @@ void Window::EnsureSettings() {
     InvalidateRect(window, nullptr, FALSE);
     return true;
   };
+  cb.plugins = [this] { return runtime.Plugins(); };
+  cb.manage_plugin = [this](const std::string& id, const std::string& action, std::string* error) { return runtime.ManagePlugin(id, action, error); };
+  cb.plugin_status = [this] { return runtime.PluginStatus(); };
   cb.load_theme = [this] { return ActiveTheme(); };
   cb.on_theme_preview = [this](ui::ThemeId preview) {
     theme = preview;

@@ -100,6 +100,19 @@ def prepare(root, source, update_lock=False):
             ("windows", "platforms/windows/native/resources/official-plugin-catalog.json")
         ]:
             imports[destination] = canonical({**catalog, "plugins": [p for p in packages if platform in p["platforms"]]})
+    windows = [entry for entry in packages if "windows" in entry["platforms"]]
+    if windows:
+        header = "// Generated from the pinned official plugin catalog. Do not edit.\n#pragma once\n#include <string_view>\nnamespace rimes::windows::official {\n"
+        header += 'inline constexpr std::string_view kCatalogJSON = R"rimes_catalog(' + canonical({"schemaVersion": 1, "plugins": windows}).decode() + ')rimes_catalog";\n'
+        header += "struct BundledPackage { std::string_view id, bytes; };\ninline constexpr BundledPackage kPackages[] = {\n"
+        for entry in windows:
+            package = {key: value for key, value in entry.items() if key not in ("sha256", "downloadAssetName", "downloadURL")}
+            data = canonical(package).decode()
+            if ')rimes_package"' in data:
+                raise ValueError("Unsafe native package delimiter")
+            header += '{"' + entry["id"] + '", R"rimes_package(' + data + ')rimes_package"},\n'
+        header += "};\n}\n"
+        imports["platforms/windows/native/src/workbench/official_plugin_catalog.generated.hpp"] = header.encode()
     inputs = {name: digest(safe_path(source, name).read_bytes()) for name in sorted(input_names)}
     revision = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
     if update_lock:

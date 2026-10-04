@@ -24,7 +24,21 @@ preview = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(preview)
 MANIFEST = "NATIVE-DATA-MANIFEST.json"
 LICENSE = "LICENSE-OpenCC.txt"
+CHORD_SOURCE = "native/windows/my_combo.schema.yaml"
+CHORD_RESOURCE = "platforms/windows/native/resources/my_combo.schema.yaml"
+PRODUCT_SCHEMAS = (*preview.EXPECTED_SCHEMAS, "my_combo")
 WINDOWS_PATCHES = {
+    "default.custom.yaml": """# Windows: deploy the official chording scheme with the core schemes.
+patch:
+  schema_list:
+    - schema: rime_ice
+    - schema: double_pinyin
+    - schema: double_pinyin_flypy
+    - schema: wubi86
+    - schema: english
+    - schema: my_combo
+  menu/page_size: 9
+""",
     "wubi86.custom.yaml": """# Windows settings: traditional output without changing shared schemas.
 patch:
   engine/filters/@before 0: simplifier@traditionalize
@@ -85,7 +99,21 @@ def expected_runtime(root: Path) -> set[str]:
     return {f"opencc/{name}" for name in opencc_closure(root / "opencc")} | {LICENSE}
 
 
-def verify(root: Path) -> dict:
+def official_chord(repo: Path) -> tuple[Path, dict]:
+    source = repo / CHORD_RESOURCE
+    regular_file(source)
+    try:
+        lock = json.loads((repo / "plugins.lock.json").read_text(encoding="utf-8"))
+        revision = lock["revision"]
+        digest = lock["files"][CHORD_SOURCE]
+    except (KeyError, ValueError, OSError) as error:
+        preview.fail(f"cannot read pinned Windows plugin source: {error}")
+    if not re.fullmatch(r"[0-9a-f]{40}", revision) or preview.sha256_file(source) != digest:
+        preview.fail("official Windows chording schema differs from the plugin source pin")
+    return source, {"revision": revision, "schemaSha256": digest}
+
+
+def verify(root: Path, repo: Path | None = None) -> dict:
     if root.is_symlink() or not root.is_dir():
         preview.fail("shared-data root must be a regular directory")
     regular_file(root / MANIFEST)
@@ -98,7 +126,10 @@ def verify(root: Path) -> dict:
     policy = preview.load_policy()
     if manifest.get("policySha256") != preview.sha256_file(preview.policy_path()):
         preview.fail("native-data manifest belongs to a different reviewed data policy")
-    expected = set(policy["include"]) | expected_runtime(root) | set(WINDOWS_PATCHES)
+    _, plugin = official_chord(repo or REPO)
+    if manifest.get("officialPlugins") != plugin or manifest.get("productSchemas") != list(PRODUCT_SCHEMAS):
+        preview.fail("native-data manifest belongs to a different official plugin pin or schema set")
+    expected = set(policy["include"]) | expected_runtime(root) | set(WINDOWS_PATCHES) | {"my_combo.schema.yaml"}
     actual, symlinks = preview.scan_source_tree(root)
     if symlinks or actual != expected | {MANIFEST}:
         preview.fail(f"shared-data inventory mismatch: missing={sorted(expected - actual)}, "
@@ -123,6 +154,11 @@ def verify(root: Path) -> dict:
             preview.fail(f"native-data checksum mismatch: {name}")
     if total > preview.MAX_TOTAL_BYTES:
         preview.fail("native shared data exceeds the package size limit")
+    if preview.sha256_file(root / "my_combo.schema.yaml") != plugin["schemaSha256"]:
+        preview.fail("staged chording schema differs from the official plugin source")
+    for name, content in WINDOWS_PATCHES.items():
+        if (root / name).read_bytes() != content.encode("utf-8"):
+            preview.fail(f"staged Windows patch differs from the reviewed content: {name}")
     return {"files": len(entries), "bytes": total, "productSchemas": manifest["productSchemas"]}
 
 
@@ -133,6 +169,7 @@ def stage(repo: Path, output: Path, opencc_data: Path, opencc_license: Path, rev
         preview.fail("OpenCC revision must be its full 40-character source commit")
     regular_file(opencc_license)
     runtime = opencc_closure(opencc_data)
+    chord, plugin = official_chord(repo)
     result = preview.validate_repo(repo)
     if set(result["external"]) != {"opencc/s2t.json"}:
         preview.fail("the shared-data policy has new external dependencies; update this packager first")
@@ -147,14 +184,16 @@ def stage(repo: Path, output: Path, opencc_data: Path, opencc_license: Path, rev
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(opencc_data / name, destination)
         shutil.copyfile(opencc_license, temporary / LICENSE)
+        shutil.copyfile(chord, temporary / "my_combo.schema.yaml")
         for name, content in WINDOWS_PATCHES.items():
             (temporary / name).write_text(content, encoding="utf-8")
-        files = sorted(set(result["included"]) | expected_runtime(temporary) | set(WINDOWS_PATCHES))
+        files = sorted(set(result["included"]) | expected_runtime(temporary) | set(WINDOWS_PATCHES) | {"my_combo.schema.yaml"})
         manifest = {
             "formatVersion": 1,
             "kind": "rimes-windows-native-shared-data",
             "nativeApplicationIncluded": False,
-            "productSchemas": list(preview.EXPECTED_SCHEMAS),
+            "productSchemas": list(PRODUCT_SCHEMAS),
+            "officialPlugins": plugin,
             "policySha256": preview.sha256_file(preview.policy_path()),
             "provenanceGroups": result["policy"]["provenanceGroups"],
             "opencc": {
@@ -168,7 +207,7 @@ def stage(repo: Path, output: Path, opencc_data: Path, opencc_license: Path, rev
                        "sha256": preview.sha256_file(temporary / name)} for name in files],
         }
         (temporary / MANIFEST).write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        summary = verify(temporary)
+        summary = verify(temporary, repo)
         if output.exists() or output.is_symlink():
             preview.fail("output appeared during staging; refusing to replace it")
         temporary.rename(output)

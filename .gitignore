@@ -97,3 +97,8 @@ platforms/ios/RIMES.xcodeproj/-Xcc/
 /platforms/android/core/src/main/java/org/scholay/rimes/core/ChordProfile.java
 /platforms/android/core/src/main/java/org/scholay/rimes/core/ChordData.java
 /platforms/android/core/src/main/java/org/scholay/rimes/core/ChordLayout.java
+
+# Pinned Windows official plugin adapter imports
+/platforms/windows/native/src/workbench/official_features.hpp
+/platforms/windows/native/src/workbench/official_plugin_catalog.generated.hpp
+/platforms/windows/native/resources/my_combo.schema.yaml
