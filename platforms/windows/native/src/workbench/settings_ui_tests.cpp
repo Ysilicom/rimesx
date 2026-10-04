@@ -109,11 +109,51 @@ void TestOwnedClicksAndTransientDetails() {
   Check(preview == ui::ThemeId::kNight && saves == 0,
         "closing unsaved settings restores the original theme");
 }
+void TestPluginManagementAndChordSelection() {
+  int changes = 0;
+  std::string saved_schema;
+  workbench::PluginView fixture{"builtin.apple-translation", "Translation", "1.1.0", "grant", true, true, true};
+  workbench::SettingsUiCallbacks callbacks;
+  callbacks.load = [] { return workbench::Settings{}; };
+  callbacks.plugins = [&] { return std::vector<workbench::PluginView>{fixture}; };
+  callbacks.manage_plugin = [&](const std::string& id, const std::string& action, std::string*) {
+    Check(id == fixture.id && action == "disable", "plugin control passes the selected identity and action");
+    fixture.enabled = false; ++changes; return true;
+  };
+  callbacks.save = [&](workbench::Settings value, const std::wstring&, bool, std::string*) {
+    saved_schema = value.schema; return true;
+  };
+  workbench::SettingsUiHost host(std::move(callbacks));
+  host.Open(nullptr);
+  const HWND window = host.hwnd();
+  Check(window != nullptr, "plugin fixture window opens");
+  if (!window) return;
+  // SSH/CTest can inherit STARTF_USESHOWWINDOW=SW_HIDE. Explicitly show the
+  // disposable fixture after Open so visibility checks cover the controls.
+  ShowWindow(window, SW_SHOWNOACTIVATE);
+  ui::SettingsDraft draft;
+  auto layout = Layout(window, draft);
+  Check(layout.nav.size() == 6, "six settings pages");
+  Click(window, layout.nav[4]);
+  const HWND toggle = GetDlgItem(window, 5101);
+  Check(toggle && IsWindowVisible(toggle) && IsWindowEnabled(toggle), "installed plugin exposes its switch");
+  SendMessageW(toggle, BM_CLICK, 0, 0);
+  Check(changes == 1 && !fixture.enabled, "switch callback occurs exactly once");
+  Click(window, layout.nav[0]);
+  Check(!IsWindowVisible(toggle), "plugin controls leave other pages clear");
+  layout = Layout(window, draft);
+  Check(layout.scheme_cards.size() == 6, "chording is the sixth input schema");
+  Click(window, layout.scheme_cards[5]);
+  Click(window, layout.save);
+  Check(saved_schema == "my_combo", "schema control saves chording identity");
+  host.Close(false);
+}
 }  // namespace
 
 int main() {
   TestNestedHitTargets();
   TestOwnedClicksAndTransientDetails();
+  TestPluginManagementAndChordSelection();
   if (failures) return EXIT_FAILURE;
   std::cout << "Settings transient-details and mouse-ownership tests passed\n";
   return EXIT_SUCCESS;

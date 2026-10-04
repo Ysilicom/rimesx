@@ -593,7 +593,9 @@ if let index = CommandLine.arguments.firstIndex(of: "buffer-music-panel-smoke") 
     _ = NSApplication.shared
     let outputURL = CommandLine.arguments.count > index + 1
         ? URL(fileURLWithPath: CommandLine.arguments[index + 1]) : nil
-    exit(BufferWindowController.shared.exerciseMusicPresentationForSmoke(outputURL: outputURL) ? 0 : 1)
+    exit(withInstalledMusicPluginSmoke {
+        BufferWindowController.shared.exerciseMusicPresentationForSmoke(outputURL: outputURL)
+    } ? 0 : 1)
 }
 if CommandLine.arguments.contains("stats-smoke") {
     exit(runStatsSmokeTest() ? 0 : 1)

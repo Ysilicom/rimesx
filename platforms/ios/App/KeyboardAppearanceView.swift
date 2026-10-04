@@ -30,6 +30,14 @@ struct KeyboardAppearanceView: View {
                     Button("改用上方标准键盘") { useStandard() }
                 }
             }
+            Section {
+                Toggle("长按上滑输入数字和符号", isOn: Binding(get: { value.longPressSwipeSymbols }, set: { enabled in
+                    do { try store.saveSwipeSymbols(enabled); value = store.load() }
+                    catch { self.error = error.localizedDescription }
+                })).accessibilityIdentifier("keyboardAppearance.swipeSymbols")
+            } header: { Text("普通键盘输入") } footer: {
+                Text("按住字母键，向上滑动后松手，输入键角标注的字符。26 键顶排对应数字 1–0，其余字母键和 9 键对应常用标点。并击布局不受影响。")
+            }
             Section("宠物与键盘配色") {
                 Text(theme == .rhino ? "RIMES 经典 · 象牙白、灰色与橙色" : "当前：\(theme.title)")
                     .font(.subheadline).fontWeight(.medium)

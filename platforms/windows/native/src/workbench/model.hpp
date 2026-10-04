@@ -30,6 +30,7 @@ struct Generation {
   bool translation = false;
   std::size_t source_offset = 0;
   std::string prefix;
+  std::string plugin_id, plugin_grant, instruction;
 };
 // Pure state machine. Broker serializes calls. Nothing here persists source
 // text.
@@ -59,6 +60,7 @@ class Model {
   bool Finish(const Generation& job, std::uint64_t settings_revision,
               bool success);
   void Cancel();
+  void InvalidatePluginResults();
   std::optional<Delivery> Send(bool all);
   std::optional<Delivery> Acknowledge(std::uint64_t request, Target target,
                                       bool accepted);

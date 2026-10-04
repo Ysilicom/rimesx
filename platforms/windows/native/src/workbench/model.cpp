@@ -184,6 +184,14 @@ void Model::Cancel() {
   busy = false;
   preview.clear();
 }
+void Model::InvalidatePluginResults() {
+  Cancel(); translate = false; send_all_ = false;
+  // An already-issued insertion must still be acknowledged exactly once.
+  // Prevent continuation, then discard remaining results after that ack.
+  if (pending_) return;
+  result.clear(); source_links_.clear(); translated_source_.clear();
+  status = "Plugin authorization changed. Source retained.";
+}
 std::optional<Delivery> Model::Send(bool all) {
   if (!visible || !capture || !bound || bound != live || pending_ ||
       uncertain || (busy && result.empty()))

@@ -351,6 +351,12 @@ inline void PaintSettingsShell(HDC dc, const SettingsLayout& layout,
     SetTextColor(dc, ToColorRef(p.text_muted));
     DrawTextW(dc, L"密钥保存在 Windows 凭据管理器。正文只在生成或翻译时发送。",
               -1, &note, DT_LEFT | DT_WORDBREAK);
+  } else if (draft.page == SettingsPage::kPlugins) {
+    SelectObject(dc, fonts.body); SetTextColor(dc, ToColorRef(p.text_secondary));
+    if (draft.subpage == 1) {
+      RECT note = px(layout.body);
+      DrawTextW(dc, L"下载安装后默认停用，启用后即可使用。\n\n卸载保留配置、密钥和词库。停用并击后恢复普通全拼，重新启用可继续使用原方案选择。\n\n你可以在这里查看、安装和管理 RIMES 官方插件。", -1, &note, DT_LEFT | DT_WORDBREAK);
+    }
   } else {
     SelectObject(dc, fonts.body);
     SetTextColor(dc, ToColorRef(p.text_secondary));

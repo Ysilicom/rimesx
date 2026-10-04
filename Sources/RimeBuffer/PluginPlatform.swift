@@ -177,7 +177,7 @@ enum PluginVisualIdentity {
             (chatGPTSymbolName, "chatgpt"),
             (claudeSymbolName, "claude"),
         ] {
-            guard let url = Bundle.module.url(forResource: filename,
+            guard let url = ProductResources.bundle.url(forResource: filename,
                                               withExtension: "png",
                                               subdirectory: "PluginIcons"),
                   let image = NSImage(contentsOf: url) else { continue }
@@ -328,7 +328,7 @@ enum BufferPluginActivationError: LocalizedError, Equatable {
 /// buffer workspace currently owns the exclusive action surface. Statistics,
 /// learning and other non-buffer capabilities remain freely composable.
 final class BufferPluginSelectionStore {
-    static let shared = BufferPluginSelectionStore()
+    static let shared = BufferPluginSelectionStore(defaults: OfficialPluginSmokePreferences.shared)
 
     private enum Key {
         static let hasSelection = "plugins.buffer.active.hasValue.v1"
@@ -448,6 +448,7 @@ final class BufferPluginSelectionStore {
 final class PluginRegistry {
     static let shared = PluginRegistry(
         internalPlugins: BuiltInPlugins.makeAll(),
+        defaults: OfficialPluginSmokePreferences.shared,
         presetInstallationStore: .shared
     )
 
@@ -603,6 +604,12 @@ final class PluginRegistry {
                 if let rawID = notification.userInfo?[
                     PresetBufferPluginInstallationStore.changedPluginIDUserInfoKey
                 ] as? String {
+                    if !self.disabledInternalIDs.contains(rawID) {
+                        self.internalPlugins[rawID]?.stop()
+                    }
+                    self.bufferPluginSelection.clearIfSelected(
+                        PluginKey(domain: .builtIn, rawID: rawID)
+                    )
                     self.disabledInternalIDs.insert(rawID)
                     self.persistInternalEnablement()
                 }
@@ -680,6 +687,12 @@ final class PluginRegistry {
         }
     }
 
+    func allowsHostModuleAction(_ action: HostModuleAction, for key: PluginKey) -> Bool {
+        guard key.domain == .builtIn, isEnabled(key),
+              let module = internalPlugins[key.rawID] as? HostModuleContribution else { return false }
+        return module.actions.contains(action)
+    }
+
     func enabledSettingsContributions() -> [(pluginKey: PluginKey, contribution: PluginSettingsContribution)] {
         internalPlugins.values.compactMap { plugin in
             // Buffer plugins are configured from the core plugin/workbench
@@ -702,6 +715,18 @@ final class PluginRegistry {
         case .externalActionV1:
             return externalManager.isEnabled(pluginID: key.rawID)
         }
+    }
+
+    func uninstallInternalPlugin(_ key: PluginKey) throws {
+        guard key.domain == .builtIn,
+              internalPlugins[key.rawID]?.descriptor.canUninstall == true,
+              let presetInstallationStore else {
+            throw BufferPluginActivationError.unavailable(key)
+        }
+        try setEnabled(false, for: key)
+        bufferPluginSelection.clearIfSelected(key)
+        try presetInstallationStore.uninstall(id: key.rawID)
+        notifyChange()
     }
 
     func setEnabled(_ enabled: Bool, for key: PluginKey) throws {

@@ -1,19 +1,31 @@
-# RIMES iOS 1.0.0 preparation
+# RIMES iOS 1.1.0 preparation
 
 Native iPhone application and keyboard extension (iOS 17+). The next local
-release target is **1.0.0 (34)**; both targets inherit the same marketing version
-and build number from `project.yml`. This version has not been uploaded or released.
+release target is **1.1.0 (40)**; both targets inherit the same marketing version
+and build number from `project.yml`. Build 38 passed the maintainer's physical
+haptic and iOS acceptance. Build 40 updates the app's home hero, localization and contact links only. Build 35's
+external review was withdrawn after a reported regression. The verified build 40
+IPA was uploaded to App Store Connect on 2026-10-04; processing and external
+review are tracked there.
 
 The [public TestFlight invitation](https://testflight.apple.com/join/Kdj9RB4q)
-is enabled. On 2026-10-03 its external group offered **0.1.0 (32)**, while
-App Store version 0.1.0 still showed Waiting for Review. The build list reported
-41 crashes for build 32; diagnose those reports and revalidate the final 1.0 build
-before calling it release-ready. Historical build 22 checks remain in `VALIDATION.md`.
-See `CI_RELEASE.md` and the root `RELEASE-1.0.0.md` for release preparation.
+remains enabled for previously approved builds. See
+[1.1.0 acceptance](validation/release-1.1.0/README.md) for the current test scope
+and remaining coverage limits. Historical build 22 checks remain in `VALIDATION.md`.
+See `CI_RELEASE.md` for the upload workflow.
 
 ## Implemented
 
 - Offline simplified Pinyin, Ziranma, Wubi 86 and English; local Rime learning.
+- During composition/candidate selection the left Settings button hides while
+  the right Buffer button remains available.
+- Optional hold-and-swipe symbols in ordinary layouts, off by default. Enable
+  in the app's keyboard-layout page or the keyboard's Settings menu; hold for
+  320 ms, slide up and release. Q–P insert 1–0; other letters and nine-key groups
+  insert their labeled punctuation. Chord layouts retain their own gestures.
+- Imported Rime packages can be deleted from the package list with confirmation.
+  Deleting the selected package restores the previous built-in scheme when the
+  keyboard reopens and preserves learned dictionaries.
 - Extension-private last-scheme memory, independent of Full Access. An explicit
   app selection overrides it once; ordinary app configuration saves do not.
 - Uppercase mechanical keycaps, depressed states and 30% opacity for unreachable
@@ -38,7 +50,8 @@ See `CI_RELEASE.md` and the root `RELEASE-1.0.0.md` for release preparation.
   its wider Space/function keys. Imported mappings and blank-slide protection remain.
 - Haptics offer Off, Light, Strong and Stronger. The two stronger levels use
   medium/heavy UIKit impact generators and persist independently of the off switch;
-  combination deduplication and the 35 ms minimum interval remain active.
+  combinations are deduplicated with a 35 ms interval. Key-down pulses use their
+  own 8 ms coalescing interval so a preceding preview cannot suppress a new key.
 - Backspace deletes immediately, then after 400 ms repeats every 75 ms; lifting,
   leaving the key, cancellation, target changes, rotation and hiding stop it.
   Each deletion tick emits feedback at the selected haptic strength.

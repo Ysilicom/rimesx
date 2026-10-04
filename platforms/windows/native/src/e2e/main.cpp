@@ -63,7 +63,7 @@ void TypeVirtualKey(rimes::windows::tsf::TextService* service,
     return;
   }
   if (require_eaten && eaten == FALSE) {
-    Fail("expected the key down to be consumed");
+    Fail("expected key down to be consumed: vk=" + std::to_string(virtual_key));
   }
   if (dump_after_key_down && document != nullptr) {
     DumpDocument("after keydown vk=" + std::to_string(virtual_key), *document);
@@ -123,6 +123,20 @@ void ResetDocument(rimes::windows::e2e::FakeDocument* document) {
   *document = rimes::windows::e2e::FakeDocument{};
 }
 
+// SetContext has a bounded wait while the connection/control worker
+// owns its mutex. Transport readiness alone does not mean a focus binding has
+// completed. Wait for that setup boundary before sending test keys; never
+// retry or replay an input event.
+bool WaitForContext(rimes::windows::tsf::BrokerClient* client,
+                    std::uint64_t context) {
+  const auto started = GetTickCount64();
+  while (GetTickCount64() - started < 2000) {
+    if (client->IsConnected() && client->SetContext(context)) return true;
+    Sleep(10);
+  }
+  return false;
+}
+
 // Documents the intentional cold/unavailable contract: keys before the Broker
 // is ready fail open immediately, are never marked consumed without processing,
 // and are never replayed after a later successful connect.
@@ -158,7 +172,7 @@ void CheckUnavailablePassThroughAndNoReplay() {
     client->Disconnect();
     return;
   }
-  Expect(client->SetContext(1001), "connected context bound");
+  Expect(WaitForContext(client.get(), 1001), "connected context bound");
 
   BrokerInputState live;
   Expect(client->HandleKey({BrokerKeyPhase::kKeyDown, 'N', 1}, &live) ==
@@ -229,7 +243,7 @@ void CheckCandidateGuardAfterKeyRelease() {
     Sleep(50);
   Expect(client->IsConnected(), "candidate regression client connected");
   if (!client->IsConnected()) return;
-  Expect(client->SetContext(1), "candidate regression context bound");
+  Expect(WaitForContext(client.get(), 1), "candidate regression context bound");
   BrokerInputState shown;
   for (const auto key : {'N', 'I'}) {
     BrokerInputState down, up;
@@ -375,17 +389,19 @@ int RunTypingScenarios() {
   Expect(!document.composing, "Escape should clear composing state");
 
   // Native Edit controls may terminate preedit before notifying focus loss.
-  ResetDocument(&document);
-  TypeLatin(service, context, "ni");
-  context->TerminateComposition();
-  Expect(document.text.empty() && document.composition.empty() &&
-             !document.composing,
-         "host termination must erase preedit before it becomes raw text");
-  // The minimal E2E dictionary contains nihao and ni, not standalone hao.
-  TypeLatin(service, context, "nihao");
-  TypeVirtualKey(service, context, VK_SPACE, true);
-  Expect(document.text == L"你好",
-         "host termination must reset the old engine context too");
+  for (int iteration = 0; iteration < 25; ++iteration) {
+    ResetDocument(&document);
+    TypeLatin(service, context, "ni");
+    context->TerminateComposition();
+    Expect(document.text.empty() && document.composition.empty() &&
+               !document.composing,
+           "host termination must erase preedit before it becomes raw text");
+    // The minimal E2E dictionary contains nihao and ni, not standalone hao.
+    TypeLatin(service, context, "nihao");
+    TypeVirtualKey(service, context, VK_SPACE, true);
+    Expect(document.text == L"你好",
+           "host termination must reset the old engine context too");
+  }
 
   // An asynchronous edit accepted by RequestEditSession is still revocable.
   ResetDocument(&document);

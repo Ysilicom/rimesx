@@ -9,6 +9,7 @@ int wmain(int argc, wchar_t** argv) {
   config.model = "local-test";
   const auto mode = Utf8(argv[2]);
   Generation job{1, 1, 1, "Hello.", false, 0, {}};
+  job.instruction = "Respond to the user text. Return only the requested answer.";
   std::string result, error;
   const auto started = GetTickCount64();
   bool cancelled = false;

@@ -47,10 +47,14 @@ final class RimeSchemeStore: @unchecked Sendable {
     let root: URL
     var stagingRoot: URL { root.appendingPathComponent(".staging", isDirectory: true) }
     private var file: URL { root.appendingPathComponent("library-v1.json") }
-    init(root: URL? = nil) {
+    private let writeLibraryData: (Data, URL) throws -> Void
+    init(root: URL? = nil, writeLibraryData: @escaping (Data, URL) throws -> Void = { data, file in
+        try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }) {
         let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: ConfigurationStore.groupID)
             ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         self.root = root ?? group.appendingPathComponent("Library/Application Support/RimeSchemes", isDirectory: true)
+        self.writeLibraryData = writeLibraryData
     }
     func packageURL(id: String) -> URL {
         root.appendingPathComponent("packages", isDirectory: true).appendingPathComponent(id, isDirectory: true)
@@ -99,6 +103,37 @@ final class RimeSchemeStore: @unchecked Sendable {
             try write(library)
         }
     }
+    /// Remove only the imported resources. Learned words live in the extension's
+    /// separate RimeImported directory and are never part of this transaction.
+    func remove(packageID: String) throws {
+        guard UUID(uuidString: packageID) != nil else { throw RimeSchemeError.invalid("方案包标识无效。") }
+        try withWriteLock {
+            var library = load()
+            guard library.packages.contains(where: { $0.id == packageID }) else { throw RimeSchemeError.invalid("找不到要删除的方案包，请刷新列表。") }
+            let target = packageURL(id: packageID), fm = FileManager.default
+            let parent = target.deletingLastPathComponent()
+            if fm.fileExists(atPath: parent.path) {
+                let values = try parent.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+                guard values.isDirectory == true, values.isSymbolicLink != true else { throw RimeSchemeError.invalid("方案目录异常，无法删除。") }
+            }
+            let removed = root.appendingPathComponent(".removed-" + UUID().uuidString, isDirectory: true)
+            // Moving a symbolic link moves the link itself, never its destination.
+            let exists = (try? fm.attributesOfItem(atPath: target.path)) != nil
+            if exists { try fm.moveItem(at: target, to: removed) }
+            do {
+                library.packages.removeAll { $0.id == packageID }
+                if library.active?.packageID == packageID {
+                    library.active = nil; library.revision = UUID().uuidString
+                }
+                try write(library)
+            } catch {
+                if exists { try fm.moveItem(at: removed, to: target) }
+                throw error
+            }
+            // A cleanup failure leaves only an unselectable, private trash directory.
+            if exists { try? fm.removeItem(at: removed) }
+        }
+    }
     static func safeSchemaID(_ id: String) -> Bool {
         !id.isEmpty && id.utf8.count <= 120 && id != "." && id != ".."
             && id.unicodeScalars.allSatisfy { CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-").contains($0) }
@@ -116,7 +151,7 @@ final class RimeSchemeStore: @unchecked Sendable {
     private func write(_ library: RimeSchemeLibrary) throws {
         let data = try JSONEncoder().encode(library)
         guard data.count <= 1024 * 1024 else { throw RimeSchemeError.invalid("方案目录过大。") }
-        try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        try writeLibraryData(data, file)
     }
     private func withWriteLock(_ action: () throws -> Void) throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])

@@ -10,10 +10,13 @@
 #include "../engine/rime_snapshot.hpp"
 #include "model.hpp"
 #include "provider.hpp"
+#include "official_plugins.hpp"
 namespace rimes::windows::workbench {
 class Runtime {
  public:
-  Runtime();
+  using APIGenerator = std::function<bool(const Settings&, const Generation&,
+      const std::function<bool(const std::string&)>&, const std::function<bool()>&, std::string*)>;
+  explicit Runtime(APIGenerator generate = GenerateAPI);
   ~Runtime();
   Target Register(std::uint32_t process, std::uint64_t session,
                   std::uint64_t context);
@@ -39,6 +42,9 @@ class Runtime {
   void Stop();
   void SetNotify(std::function<void()> notify);
   bool Stopping();
+  std::vector<PluginView> Plugins();
+  bool ManagePlugin(const std::string& id, const std::string& action, std::string* error);
+  std::string PluginStatus();
 
  private:
   struct Entry {
@@ -50,14 +56,21 @@ class Runtime {
   std::map<std::uint64_t, Entry> sessions_;
   Model model_;
   Settings settings_;
+  OfficialPluginStore plugins_;
+  std::string result_plugin_, result_grant_, plugin_status_;
+  bool plugin_installing_ = false;
+  std::jthread plugin_worker_;
   std::function<void()> notify_;
   bool stopping_ = false, settings_valid_ = true;
   std::jthread api_worker_;
+  APIGenerator generate_;
   std::optional<std::pair<Settings, Generation>> api_job_;
   std::uint64_t pressed_at_ = 0, pending_since_ = 0, edited_at_ = 0;
   Target return_target_;
   bool return_held_ = false, return_sent_ = false;
   void Changed();
+  void CheckPluginAuthorization();
+  std::optional<Delivery> SendAuthorized(bool all);
   void Queue(const std::optional<Delivery>& delivery);
   void CaptureChanged();
   void BindLocked(std::uint32_t foreground_process);

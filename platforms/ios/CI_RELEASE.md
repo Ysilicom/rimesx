@@ -1,6 +1,6 @@
 # iOS GitHub Actions release
 
-Current target: **1.0.0**, local build **34**. The public [TestFlight invitation](https://testflight.apple.com/join/Kdj9RB4q) currently offers 0.1.0 (32). A public beta link is separate from a 1.0 App Store release. Existing review state is preserved.
+Current target: **1.1.0**, local build **40**. Build 35's external review was withdrawn after a reported haptic regression; build 38 passed the maintainer's physical acceptance. Build 40 only updates the app home hero, localized brand copy and contact links and was uploaded to App Store Connect on 2026-10-04 after exact-IPA verification. The public [TestFlight invitation](https://testflight.apple.com/join/Kdj9RB4q) is separate from an App Store release. Read App Store Connect for the currently approved builds.
 
 `ios.yml` runs unsigned builds, shared tests and hosted iOS tests on matching
 pull requests targeting main and matching pushes to main. `ios-release.yml` runs

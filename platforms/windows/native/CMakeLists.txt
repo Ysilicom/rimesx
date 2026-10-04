@@ -94,12 +94,13 @@ rimes_harden_target(RimesEngine)
 
 add_library(RimesWorkbench STATIC
     src/workbench/model.cpp
+    src/workbench/official_plugins.cpp
     src/workbench/provider.cpp
     src/workbench/runtime.cpp
     src/workbench/settings_ui.cpp
     src/workbench/window.cpp
 )
-target_link_libraries(RimesWorkbench PUBLIC RimesCore winhttp advapi32 user32 d2d1 dwrite shell32 wtsapi32 ole32 comctl32 gdi32 dwmapi)
+target_link_libraries(RimesWorkbench PUBLIC RimesCore winhttp bcrypt advapi32 user32 d2d1 dwrite shell32 wtsapi32 ole32 comctl32 gdi32 dwmapi)
 rimes_harden_target(RimesWorkbench)
 
 add_executable(RimesBroker
@@ -180,6 +181,10 @@ if(RIMES_BUILD_TESTS)
     target_link_libraries(RimesRuntimeTests PRIVATE RimesWorkbench)
     rimes_harden_target(RimesRuntimeTests)
     add_test(NAME RimesRuntime COMMAND RimesRuntimeTests)
+    add_executable(RimesOfficialPluginTests src/workbench/official_plugins_tests.cpp)
+    target_link_libraries(RimesOfficialPluginTests PRIVATE RimesWorkbench)
+    rimes_harden_target(RimesOfficialPluginTests)
+    add_test(NAME RimesOfficialPlugins COMMAND RimesOfficialPluginTests)
     add_executable(RimesProviderProbe src/workbench/provider_probe.cpp src/workbench/provider.cpp src/workbench/model.cpp)
     target_link_libraries(RimesProviderProbe PRIVATE RimesCore winhttp advapi32)
     rimes_harden_target(RimesProviderProbe)

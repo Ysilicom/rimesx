@@ -6,6 +6,65 @@ import RimesCore
 @MainActor final class KeyboardReturnTests: XCTestCase {
     private enum Layout: CaseIterable { case qwerty, nineKey, custom, orthogonal, split }
 
+    func testHapticPressIsImmediateAndIndependentOfAudio() {
+        let feedback = KeyboardFeedback()
+        var time: TimeInterval = 1
+        feedback.clock = { time }
+        var events: [String] = []
+        feedback.onFeedback = { events.append(String(describing: $0)) }
+        feedback.playInputClick = { events.append("click") }
+        feedback.send(.selection, combination: "AS")
+        time = 1.01; feedback.send(.press)
+        time = 1.03; feedback.send(.press)
+        XCTAssertEqual(events, ["selection", "press", "click", "press", "click"])
+        feedback.enabled = false
+        time = 1.1; feedback.send(.press)
+        XCTAssertEqual(events.last, "click", "Disabling haptics must not disable clicks")
+        feedback.soundEnabled = false
+        time = 1.2; feedback.send(.press)
+        XCTAssertEqual(events.count, 6)
+    }
+
+    func testTypingRendersDoNotReadPluginPackages() throws {
+        for layout in Layout.allCases {
+            var reads = 0
+            let (window, keyboard) = host(layout, onBundledRead: { reads += 1 })
+            defer { window.isHidden = true }
+            for plugin in [nil, KeyboardPlugin.polish] {
+                keyboard.developmentPlugin(plugin, source: "")
+                keyboard.developmentContent(preedit: "ni", candidates: ["你"])
+                reads = 0
+                var durations: [Double] = []
+                for index in 0..<30 {
+                    let start = ProcessInfo.processInfo.systemUptime
+                    keyboard.developmentContent(preedit: index.isMultiple(of: 2) ? "ni" : "nih", candidates: ["你"])
+                    durations.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+                }
+                let sorted = durations.sorted()
+                print("IOS_RENDER_BENCH layout=\(layout) plugin=\(plugin?.rawValue ?? "none") reads=\(reads) p95ms=\(sorted[28])")
+                XCTAssertEqual(reads, 0, "Typing must not load or hash packages for shortcut appearance: \(layout)")
+            }
+        }
+    }
+
+    func testDeleteFeedbackPrecedesTextMutation() {
+        let (window, keyboard) = host(.qwerty); defer { window.isHidden = true }
+        keyboard.developmentChoose(.english)
+        keyboard.layoutProxy.native.text = "abc"
+        keyboard.layoutProxy.native.selectedRange = NSRange(location: 3, length: 0)
+        let feedback = keyboard.layoutViews.keys.feedback
+        feedback.enabled = true; feedback.soundEnabled = false; feedback.reset()
+        var textAtFeedback: String?
+        feedback.onFeedback = { event in
+            if event == .press { textAtFeedback = keyboard.layoutProxy.native.text }
+        }
+        let key = keyboard.developmentDelete
+        key.sendActions(for: .touchDown)
+        key.sendActions(for: .touchUpInside)
+        XCTAssertEqual(textAtFeedback, "abc")
+        XCTAssertEqual(keyboard.layoutProxy.native.text, "ab")
+    }
+
     func testEveryLayoutInsertsBufferBlocksBeforePerformingHostReturn() throws {
         for layout in Layout.allCases {
             for theme: StatusSkin in [.apple, .rhino] {
@@ -77,6 +136,21 @@ import RimesCore
         }
     }
 
+    func testCompletedPluginResultCannotSurviveDisableAndReenable() throws {
+        let (window, keyboard) = host(.qwerty); defer { window.isHidden = true }
+        keyboard.developmentPlugin(.polish, source: "保留原文", output: "Old result")
+        let key = try returnKey(keyboard)
+        key.sendActions(for: .touchDown)
+        try keyboard.developmentRevokePlugin(.polish)
+        key.sendActions(for: .touchUpInside)
+        keyboard.developmentEnter()
+        XCTAssertTrue(keyboard.layoutProxy.insertions.isEmpty)
+        XCTAssertEqual(keyboard.developmentBufferSource.text, "保留原文")
+        keyboard.developmentPlugin(.polish, source: "新请求", output: "Fresh result")
+        tap(key)
+        XCTAssertEqual(keyboard.layoutProxy.insertions, ["Fresh result"])
+    }
+
     func testHeldReturnCannotTurnIntoSendAfterAnotherActionDrainsBuffer() throws {
         let (window, keyboard) = host(.orthogonal); defer { window.isHidden = true }
         keyboard.layoutProxy.returnKeyType = .send
@@ -141,11 +215,13 @@ import RimesCore
     private func menuEntries(_ menu: UIMenu) -> [UIMenuElement] {
         menu.children.flatMap { element in [element] + ((element as? UIMenu).map(menuEntries) ?? []) }
     }
-    private func host(_ layout: Layout) -> (UIWindow, KeyboardViewController) {
+    private func host(_ layout: Layout, onBundledRead: (() -> Void)? = nil) -> (UIWindow, KeyboardViewController) {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 900))
         let parent = UIViewController(); window.rootViewController = parent; window.makeKeyAndVisible()
         let keyboard = KeyboardViewController(); keyboard.layoutNeedsInputModeSwitchKey = false
-        keyboard.loadViewIfNeeded(); keyboard.developmentResetPreferences()
+        keyboard.loadViewIfNeeded(); keyboard.developmentResetPreferences(bundledData: { entry in
+            onBundledRead?(); return try OfficialPluginCatalog.bundledData(entry)
+        })
         parent.addChild(keyboard); parent.view.addSubview(keyboard.view); keyboard.didMove(toParent: parent)
         switch layout {
         case .qwerty: keyboard.developmentOrdinaryAppearance(layout: .qwerty)

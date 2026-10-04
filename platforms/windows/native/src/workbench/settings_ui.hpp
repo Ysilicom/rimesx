@@ -8,6 +8,7 @@
 #include "../ui/settings_layout.hpp"
 #include "../ui/settings_paint.hpp"
 #include "provider.hpp"
+#include "official_plugins.hpp"
 
 namespace rimes::windows::workbench {
 
@@ -22,6 +23,9 @@ struct SettingsUiCallbacks {
   std::function<void()> on_closed;
   std::function<void(ui::ThemeId)> on_theme_preview;
   std::wstring about_text;
+  std::function<std::vector<PluginView>()> plugins;
+  std::function<bool(const std::string&, const std::string&, std::string*)> manage_plugin;
+  std::function<std::string()> plugin_status;
 };
 
 // Production and visual-preview share this host. Preview passes fixture
@@ -43,6 +47,7 @@ class SettingsUiHost {
   void CreateOrUpdateChildren();
   void ApplyControlTheme();
   void ThemeEdits();
+  void UpdatePlugins();
   bool CommitSave();
   void Paint(HDC dc);
   void ActivateHit(int hit);
@@ -65,6 +70,9 @@ class SettingsUiHost {
   HWND check_ascii_ = nullptr;
   HWND check_trad_ = nullptr;
   HWND check_punct_ = nullptr;
+  std::array<HWND,3> plugin_labels_{}, plugin_install_{}, plugin_enable_{}, plugin_remove_{};
+  HWND plugin_status_ = nullptr;
+  std::vector<PluginView> plugin_rows_;
   HBRUSH edit_brush_ = nullptr;
   unsigned dpi_ = 96;
   int pressed_hit_ = -2;

@@ -9,6 +9,7 @@ final class KeySurface: UIView {
     private var reachable = ChordReachability(profile: .builtIn)
     var onTypingPress: (() -> Void)?
     var onKey: ((String) -> Void)?
+    var onAlternate: ((String) -> Void)?
     var onChord: ((ChordResolution?) -> Void)?
     var onPreview: ((String) -> Void)?
     var onEmoji: ((String) -> Void)?
@@ -18,6 +19,7 @@ final class KeySurface: UIView {
     var numeric = false { didSet { retire(); setNeedsLayout() } }
     var shifted = false { didSet { if oldValue != shifted { retire() }; setNeedsDisplay() } }
     var englishInput = false { didSet { if oldValue != englishInput { retire() }; updateLanguageButton(); setNeedsDisplay() } }
+    var longPressSwipeSymbols = false { didSet { if oldValue != longPressSwipeSymbols { cancel(); setNeedsLayout() } } }
     var chordLayout: ChordLayout = .orthogonal { didSet { if oldValue != chordLayout { retire(); setNeedsLayout() } } }
     var resolvesChords: Bool { chordMode && !numeric && !emojiMode && !shifted && !englishInput }
     var hasUtilityCells: Bool { chordMode && !numeric }
@@ -55,9 +57,16 @@ final class KeySurface: UIView {
     var handPreview: ChordHandPreview? { resolvesChords ? gesture.handPreview(in: profile) : nil }
     private var touchIDs: [ObjectIdentifier: Int] = [:]
     private var nextID = 0
-    private var ordinary: [ObjectIdentifier: String] = [:]
+    private var ordinary: [ObjectIdentifier: OrdinaryKeyGesture] = [:]
+    private var holdTimers: [ObjectIdentifier: Timer] = [:]
+    private let alternatePreview = UILabel()
     override init(frame: CGRect) {
         super.init(frame: frame); isMultipleTouchEnabled = true; backgroundColor = .clear
+        alternatePreview.isHidden = true; alternatePreview.isUserInteractionEnabled = false
+        alternatePreview.accessibilityElementsHidden = true
+        alternatePreview.textAlignment = .center; alternatePreview.font = .systemFont(ofSize: 28)
+        alternatePreview.layer.cornerRadius = 8; alternatePreview.clipsToBounds = true
+        addSubview(alternatePreview)
         accessibilityLabel = L("字母键盘", "Letter keyboard")
         emojiButton.symbol("face.smiling", label: L("表情", "Emoji"))
         emojiButton.accessibilityIdentifier = "keyboard.emoji"
@@ -117,10 +126,14 @@ final class KeySurface: UIView {
         [emojiButton, languageButton].forEach { $0.alpha = dimmed ? 0.3 : 1 }
         setNeedsDisplay()
     }
-    func cancel() { utilityGeneration = UUID(); feedback.reset(); gesture.cancel(); ordinary.removeAll(); onPreview?(""); redraw() }
+    private func clearOrdinaryTouches() {
+        holdTimers.values.forEach { $0.invalidate() }; holdTimers.removeAll(); ordinary.removeAll()
+        alternatePreview.isHidden = true
+    }
+    func cancel() { utilityGeneration = UUID(); feedback.reset(); gesture.cancel(); clearOrdinaryTouches(); onPreview?(""); redraw() }
     /// Context loss may never deliver matching touch-up events. Retire old IDs so
     /// late callbacks cannot commit and a fresh keyboard session is not stuck.
-    func retire() { feedback.reset(); gesture.reset(); touchIDs.removeAll(); ordinary.removeAll(); emojiMode = false; onPreview?(""); redraw() }
+    func retire() { feedback.reset(); gesture.reset(); touchIDs.removeAll(); clearOrdinaryTouches(); emojiMode = false; onPreview?(""); redraw() }
     override func layoutSubviews() {
         super.layoutSubviews(); boxes.removeAll(); labels.removeAll()
         standardFunctionViews.values.forEach { $0.isHidden = true }
@@ -160,7 +173,14 @@ final class KeySurface: UIView {
         }
         let letters: [Any] = boxes.map { key, rect in
             let item = KeyAccessibility(accessibilityContainer: self); item.accessibilityLabel = labels[key] ?? key.uppercased(); item.accessibilityTraits = .keyboardKey; item.accessibilityFrameInContainerSpace = rect
-            item.activate = { [weak self] in guard let self else { return }; self.onTypingPress?(); self.feedback.send(.press); self.onKey?(self.shifted && !self.numeric ? key.uppercased() : key) }; return item
+            item.activate = { [weak self] in guard let self else { return }; self.feedback.send(.press); self.onTypingPress?(); self.onKey?(self.shifted && !self.numeric ? key.uppercased() : key) }
+            if let alternate = alternate(for: key) {
+                item.accessibilityCustomActions = [UIAccessibilityCustomAction(name: L("输入", "Insert") + " " + alternate) { [weak self] _ in
+                    guard let self, self.alternate(for: key) == alternate else { return false }
+                    self.feedback.send(.press); self.onTypingPress?(); self.onAlternate?(alternate); return true
+                }]
+            }
+            return item
         }
         var utilityElements: [UIView] = [emojiButton, languageButton]
         if let languageCellView { utilityElements.append(languageCellView) }
@@ -188,7 +208,7 @@ final class KeySurface: UIView {
         let selected = gesture.keys ?? []
         let eligible = gesture.availableKeys(in: reachable)
         for (key, box) in boxes {
-            let active = (key.first.map(selected.contains) ?? false) || ordinary.values.contains(key)
+            let active = (key.first.map(selected.contains) ?? false) || ordinary.values.contains { $0.key == key }
             let dimmed = resolvesChords && gesture.active && !active && !(key.first.map(eligible.contains) ?? false)
             let context = UIGraphicsGetCurrentContext()!
             context.saveGState(); context.setAlpha(dimmed ? 0.30 : 1)
@@ -202,6 +222,11 @@ final class KeySurface: UIView {
             let attr: [NSAttributedString.Key: Any] = [.font: fittedFont, .foregroundColor: active ? theme.palette.accentInk : theme.palette.ink]
             let textSize = value.size(withAttributes: attr)
             value.draw(at: CGPoint(x: cap.midX - textSize.width / 2, y: cap.midY - textSize.height / 2), withAttributes: attr)
+            if let alternate = alternate(for: key) {
+                let hint: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: min(11, cap.height * 0.24)), .foregroundColor: (active ? theme.palette.accentInk : theme.palette.ink).withAlphaComponent(0.55)]
+                let hintSize = alternate.size(withAttributes: hint)
+                alternate.draw(at: CGPoint(x: cap.maxX - hintSize.width - 4, y: cap.minY + 2), withAttributes: hint)
+            }
             context.restoreGState()
         }
     }
@@ -219,6 +244,48 @@ final class KeySurface: UIView {
         feedback.send(.selection, combination: gesture.resolution(in: profile)?.keys)
         redraw()
     }
+    private func alternate(for key: String) -> String? {
+        guard longPressSwipeSymbols, !chordMode, !numeric, !emojiMode,
+              standardMode != .numeric, standardMode != .symbols else { return nil }
+        return OrdinaryKeyGesture.alternate(for: key, nineKey: !usesCustomLayout && standardMode == .nineKey, english: englishInput)
+    }
+    private func showAlternatePreview() {
+        guard let touch = ordinary.values.first(where: { $0.armed }), let value = touch.alternate,
+              let frame = boxes.first(where: { $0.0 == touch.initialKey })?.1 else {
+            if !alternatePreview.isHidden { alternatePreview.isHidden = true }; return
+        }
+        alternatePreview.text = value
+        alternatePreview.backgroundColor = touch.selected ? theme.palette.accent : theme.palette.key
+        alternatePreview.textColor = touch.selected ? theme.palette.accentInk : theme.palette.ink
+        let width = max(44, frame.width)
+        alternatePreview.frame = CGRect(x: min(max(0, frame.midX - width / 2), bounds.width - width), y: frame.minY - 42, width: width, height: 40)
+        alternatePreview.isHidden = false; bringSubviewToFront(alternatePreview)
+    }
+    private func beginOrdinary(_ id: ObjectIdentifier, key: String, point: CGPoint, at time: TimeInterval, scheduleHold: Bool = true) {
+        let alternate = alternate(for: key)
+        ordinary[id] = .init(key: key, origin: point, at: time, alternate: alternate, keyWidth: boxes.first { $0.0 == key }?.1.width ?? 32)
+        guard alternate != nil, scheduleHold else { return }
+        let timer = Timer(timeInterval: OrdinaryKeyGesture.holdDuration, repeats: false) { [weak self] _ in
+            guard let self, self.ordinary[id]?.arm(at: ProcessInfo.processInfo.systemUptime) == true else { return }
+            self.holdTimers.removeValue(forKey: id)
+            self.showAlternatePreview(); self.redraw()
+        }
+        holdTimers[id] = timer; RunLoop.main.add(timer, forMode: .common)
+    }
+    private func moveOrdinary(_ id: ObjectIdentifier, point: CGPoint, at time: TimeInterval) {
+        guard let previous = ordinary[id] else { return }
+        ordinary[id]?.move(to: point, key: key(at: point), at: time)
+        guard let current = ordinary[id], previous.key != current.key || previous.armed != current.armed || previous.selected != current.selected else { return }
+        showAlternatePreview(); redraw()
+    }
+    private func endOrdinary(_ id: ObjectIdentifier, point: CGPoint, at time: TimeInterval) {
+        holdTimers.removeValue(forKey: id)?.invalidate()
+        guard var tracked = ordinary.removeValue(forKey: id) else { return }
+        tracked.move(to: point, key: key(at: point), at: time)
+        showAlternatePreview()
+        if let value = tracked.selectedAlternate { onAlternate?(value) }
+        else { onKey?(shifted && !numeric ? tracked.key.uppercased() : tracked.key) }
+    }
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard !emojiMode else { return }
         utilityGeneration = UUID()
@@ -228,23 +295,19 @@ final class KeySurface: UIView {
             let point = t.location(in: self)
             guard let key = key(at: point) ?? (resolvesChords ? nil : nearestKey(to: point)) else { continue }
             let oid = ObjectIdentifier(t)
-            onTypingPress?(); feedback.send(.press)
+            feedback.send(.press); onTypingPress?()
             if resolvesChords {
                 nextID += 1; touchIDs[oid] = nextID; gesture.begin(id: nextID, key: key.first, profile: profile)
             }
-            else { ordinary[oid] = key }
+            else { beginOrdinary(oid, key: key, point: point, at: t.timestamp) }
         }
         if resolvesChords { preview() }; redraw()
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard resolvesChords else {
-            // The highlighted cap follows the finger; gaps keep the last cap.
-            var changed = false
             for t in touches {
-                let oid = ObjectIdentifier(t)
-                if let current = ordinary[oid], let key = key(at: t.location(in: self)), key != current { ordinary[oid] = key; changed = true }
+                moveOrdinary(ObjectIdentifier(t), point: t.location(in: self), at: t.timestamp)
             }
-            if changed { redraw() }
             return
         }
         for t in touches { if let id = touchIDs[ObjectIdentifier(t)] { gesture.move(id: id, key: key(at: t.location(in: self))?.first, profile: profile) } }
@@ -256,21 +319,31 @@ final class KeySurface: UIView {
             if let id = touchIDs.removeValue(forKey: oid) {
                 let result = gesture.end(id: id, key: key?.first, profile: profile)
                 if !gesture.active { if result != nil { feedback.send(.commit) }; feedback.reset(); onChord?(result); onPreview?("") }
-            } else if let tracked = ordinary.removeValue(forKey: oid) {
-                // Commit the cap under the finger at release, as the system keyboard does;
-                // lifting in a gap or outside the caps commits the last highlighted cap.
-                let value = key ?? tracked
-                onKey?(shifted && !numeric ? value.uppercased() : value)
-            }
+            } else { endOrdinary(oid, point: t.location(in: self), at: t.timestamp) }
         }
         redraw()
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         gesture.cancel()
-        for t in touches { let oid = ObjectIdentifier(t); if let id = touchIDs.removeValue(forKey: oid) { _ = gesture.end(id: id, key: nil, profile: profile) }; ordinary.removeValue(forKey: oid) }
-        onPreview?(""); redraw()
+        for t in touches {
+            let oid = ObjectIdentifier(t)
+            if let id = touchIDs.removeValue(forKey: oid) { _ = gesture.end(id: id, key: nil, profile: profile) }
+            ordinary.removeValue(forKey: oid); holdTimers.removeValue(forKey: oid)?.invalidate()
+        }
+        showAlternatePreview(); onPreview?(""); redraw()
     }
     #if DEBUG
+    func developmentOrdinaryGesture(key: String, duration: TimeInterval, dx: CGFloat = 0, dy: CGFloat = -24, beforeRelease: (() -> Void)? = nil) {
+        guard let frame = boxes.first(where: { $0.0 == key })?.1 else { return }
+        let token = NSObject(), start = CGPoint(x: frame.midX, y: frame.midY)
+        let id = ObjectIdentifier(token), end = CGPoint(x: start.x + dx, y: start.y + dy)
+        beginOrdinary(id, key: key, point: start, at: 0, scheduleHold: false)
+        moveOrdinary(id, point: end, at: duration)
+        beforeRelease?()
+        endOrdinary(id, point: end, at: duration)
+        redraw()
+    }
+    func developmentAlternate(for key: String) -> String? { alternate(for: key) }
     var developmentKeyFrames: [String: CGRect] {
         var frames = Dictionary(uniqueKeysWithValues: boxes)
         if !emojiButton.isHidden { frames["emoji"] = emojiButton.frame; frames["mode"] = languageButton.frame }

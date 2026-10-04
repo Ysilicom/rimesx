@@ -37,19 +37,43 @@ class NativeDataTests(unittest.TestCase):
         result = {"dataRoot": self.source, "included": ["rime.lua"],
                   "external": ["opencc/s2t.json"], "policy": policy}
         self.addCleanup(patch.stopall)
+        patch.object(native, "REPO", self.root).start()
         patch.object(native.preview, "load_policy", return_value=policy).start()
         patch.object(native.preview, "validate_repo", return_value=result).start()
+        self.chord = self.root / native.CHORD_RESOURCE
+        self.chord.parent.mkdir(parents=True)
+        self.chord.write_text("schema:\n  schema_id: my_combo\n", encoding="utf-8")
+        (self.root / "plugins.lock.json").write_text(json.dumps({
+            "revision": "b" * 40,
+            "files": {native.CHORD_SOURCE: native.preview.sha256_file(self.chord)}}))
 
     def stage(self):
         return native.stage(self.root, self.output, self.runtime, self.license, "a" * 40)
 
     def test_only_reviewed_and_referenced_files_are_staged(self):
         summary = self.stage()
-        self.assertEqual(summary["files"], 5)
+        self.assertEqual(summary["files"], 7)
+        self.assertEqual(summary["productSchemas"], list(native.PRODUCT_SCHEMAS))
+        self.assertEqual((self.output / "my_combo.schema.yaml").read_bytes(), self.chord.read_bytes())
         self.assertEqual((self.output / "wubi86.custom.yaml").read_text(encoding="utf-8"), native.WINDOWS_PATCHES["wubi86.custom.yaml"])
         self.assertEqual(native.verify(self.output), summary)
         self.assertFalse((self.output / "private.userdb").exists())
         self.assertFalse((self.output / "opencc/unreferenced.ocd2").exists())
+
+    def test_changed_plugin_source_is_rejected_before_staging(self):
+        self.chord.write_text("unreviewed schema")
+        with self.assertRaisesRegex(native.preview.PreviewError, "source pin"):
+            self.stage()
+        self.assertFalse(self.output.exists())
+
+    def test_chording_cannot_be_removed_from_deployment_manifest(self):
+        self.stage()
+        path = self.output / native.MANIFEST
+        manifest = json.loads(path.read_text())
+        manifest["productSchemas"].remove("my_combo")
+        path.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(native.preview.PreviewError, "schema set"):
+            native.verify(self.output)
 
     def test_missing_runtime_table_leaves_no_partial_output(self):
         (self.runtime / "STCharacters.ocd2").unlink()

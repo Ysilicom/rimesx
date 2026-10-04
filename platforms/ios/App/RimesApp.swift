@@ -14,6 +14,10 @@ struct RimesApp: App {
 @MainActor final class SettingsModel: ObservableObject {
     @Published var value = ConfigurationStore().load()
     @Published var error: String?
+    init() {
+        do { try MobileOfficialPlugins.makeStore().bootstrap() }
+        catch { self.error = error.localizedDescription }
+    }
     func save() { do { try ConfigurationStore().save(value) } catch { self.error = error.localizedDescription } }
 }
 struct HomeView: View {
@@ -22,11 +26,22 @@ struct HomeView: View {
         NavigationStack {
             List {
                 Section {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("RIMES").font(.system(size: 38, weight: .bold, design: .rounded))
-                        Text(L("把想法，写得顺一点。", "A little more flow, in every word.")).font(.title3)
-                        Text(L("离线中文输入 · 滑动并击 · 可选 AI", "Offline Chinese · Slide chords · Optional AI")).font(.subheadline).foregroundStyle(.secondary)
-                    }.padding(.vertical, 16)
+                    HStack(spacing: 16) {
+                        Image("BrandLogo").resizable().scaledToFit()
+                            .frame(width: 72, height: 72)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("RIMES").font(.system(size: 32, weight: .bold, design: .rounded))
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(L("世界对智者太过挑剔", "The world is too hard on the wise."))
+                                Text(L("好奇的人需要朋友", "Curious minds need friends."))
+                            }.font(.system(size: 13)).foregroundStyle(.secondary)
+                                .lineLimit(1).minimumScaleFactor(0.8)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }.padding(.vertical, 12)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("settings.home.hero")
                 }.listRowBackground(Color.teal.opacity(0.08))
                 Section(L("开始使用", "Get started")) {
                     NavigationLink { SetupView() } label: { Label(L("启用 RIMES 键盘", "Enable RIMES keyboard"), systemImage: "keyboard") }
@@ -39,6 +54,7 @@ struct HomeView: View {
                     NavigationLink { KeyboardAppearanceView() } label: { Label(L("键盘布局与换肤", "Keyboard layout & skins"), systemImage: "keyboard") }
                     NavigationLink { RimeSchemesView() } label: { Label(L("Rime 方案包与导入", "Rime schemes & import"), systemImage: "shippingbox") }
                     NavigationLink { TranslationSetupView() } label: { Label(L("苹果翻译语言包", "Apple translation languages"), systemImage: "translate") }
+                    NavigationLink { OfficialPluginsView() } label: { Label(L("官方插件", "Official plugins"), systemImage: "puzzlepiece.extension") }
                     NavigationLink { ProvidersView() } label: { Label(L("AI 服务", "AI services"), systemImage: "sparkles") }
                     NavigationLink { PoemLibraryView() } label: { Label(L("AI 作诗：句式与词卡", "AI Poem: patterns & word cards"), systemImage: "text.book.closed") }
                     NavigationLink { StatusSkinsView() } label: { Label(L("宠物轮换", "Pet rotation"), systemImage: "pawprint") }
@@ -47,6 +63,17 @@ struct HomeView: View {
                     NavigationLink { DataManagementView() } label: { Label(L("数据管理", "Data management"), systemImage: "externaldrive") }
                     NavigationLink(L("隐私与第三方许可", "Privacy & licenses")) { PrivacyView() }
                     Text("RIMES " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0")).font(.caption).foregroundStyle(.secondary)
+                } footer: {
+                    VStack(spacing: 0) {
+                        Link("pm.scholay.com", destination: URL(string: "https://pm.scholay.com")!)
+                            .accessibilityLabel(L("官网，pm.scholay.com", "Website, pm.scholay.com"))
+                            .accessibilityIdentifier("settings.home.website")
+                            .frame(minHeight: 44)
+                        Link("pm@scholay.com", destination: URL(string: "mailto:pm@scholay.com")!)
+                            .accessibilityLabel(L("联系邮箱，pm@scholay.com", "Email, pm@scholay.com"))
+                            .accessibilityIdentifier("settings.home.email")
+                            .frame(minHeight: 44)
+                    }.font(.footnote).frame(maxWidth: .infinity)
                 }
             }.navigationTitle(L("欢迎", "Welcome"))
             .alert(L("无法保存", "Could not save"), isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) { Button("OK") { model.error = nil } } message: { Text(model.error ?? "") }

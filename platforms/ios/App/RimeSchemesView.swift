@@ -13,6 +13,7 @@ struct RimeSchemesView: View {
     @State private var active: RimeSchemeSelection?
     @State private var deploying = false
     @State private var deploymentStatus = ""
+    @State private var packageToDelete: RimeSchemePackage?
     private let store = RimeSchemeStore()
 
     var body: some View {
@@ -40,9 +41,16 @@ struct RimeSchemesView: View {
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 ForEach(packages, id: \.id) { package in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(package.name).font(.headline)
-                        Text(package.importedAt, style: .date).font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(package.name).font(.headline)
+                            Text(package.importedAt, style: .date).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button(role: .destructive) { packageToDelete = package } label: { Image(systemName: "trash") }
+                            .buttonStyle(.borderless).disabled(deploying)
+                            .accessibilityLabel("删除方案包“\(package.name)”")
+                            .accessibilityIdentifier("rimeSchemes.delete.\(package.id)")
                     }
                     ForEach(package.schemas, id: \.id) { schema in
                         installedScheme(schema, package: package)
@@ -78,6 +86,12 @@ struct RimeSchemesView: View {
         .navigationTitle("Rime 方案包")
         .tint(.indigo)
         .onAppear(perform: reload)
+        .confirmationDialog("删除方案包？", isPresented: Binding(get: { packageToDelete != nil }, set: { if !$0 { packageToDelete = nil } }), titleVisibility: .visible, presenting: packageToDelete) { package in
+            Button("删除“\(package.name)”", role: .destructive) { remove(package) }
+            Button("取消", role: .cancel) { packageToDelete = nil }
+        } message: { package in
+            Text("将移除包内的 \(package.schemas.count) 个输入方案。若正在使用其中的方案，下次唤起键盘时恢复原来的内置输入方式。已学习的用户词库会保留。")
+        }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.zip], allowsMultipleSelection: false) { result in
             switch result {
             case .success(let urls): if let url = urls.first { inspect(url) }
@@ -106,6 +120,13 @@ struct RimeSchemesView: View {
         let library = store.load()
         packages = library.packages
         active = library.active
+    }
+    private func remove(_ package: RimeSchemePackage) {
+        do {
+            try store.remove(packageID: package.id)
+            packageToDelete = nil; reload()
+            message = "已删除“\(package.name)”。"
+        } catch { self.error = error.localizedDescription }
     }
     private func installedScheme(_ schema: ImportedRimeSchema, package: RimeSchemePackage) -> some View {
         let selection = RimeSchemeSelection(packageID: package.id, schemaID: schema.id)

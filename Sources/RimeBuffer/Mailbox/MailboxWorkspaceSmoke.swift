@@ -1,5 +1,11 @@
 import Cocoa
 
+// Layout fixtures must not be resized to a CI runner's small visible screen.
+// Production windows continue to use AppKit's normal screen constraints.
+private final class MailboxSmokeWindow: NSWindow {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+}
+
 /// Isolated native UI + PTY test. Fixtures never enter the user's Mailbox and
 /// no provider is called. Optional PNGs are real AppKit renders of the module.
 func runMailboxWorkspaceSmoke(output: URL? = nil) -> Bool {
@@ -47,7 +53,7 @@ func runMailboxWorkspaceSmoke(output: URL? = nil) -> Bool {
         app.setActivationPolicy(.accessory); app.finishLaunching()
         var enabled = Set(MailboxModuleID.allCases)
         let host = MailboxWorkspaceViewController(store: store, remembersModule: false, isEnabled: { enabled.contains($0) })
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: MailboxUI.defaultSize),
+        let window = MailboxSmokeWindow(contentRect: NSRect(origin: .zero, size: MailboxUI.defaultSize),
             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .aqua)

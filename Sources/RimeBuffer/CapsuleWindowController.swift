@@ -1946,6 +1946,8 @@ final class CapsulePaneViewController: NSViewController,
     }
 
     private func renderModuleSidebar() {
+        searchField.isEnabled = !CapsuleNavigationPolicy.usesModules
+            || PluginRegistry.shared.allowsHostModuleAction(.search, for: selectedModule.pluginKey)
         for view in moduleStack.arrangedSubviews {
             moduleStack.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -1981,6 +1983,7 @@ final class CapsulePaneViewController: NSViewController,
     @objc private func modulePressed(_ sender: NSButton) {
         guard let raw = sender.identifier?.rawValue.split(separator: ":").last,
               let module = CapsuleModuleID(rawValue: String(raw)),
+              CapsuleModuleAvailability.enabled.contains(module),
               module != selectedModule,
               confirmDiscardChangesIfNeeded() else { return }
         selectedModule = module
@@ -2638,7 +2641,9 @@ final class CapsulePaneViewController: NSViewController,
         let kind = selectedKind
         let module = selectedModule
         let filter = selectedFilter
-        let query = searchField.stringValue
+        let query = !CapsuleNavigationPolicy.usesModules
+            || PluginRegistry.shared.allowsHostModuleAction(.search, for: module.pluginKey)
+            ? searchField.stringValue : ""
         let preferredID = draft.id
         let begin = { [weak self] in
             self?.performReload(
