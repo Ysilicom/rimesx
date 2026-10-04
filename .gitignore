@@ -15,6 +15,9 @@ Vendor/
 # Retired root-level Pencil exploration; keep it out after removal.
 /new-rime.pen
 
+# Promotional video projects and assets are maintained outside this repository.
+/platforms/ios/AppStore/promo-video/
+
 *.log
 
 # Local installer builds (CI produces the released pkg)

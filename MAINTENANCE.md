@@ -25,7 +25,7 @@ iOS，Linux 收敛到现有功能维护。构建与实机验收分别记录。
 | Android | `platforms/android/` | App/IME、InputConnection、JVM 测试、APK 与真机 |
 | Linux | `platforms/linux/` | Fcitx5、Buffer/Capsule、X11/Wayland 真实桌面 |
 | 共享词库/配置 | `rime-data/`、`chord-keymaps/`、`Catalog/` | 目录生成检查、数据闭包及受影响平台 |
-| 设计与宣传 | `DesignSystem/`、`platforms/ios/AppStore/promo-video/` | 单独提交；界面原型/宣传画面不冒充产品验收 |
+| 设计 | `DesignSystem/` | 单独提交；界面原型不冒充产品验收。宣传视频的工程、素材与成片不进本仓库 |
 
 Windows/Linux 的 C++ 与 Android 的 Java 适配层不直接共享 Swift 实现；用行为规范、数据格式和测试样例对齐。
 平台安全边界仍由各自宿主负责；macOS 的 `Delivery.insert`、用户词库隔离等约束不因整合改变。
