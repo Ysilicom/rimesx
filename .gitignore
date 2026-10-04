@@ -31,3 +31,8 @@ __pycache__/
 *.pyc
 Shared/build/
 platforms/ios/RIMES.xcodeproj/-Xcc/
+
+# Imported from the pinned OfficialPlugins dependency. Edit plugin sources in
+# that repository; scripts/prepare-official-plugins.py preserves local edits.
+/Sources/RimeBuffer/ScholayAcademicPlugins.swift
+/Sources/RimeBuffer/Resources/OfficialPlugins/

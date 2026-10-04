@@ -61,14 +61,14 @@ This table is generated from [`Catalog/buffer-plugins.json`](Catalog/buffer-plug
 | Claude | `builtin.claude-code-cli` | 1.1 | Bundled with RIMES | Enabled |
 | AI API | `builtin.openai-compatible` | 1.0 | Bundled with RIMES | Enabled |
 | Reference | `builtin.scholay` | 0.1 | Bundled with RIMES | Enabled |
-| Polisher | `builtin.polisher` | 0.1 | Bundled with RIMES | Enabled |
-| LaTeX | `builtin.latex` | 0.1 | Bundled with RIMES | Enabled |
+| Polisher | `builtin.polisher` | 1.1.0 | On demand in Settings | Disabled |
+| LaTeX | `builtin.latex` | 1.1.0 | On demand in Settings | Disabled |
 | Real-time Translation | `builtin.apple-translation` | 2.2 | Bundled with RIMES | Enabled |
 | Stream of Consciousness Input | `builtin.stream-input` | 1.4 | Bundled with RIMES | Enabled |
 | Electronic Music | `builtin.music` | 0.2.3 | Bundled with RIMES | Enabled |
 | Morse Code | `builtin.morse` | 0.1.0 | Bundled with RIMES | Enabled |
 
-Every plug-in in the table is bundled with RIMES and enabled on a clean first run.
+Bundled plug-ins use the defaults above. Optional plug-ins require installation and explicit enablement. Upgrades preserve existing plugin state.
 <!-- END PRESET BUFFER PLUGINS -->
 
 ## Built-in extensions

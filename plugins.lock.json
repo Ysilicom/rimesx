@@ -1,0 +1,16 @@
+{
+  "files": {
+    "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSES/MIT-legacy.txt": "9f832a6fd82f4f89bd39f4a50848ae4ca24c1945b90ca4b2c3bc0e577a9b3f20",
+    "NOTICE": "65716b456fd7bc8d3c1ef7d692451c86561f38ef07b0c9f231f91911b7ef8e6c",
+    "THIRD_PARTY_NOTICES.md": "6d9681478531ccb654040ed38c53277f654fc7c6c634795d568a559866afce01",
+    "VERSION": "1575e1af4a95f12f70b4ee6a6adce8160953d93ea17dc2611b90883ccc3ad3b8",
+    "native/macos/ScholayAcademicPlugins.swift": "ee70aac17f4aafd0437ae8f95303e069692e8bbc39db40b2fe77229713feec40",
+    "plugins/latex/plugin.json": "8ef6044b827f00dbe876d2c351002804ee5d05603af59d5a8181b99bb69fd8f4",
+    "plugins/polisher/plugin.json": "32df6ff2457db98a595bdd3ba301edbba242fd70ac825cc3d75f7dfbdc199c4d",
+    "source-map.json": "99ac7833107082e3ed413b66d975742cbadb27c1278cff71f22fbfa717778fdd"
+  },
+  "repository": "https://github.com/scholay/rimes-plugins",
+  "revision": "430bfca8a3ffc9acb3ffc00992d07f4273bd5088",
+  "schemaVersion": 1
+}

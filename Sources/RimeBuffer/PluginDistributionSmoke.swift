@@ -95,15 +95,13 @@ func runPluginDistributionSmokeTest() -> Bool {
         BuiltInPluginID.claudeCodeCLI,
         BuiltInPluginID.openAICompatible,
         BuiltInPluginID.scholay,
-        BuiltInPluginID.polisher,
-        BuiltInPluginID.latex,
         BuiltInPluginID.appleTranslation,
         BuiltInPluginID.streamInput,
         BuiltInPluginID.music,
         BuiltInPluginID.morse,
     ]
     let legacyCapsuleBufferPluginID = "builtin.capsule"
-    let expectedOptionalIDs: Set<String> = []
+    let expectedOptionalIDs: Set<String> = [BuiltInPluginID.polisher, BuiltInPluginID.latex]
     let retiredProductIDs: Set<String> = [
         BuiltInPluginID.myPrompt,
         BuiltInPluginID.remarkable,
@@ -117,8 +115,8 @@ func runPluginDistributionSmokeTest() -> Bool {
         BuiltInPluginID.claudeCodeCLI: "1.1",
         BuiltInPluginID.openAICompatible: "1.0",
         BuiltInPluginID.scholay: "0.1",
-        BuiltInPluginID.polisher: "0.1",
-        BuiltInPluginID.latex: "0.1",
+        BuiltInPluginID.polisher: "1.1.0",
+        BuiltInPluginID.latex: "1.1.0",
         BuiltInPluginID.appleTranslation: "2.2",
         BuiltInPluginID.streamInput: "1.4",
         BuiltInPluginID.music: "0.2.3",
@@ -289,7 +287,7 @@ func runPluginDistributionSmokeTest() -> Bool {
     guard Set(catalogIDs).count == catalogIDs.count else {
         return fail("catalog contains duplicate IDs")
     }
-    guard Set(catalogIDs) == expectedDefaultIDs,
+    guard Set(catalogIDs) == expectedDefaultIDs.union(expectedOptionalIDs),
           Dictionary(uniqueKeysWithValues: PresetBufferPluginCatalog.entries.map {
               ($0.id, $0.version)
           }) == expectedVersions,
@@ -299,7 +297,7 @@ func runPluginDistributionSmokeTest() -> Bool {
             == expectedDefaultIDs,
           Set(PresetBufferPluginCatalog.entries.filter { !$0.defaultInstalled }.map(\.id))
             == expectedOptionalIDs else {
-        return fail("fresh catalog must contain exactly the bundled/enabled presets")
+        return fail("fresh catalog must match bundled and optional preset policy")
     }
     let registeredIDs = Set(BuiltInPlugins.makeAll().map {
         $0.descriptor.key.rawID
@@ -313,7 +311,7 @@ func runPluginDistributionSmokeTest() -> Bool {
     }
 
     do {
-        // Fresh profile: only the exact three defaults are installed and
+        // Fresh profile: only the exact bundled defaults are installed and
         // running. Disabling one must survive a full registry/store rebuild.
         let sandbox = fileManager.temporaryDirectory.appendingPathComponent(
             "rimebuffer-plugin-distribution-fresh-\(UUID().uuidString)",
@@ -435,7 +433,7 @@ func runPluginDistributionSmokeTest() -> Bool {
               store.isInstalled(id: id),
               !store.isOptionalEnabled(id: id),
               downloader.requestedURLs.map(\.absoluteString) == [
-                "https://github.com/scholay/rimes/releases/download/v0.4.2/"
+                "https://github.com/scholay/rimes-plugins/releases/download/v1.1.0/"
                     + entry.downloadAssetName!
               ],
               try Data(contentsOf: root

@@ -61,14 +61,14 @@
 | Claude | `builtin.claude-code-cli` | 1.1 | 随 RIMES 预装 | 启用 |
 | AI API | `builtin.openai-compatible` | 1.0 | 随 RIMES 预装 | 启用 |
 | Reference | `builtin.scholay` | 0.1 | 随 RIMES 预装 | 启用 |
-| Polisher | `builtin.polisher` | 0.1 | 随 RIMES 预装 | 启用 |
-| LaTeX | `builtin.latex` | 0.1 | 随 RIMES 预装 | 启用 |
+| Polisher | `builtin.polisher` | 1.1.0 | 设置中按需下载 | 禁用 |
+| LaTeX | `builtin.latex` | 1.1.0 | 设置中按需下载 | 禁用 |
 | 实时翻译 | `builtin.apple-translation` | 2.2 | 随 RIMES 预装 | 启用 |
 | 意识流输入 | `builtin.stream-input` | 1.4 | 随 RIMES 预装 | 启用 |
 | 电音演奏 | `builtin.music` | 0.2.3 | 随 RIMES 预装 | 启用 |
 | 摩斯电码 | `builtin.morse` | 0.1.0 | 随 RIMES 预装 | 启用 |
 
-表中插件均随 RIMES 预装，并在全新安装后默认启用。
+预装插件在全新安装后按默认状态启用；选装插件下载后需手动启用。升级时保留已有插件状态。
 <!-- END PRESET BUFFER PLUGINS -->
 
 ## 内置扩展
