@@ -80,12 +80,12 @@ def prepare(root, source, update_lock=False):
         imports[destination] = data
         input_names.add(origin)
     packages = []
-    release_version = (source / "VERSION").read_text().strip()
+    release_version = (source / "VERSION").read_text(encoding="utf-8").strip()
     for path in sorted((source / "plugins").glob("*/plugin.json")):
         input_names.add(path.relative_to(source).as_posix())
         package = json.loads(path.read_bytes())
-        package = {**package, "licenseText": (source / "LICENSE").read_text(),
-                   "notice": (source / "NOTICE").read_text()}
+        package = {**package, "licenseText": (source / "LICENSE").read_text(encoding="utf-8"),
+                   "notice": (source / "NOTICE").read_text(encoding="utf-8")}
         data = canonical(package)
         asset = f"preset-plugin-{package['id']}-{package['version']}.json"
         packages.append({**package, "sha256": digest(data), "downloadAssetName": asset,
@@ -119,9 +119,9 @@ def prepare(root, source, update_lock=False):
         header += "};\n}\n"
         imports["platforms/windows/native/src/workbench/official_plugin_catalog.generated.hpp"] = header.encode()
     inputs = {name: digest(safe_path(source, name).read_bytes()) for name in sorted(input_names)}
-    revision = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+    revision = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True, encoding="utf-8").strip()
     if update_lock:
-        dirty = subprocess.check_output(["git", "-C", str(source), "status", "--porcelain", "--untracked-files=no"], text=True)
+        dirty = subprocess.check_output(["git", "-C", str(source), "status", "--porcelain", "--untracked-files=no"], text=True, encoding="utf-8")
         if dirty:
             raise ValueError("Commit reviewed changes in the plugin repository before updating its source lock")
         subprocess.run(["git", "-C", str(source), "ls-files", "--error-unmatch", *sorted(input_names)],
