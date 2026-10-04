@@ -92,10 +92,12 @@
 
 ## 安装
 
-macOS、iOS、Android、Windows 正在收敛 **1.0.0** 正式版本；Linux 暂时保留现状。iOS 已开放 [TestFlight 公开邀请](https://testflight.apple.com/join/Kdj9RB4q)，当前外部测试构建为 **0.1.0（32）**。Windows 1.0.0 将提供未签名 EXE 安装包，其余平台按各自签名要求准备；正式下载在最终验收后提供。也可以拉取源码后在本机构建：
+本轮版本为 **1.1.0**：[macOS 安装包](https://github.com/scholay/rimes/releases/tag/v1.1.0)、[Android APK](https://github.com/scholay/rimes/releases/tag/android-v1.1.0)、[Windows EXE](https://github.com/scholay/rimes/releases/tag/windows-v1.1.0)。macOS 包已签名和公证，Android 使用长期签名，Windows EXE 未签名。iOS **1.1.0（35）**已提交外部测试审核；[TestFlight 公开邀请](https://testflight.apple.com/join/Kdj9RB4q)继续开放，审核通过前仍提供已有获批构建。Linux 保留现有版本。各平台当前状态以对应发布页为准。
+
+也可以拉取源码和固定版本的官方插件，在本机构建：
 
 ```bash
-git clone https://github.com/scholay/rimes.git
+git clone --recurse-submodules https://github.com/scholay/rimes.git
 cd rimes
 ```
 
@@ -103,8 +105,8 @@ cd rimes
 |---|---|---|
 | macOS | 输入法，以及 Buffer、Capsule、Mailbox | `./build_install.sh` |
 | iOS | 键盘与主 App（iOS 17+）：离线拼音、自然码、五笔、英文，以及 Buffer | 用 Xcode 打开 [`platforms/ios/RIMES.xcodeproj`](platforms/ios/README.md) |
-| Windows | 原生 TSF 输入法：预编辑、候选、上屏。还没有 Buffer、Capsule、Mailbox，也没有签名安装包 | 见 [`platforms/windows/native/README.md`](platforms/windows/native/README.md) |
-| Android | 原生输入法（InputConnection）与应用设置，开发 APK 见 Android 文档 | 见 [`platforms/android/README.md`](platforms/android/README.md) |
+| Windows | 原生 TSF 输入法、Buffer、并击及官方插件设置；支持 x64 / x86 | 见 [`platforms/windows/native/README.md`](platforms/windows/native/README.md) |
+| Android | 原生输入法（InputConnection）、Buffer、六个官方插件和可配置 AI 服务 | 见 [`platforms/android/README.md`](platforms/android/README.md) |
 | Linux | Fcitx5 输入法、Buffer、Capsule。还没有 Mailbox | 见 [`platforms/linux/ime/README.md`](platforms/linux/ime/README.md) |
 
 ## 文档
@@ -131,7 +133,7 @@ cd rimes
 已安装的正式签名版 RIMES 会检查 [`scholay/rimes`](https://github.com/scholay/rimes) 的
 GitHub Release；未签名的 `vX.Y.Z-preview.N` 不会进入该通道。
 
-发布只有一个入口，版本号只来自 tag（流程见 [RELEASE.md](RELEASE.md)，变更见 [CHANGELOG.md](CHANGELOG.md)）：
+macOS 自动发布工作流的入口如下（各平台流程见 [RELEASE.md](RELEASE.md)，变更见 [CHANGELOG.md](CHANGELOG.md)）：
 
 ```bash
 ./scripts/release.sh --dry-run preview  # 预览计划、CI 门禁与发布说明
@@ -141,7 +143,7 @@ GitHub Release；未签名的 `vX.Y.Z-preview.N` 不会进入该通道。
 ```
 
 所有 Release 都发布在 `scholay/rimes`：macOS `vX.Y.Z` 是正式版；`vX.Y.Z-preview.N` 是未签名
-Pre-release，不进入自动更新。Windows/Linux `platform-preview-vX.Y.Z` 始终是 Pre-release。
+Pre-release，不进入自动更新。Android 正式包使用 `android-vX.Y.Z`，Windows 正式包使用 `windows-vX.Y.Z`；旧 Windows/Linux 数据包 `platform-preview-vX.Y.Z` 始终是 Pre-release。
 
 ## 友链
 

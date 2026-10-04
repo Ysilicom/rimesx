@@ -92,10 +92,12 @@ Bundled plug-ins use the defaults above. Optional plug-ins require installation 
 
 ## Install
 
-macOS, iOS, Android, and Windows are converging on **1.0.0** as their next stable release; Linux stays on its current track. The [public iOS TestFlight invitation](https://testflight.apple.com/join/Kdj9RB4q) is available, currently offering **0.1.0 (32)**. Windows 1.0.0 will use an unsigned EXE installer; the other platforms retain their signing requirements. Stable downloads will follow final acceptance. You can also clone the source and build locally:
+This release targets **1.1.0**: [macOS installer](https://github.com/scholay/rimes/releases/tag/v1.1.0), [Android APK](https://github.com/scholay/rimes/releases/tag/android-v1.1.0), and [Windows EXE](https://github.com/scholay/rimes/releases/tag/windows-v1.1.0). The macOS package is signed and notarized; Android uses the long-term signing key; the Windows EXE is unsigned. iOS **1.1.0 (35)** has been submitted for external TestFlight review. The [public invitation](https://testflight.apple.com/join/Kdj9RB4q) remains open with previously approved builds until approval. Linux stays on its existing version. Refer to each release page for current availability.
+
+To build locally, clone the source and its pinned official plugins:
 
 ```bash
-git clone https://github.com/scholay/rimes.git
+git clone --recurse-submodules https://github.com/scholay/rimes.git
 cd rimes
 ```
 
@@ -103,8 +105,8 @@ cd rimes
 |---|---|---|
 | macOS | Input method, plus Buffer, Capsule, and Mailbox | `./build_install.sh` |
 | iOS | Keyboard and main app (iOS 17+): offline Pinyin, Natural Code, Wubi, English, and Buffer | Open [`platforms/ios/RIMES.xcodeproj`](platforms/ios/README.md) in Xcode |
-| Windows | Native TSF input method: preedit, candidates, and commit. No Buffer, Capsule, or Mailbox yet, and no signed installer | See [`platforms/windows/native/README.md`](platforms/windows/native/README.md) |
-| Android | In development | Source is not in this repository yet |
+| Windows | Native TSF input method, Buffer, chording and official plugin settings; x64 / x86 | See [`platforms/windows/native/README.md`](platforms/windows/native/README.md) |
+| Android | Native InputConnection keyboard, Buffer, six official plugins and configurable AI services | See [`platforms/android/README.md`](platforms/android/README.md) |
 | Linux | Fcitx5 input method, Buffer, and Capsule. No Mailbox yet | See [`platforms/linux/ime/README.md`](platforms/linux/ime/README.md) |
 
 ## Documentation
@@ -128,7 +130,7 @@ cd rimes
 
 An installed, formally signed copy of RIMES checks GitHub Releases for [`scholay/rimes`](https://github.com/scholay/rimes). Unsigned `vX.Y.Z-preview.N` builds are not on that channel.
 
-There is one release entry point, and the version comes only from the tag. The process is in [RELEASE.md](RELEASE.md), and the changes are in [CHANGELOG.md](CHANGELOG.md):
+The macOS automated release workflow uses the commands below. Platform-specific procedures are in [RELEASE.md](RELEASE.md), and changes are in [CHANGELOG.md](CHANGELOG.md):
 
 ```bash
 ./scripts/release.sh --dry-run preview  # preview the plan, CI gates, and release notes
@@ -137,7 +139,7 @@ There is one release entry point, and the version comes only from the tag. The p
 ./scripts/release.sh platform minor     # explicit Windows/Linux data preview for maintenance (does not block macOS)
 ```
 
-Every release is published on `scholay/rimes`. macOS `vX.Y.Z` is a stable release. `vX.Y.Z-preview.N` is an unsigned pre-release and is not updated automatically. Windows/Linux `platform-preview-vX.Y.Z` is always a pre-release.
+Every application release is published on `scholay/rimes`. macOS `vX.Y.Z` is a stable release. `vX.Y.Z-preview.N` is an unsigned pre-release and is not updated automatically. Android and Windows packages use `android-vX.Y.Z` and `windows-vX.Y.Z`, respectively. The legacy Windows/Linux data package `platform-preview-vX.Y.Z` is always a pre-release.
 
 ## Links
 
