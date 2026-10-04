@@ -1,9 +1,10 @@
 # 1.1.0 delivery acceptance — 2026-10-04
 
-The product packages were built from host `f9ec959d08b6dddd6b314a7d048a9456ab6aeea7`
-with official plugins pinned to `c64bc83`. Subsequent host changes record acceptance
-and enforce the documented iOS distribution audit; they do not alter the shipped
-runtime. Platform build, installed behavior and public availability are separate.
+The initial product packages were built from host `f9ec959d08b6dddd6b314a7d048a9456ab6aeea7`
+with official plugins pinned to `c64bc83`. macOS and Android retain that runtime.
+iOS feedback/candidate fixes and Windows receipt recovery require replacement
+packages; their acceptance is recorded separately below. Platform build,
+installed behavior and public availability are separate.
 
 ## Public official plugins
 
@@ -27,6 +28,7 @@ runtime. Platform build, installed behavior and public availability are separate
 - App Store Connect processed build `65483d44-bd5c-4efd-9820-3a9da775fc5e` as VALID / APP_STORE_ELIGIBLE.
 - The maintainer signed in to App Store Connect. Build 35 was added to the existing RIMES Community group and submitted for external TestFlight review at 2026-10-04T08:37:22Z; UI and API both reported `WAITING_FOR_REVIEW`.
 - Automatic tester notification is enabled. The existing public invitation remains https://testflight.apple.com/join/Kdj9RB4q. Submission is not approval or public availability of 1.1.0; existing approved builds remain available meanwhile.
+- Follow-up: the maintainer reported weak/delayed haptics. Build 35 was removed from review on the same day; the UI now says `Ready to Submit`. Build 37 is installed locally with Release optimization and the haptic/candidate changes, with physical hand-feel acceptance pending. It has not been uploaded or submitted.
 
 ## Remaining user-side observations
 

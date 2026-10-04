@@ -91,10 +91,17 @@ public struct KeyboardPreferences: Codable {
 public enum KeyFeedback: Equatable { case press, selection, commit }
 public struct FeedbackGate {
     private var lastTime: TimeInterval = -.infinity
+    private var lastPressTime: TimeInterval = -.infinity
     private var combination: String?
     public init() {}
     public mutating func reset() { combination = nil }
     public mutating func accept(_ event: KeyFeedback, combination next: String? = nil, at time: TimeInterval) -> Bool {
+        if event == .press {
+            // Coalesce simultaneous fingers, not successive keys. A preview or
+            // release feedback must never consume the next key-down's pulse.
+            guard time - lastPressTime >= 0.008 else { return false }
+            lastPressTime = time; lastTime = time; return true
+        }
         if event == .selection {
             guard next != combination else { return false }
             combination = next

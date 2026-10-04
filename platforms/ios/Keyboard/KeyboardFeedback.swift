@@ -24,24 +24,36 @@ extension UIInputView: @retroactive UIInputViewAudioFeedback {
     var onFeedback: ((KeyFeedback) -> Void)?
     #endif
     func reset() { gate.reset() }
+    func prepare() {
+        guard enabled else { return }
+        switch strength {
+        case .light: press.prepare()
+        case .strong: strong.prepare()
+        case .strongest: strongest.prepare()
+        }
+    }
     func send(_ event: KeyFeedback, combination: String? = nil) {
         let now = clock()
         // Press only: chord previews and commits must not add extra clicks.
-        // Audio stays independent of the user's haptic setting.
-        if soundEnabled, event == .press, soundGate.accept(event, at: now) { playInputClick() }
+        // Haptics go first; audio stays independent of the user's haptic setting.
+        defer { if soundEnabled, event == .press, soundGate.accept(event, at: now) { playInputClick() } }
         guard enabled, gate.accept(event, combination: combination, at: now) else { return }
         #if DEBUG
         onFeedback?(event)
         #endif
         if strength != .light {
             let generator = strength == .strong ? strong : strongest
-            generator.prepare(); generator.impactOccurred(intensity: strength == .strong ? 0.85 : 1)
+            generator.impactOccurred(intensity: strength == .strong ? 0.85 : 1)
+            prepare()
             return
         }
         switch event {
-        case .press: press.prepare(); press.impactOccurred(intensity: 0.55)
-        case .selection: selection.prepare(); selection.selectionChanged()
-        case .commit: commit.prepare(); commit.impactOccurred(intensity: 0.65)
+        case .press: press.impactOccurred()
+        case .selection: selection.selectionChanged()
+        case .commit: commit.impactOccurred(intensity: 0.65)
         }
+        // Preparing immediately before impact has no latency benefit. Keep the
+        // engine ready after this pulse for the next touch instead.
+        prepare()
     }
 }

@@ -10,4 +10,11 @@ enum MobileOfficialPlugins {
             hostVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.0",
             catalog: try .bundled(), legacyProfile: configuration.hasPersistedConfiguration)
     }
+
+    /// An explicit install may replace an unreadable or obsolete receipt.
+    /// Revoke it first so an older download cannot overwrite the repair.
+    static func install(_ id: String, in store: OfficialPluginStore) async throws {
+        if store.state(id) == nil { try store.uninstall(id) }
+        try await store.install(id)
+    }
 }

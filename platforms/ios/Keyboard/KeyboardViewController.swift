@@ -23,6 +23,9 @@ final class KeyboardViewController: UIInputViewController {
     private let store = ConfigurationStore(), secrets = KeychainStore()
     private var resultPluginAuthorization: String?
     private var officialPlugins = try? MobileOfficialPlugins.makeStore()
+    // Presentation only. Refresh with the menu/lifecycle, never on each key.
+    // Requests and insertion still check the live receipt and package below.
+    private var enabledShortcutPlugins = Set<KeyboardPlugin>()
     private var config = AppConfiguration()
     private var scheme: InputScheme = .pinyin
     private var importedSchemeStore = RimeSchemeStore()
@@ -340,7 +343,7 @@ final class KeyboardViewController: UIInputViewController {
                 guard let self, self.onscreen, self.deletionTarget == self.currentDocument,
                       self.currentDocument == DocumentIdentity.read(self.textDocumentProxy) else { return false }
                 if self.deletingBuffer && self.editsHost { return false }
-                self.backspace(); self.surface.feedback.send(.press); return self.onscreen
+                self.surface.feedback.send(.press); self.backspace(); return self.onscreen
             }
         }
         chordDelete.compactCap = true; chordDelete.titleHorizontalInset = 2
@@ -415,7 +418,7 @@ final class KeyboardViewController: UIInputViewController {
         view.invalidateIntrinsicContentSize()
         view.setNeedsLayout()
         view.superview?.setNeedsLayout()
-        releaseEdgeTouchDelay(); metrics.presented(since: initializationStart)
+        releaseEdgeTouchDelay(); surface.feedback.prepare(); metrics.presented(since: initializationStart)
     }
     /// iOS edge-swipe recognizers above the keyboard hold back touches that start
     /// near the screen edges until a swipe is ruled out, so quick taps on the outer
@@ -433,6 +436,7 @@ final class KeyboardViewController: UIInputViewController {
         guard isViewLoaded, view.window != nil else { return }
         onscreen = true; currentDocument = DocumentIdentity.read(textDocumentProxy)
         reloadPreferences(); choose(preferences.scheme); render()
+        surface.feedback.prepare()
         applyPendingPaste()
     }
     /// The app lost focus for a moment (a system alert, Notification Center): text is still
@@ -875,11 +879,17 @@ final class KeyboardViewController: UIInputViewController {
     /// An empty candidate row offers the plugins instead.
     private func renderShortcuts() {
         let empty = snapshot.preedit.isEmpty && snapshot.candidates.isEmpty && !showingAssociations && !surface.isChordActive && handPreview.isHidden
+        let choosing = handPreview.isHidden && (!snapshot.preedit.isEmpty || !snapshot.candidates.isEmpty || showingAssociations)
+        for button in [moreButton, bufferButton] where button.isHidden != choosing { button.isHidden = choosing }
         // The empty strip stays in place underneath, so the row keeps its reserved slot.
         shortcuts.isHidden = !empty
         shortcuts.selected = bufferEnabled ? selectedPlugin : nil
-        for (plugin, button) in shortcuts.buttons { button.isEnabled = pluginAuthorization(plugin.rawValue) != nil }
+        for (plugin, button) in shortcuts.buttons {
+            let enabled = enabledShortcutPlugins.contains(plugin)
+            if button.isEnabled != enabled { button.isEnabled = enabled }
+        }
     }
+    private var candidateSideInset: CGFloat { moreButton.isHidden ? 0 : 36 }
     private func renderBuffer() {
         bufferPanel.isHidden = !bufferEnabled; bufferButton.isSelected = bufferEnabled
         if !bufferEnabled { hostSnapshot = nil; captureTimer?.invalidate(); captureTimer = nil }
@@ -948,7 +958,7 @@ final class KeyboardViewController: UIInputViewController {
             ? L("轻点这里粘贴剪贴板，或直接输入问题", "Tap here to paste, or type a question") : selectedPlugin?.placeholder ?? ""
         let hasOutput = needsPluginResult ? !buffer.pluginPending.isEmpty : !buffer.pending.isEmpty
         insertButton.isEnabled = hasOutput && !buffer.generating && !hasComposition
-        if pressedInsertion != insertionContext { insertButton.cancelPress() }
+        if let pressedInsertion, pressedInsertion != insertionContext { insertButton.cancelPress() }
         refreshMoreMenu(); refreshDefaultBuffer(); renderPanel(); refreshReturnKey()
     }
     /// Only the auxiliaries change height. The typing block stays at a fixed offset
@@ -968,7 +978,7 @@ final class KeyboardViewController: UIInputViewController {
         let customHeight = surface.usesCustomLayout ? surface.customLayout.map { CGFloat($0.geometry(width: Double(max(1, width - 10)), landscape: landscape).height) } : nil
         let standardHeight = surface.usesStandardLayout ? StandardKeyboardGeometry.height(landscape: landscape) : nil
         return [(status, 28), (bufferPanel, bufferHeight),
-                (candidatePanel, max(32, candidateStrip.fittingHeight(width: width - 82))),
+                (candidatePanel, max(32, candidateStrip.fittingHeight(width: max(0, width - 10 - 2 * candidateSideInset)))),
                 (spellingStrip, 34),
                 (surface, customHeight ?? standardHeight ?? KeyboardGeometry.height(layout: surface.chordLayout, chord: surface.chordMode, numeric: surface.numeric, emoji: surface.emojiMode, landscape: landscape, width: max(1, width - 10), profile: surface.profile)), (bottom, landscape ? 34 : 40)].filter { !$0.0.isHidden }
     }
@@ -1045,7 +1055,7 @@ final class KeyboardViewController: UIInputViewController {
         if isDefaultBuffer { source.frame = topLine; result.frame = bottomLine } else { result.frame = topLine; source.frame = bottomLine }
         typingStats.frame = CGRect(x: 8, y: 0, width: max(0, result.bounds.width - 16), height: bufferRowHeight)
         bufferButton.frame = CGRect(x: candidatePanel.bounds.width - 32, y: 0, width: 32, height: 32)
-        candidateStrip.frame = CGRect(x: 36, y: 0, width: max(0, candidatePanel.bounds.width - 72), height: candidatePanel.bounds.height)
+        candidateStrip.frame = CGRect(x: candidateSideInset, y: 0, width: max(0, candidatePanel.bounds.width - 2 * candidateSideInset), height: candidatePanel.bounds.height)
         moreButton.frame = CGRect(x: 0, y: 0, width: 32, height: 32)
         handPreview.frame = CGRect(x: 36, y: 0, width: max(0, candidatePanel.bounds.width - 72), height: 32)
         shortcuts.frame = handPreview.frame
@@ -1435,10 +1445,11 @@ final class KeyboardViewController: UIInputViewController {
         if let data = try? JSONEncoder().encode(choice) { UserDefaults.standard.set(data, forKey: "imported-rime-choice-v1") }
     }
     private func refreshPluginMenu() {
+        enabledShortcutPlugins = Set(KeyboardPlugin.allCases.filter { pluginAuthorization($0.rawValue) != nil })
         let original = UIAction(title: "Buffer", image: UIImage(systemName: "square.stack.3d.up"), state: selectedPlugin == nil ? .on : .off) { [weak self] _ in self?.selectPlugin(nil) }
         // Each plugin stands alone; choosing one only opens it.
         let plugins = KeyboardPlugin.allCases.map { plugin in
-            UIAction(title: plugin.title, image: UIImage(systemName: plugin.symbol), attributes: pluginAuthorization(plugin.rawValue) == nil ? [.disabled] : [], state: selectedPlugin == plugin ? .on : .off) { [weak self] _ in
+            UIAction(title: plugin.title, image: UIImage(systemName: plugin.symbol), attributes: enabledShortcutPlugins.contains(plugin) ? [] : [.disabled], state: selectedPlugin == plugin ? .on : .off) { [weak self] _ in
                 guard let self else { return }; self.surface.cancel(); self.settle(); self.selectPlugin(plugin)
             }
         }
@@ -1692,19 +1703,19 @@ final class KeyboardViewController: UIInputViewController {
         (bufferPanel, candidateStrip, surface, moreButton, bottom, source, insertButton, globe, result, stopButton)
     }
     func developmentType(_ text: String) { type(text) }
-    func developmentResetPreferences() {
+    func developmentResetPreferences(bundledData: @escaping (OfficialPluginCatalog.Entry) throws -> Data = OfficialPluginCatalog.bundledData) {
         developmentPreferencesAreIsolated = true
         if developmentPluginRoot == nil {
             let root = FileManager.default.temporaryDirectory.appendingPathComponent("Keyboard-Plugins-\(UUID())")
             developmentPluginRoot = root
             if let catalog = try? OfficialPluginCatalog.bundled() {
-                officialPlugins = OfficialPluginStore(root: root, platform: "ios", hostVersion: "1.1.0", catalog: catalog, legacyProfile: true)
+                officialPlugins = OfficialPluginStore(root: root, platform: "ios", hostVersion: "1.1.0", catalog: catalog, legacyProfile: true, bundledData: bundledData)
                 try? officialPlugins?.bootstrap()
             }
         }
         config = .init(); preferences = .init(); engine.traditional = false
         importedSchemeSelection = nil; importedSchemeEnglish = false; importedSchemeLibrary = .init(); customLayoutSnapshot = nil
-        choose(.pinyin); render()
+        refreshPluginMenu(); choose(.pinyin); render()
     }
     func developmentChoose(_ value: InputScheme) { importedSchemeSelection = nil; preferences.select(value); choose(value); render() }
     func developmentChooseImported(_ selection: RimeSchemeSelection, store: RimeSchemeStore? = nil) { if let store { importedSchemeStore = store }; importedSchemeSelection = selection; choose(preferences.scheme); render() }

@@ -160,7 +160,7 @@ final class KeySurface: UIView {
         }
         let letters: [Any] = boxes.map { key, rect in
             let item = KeyAccessibility(accessibilityContainer: self); item.accessibilityLabel = labels[key] ?? key.uppercased(); item.accessibilityTraits = .keyboardKey; item.accessibilityFrameInContainerSpace = rect
-            item.activate = { [weak self] in guard let self else { return }; self.onTypingPress?(); self.feedback.send(.press); self.onKey?(self.shifted && !self.numeric ? key.uppercased() : key) }; return item
+            item.activate = { [weak self] in guard let self else { return }; self.feedback.send(.press); self.onTypingPress?(); self.onKey?(self.shifted && !self.numeric ? key.uppercased() : key) }; return item
         }
         var utilityElements: [UIView] = [emojiButton, languageButton]
         if let languageCellView { utilityElements.append(languageCellView) }
@@ -228,7 +228,7 @@ final class KeySurface: UIView {
             let point = t.location(in: self)
             guard let key = key(at: point) ?? (resolvesChords ? nil : nearestKey(to: point)) else { continue }
             let oid = ObjectIdentifier(t)
-            onTypingPress?(); feedback.send(.press)
+            feedback.send(.press); onTypingPress?()
             if resolvesChords {
                 nextID += 1; touchIDs[oid] = nextID; gesture.begin(id: nextID, key: key.first, profile: profile)
             }

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "status": "ready",
+  "status": "pending-device-feedback",
   "assets": [
     {
       "name": "librime",
@@ -58,6 +58,11 @@
       "name": "Hosted privacy policy, support contact and TestFlight review information",
       "verified": true,
       "evidence": "Product/support/privacy URLs verified HTTP 200. Owner-confirmed full review contact and notes saved and reloaded. Build 10 submitted 2026-09-22 10:34 CST; waiting for review."
+    },
+    {
+      "name": "Physical haptic regression acceptance for build 37",
+      "verified": false,
+      "evidence": "2026-10-04: build 36 improved but did not fully resolve the maintainer-reported weak/delayed haptics. Release-optimized build 37 is installed for assessment; automatic tests cannot verify perceived Taptic Engine latency. See validation/release-1.1.0/README.md."
     }
   ],
   "releaseAuthorization": {

@@ -32,7 +32,7 @@ struct OfficialPluginsView: View {
                                 installing = entry.id
                                 Task { @MainActor in
                                     defer { installing = nil; revision += 1 }
-                                    do { try await store.install(entry.id) } catch { self.error = error.localizedDescription }
+                                    do { try await MobileOfficialPlugins.install(entry.id, in: store) } catch { self.error = error.localizedDescription }
                                 }
                             } label: {
                                 if installing == entry.id { ProgressView() }

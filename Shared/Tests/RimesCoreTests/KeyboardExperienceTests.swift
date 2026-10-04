@@ -255,6 +255,17 @@ final class KeyboardExperienceTests: XCTestCase {
         feedback.reset()
         XCTAssertTrue(feedback.accept(.commit, at: 1.5))
     }
+    func testRapidPressesHavePriorityOverPreviewAndReleaseFeedback() {
+        var feedback = FeedbackGate()
+        XCTAssertTrue(feedback.accept(.press, at: 1))
+        XCTAssertFalse(feedback.accept(.press, at: 1.001), "Simultaneous fingers share a pulse")
+        XCTAssertTrue(feedback.accept(.press, at: 1.02), "A distinct fast key must not be dropped")
+        XCTAssertTrue(feedback.accept(.selection, combination: "AS", at: 1.06))
+        XCTAssertTrue(feedback.accept(.press, at: 1.07), "Preview must not suppress a key-down")
+        XCTAssertTrue(feedback.accept(.commit, at: 1.11))
+        XCTAssertTrue(feedback.accept(.press, at: 1.12), "Release must not suppress the next key-down")
+        XCTAssertFalse(feedback.accept(.selection, combination: "AJ", at: 1.121))
+    }
     func testPartialTranslationRetiresSourceAndKeepsRemainderAcrossEdits() {
         var buffer = BufferSession(); buffer.edit("你好！再见！")
         let id = buffer.begin(); buffer.finish("Hello!Goodbye!", id: id)

@@ -1,4 +1,34 @@
-# iOS 1.1.0 (35) physical acceptance — 2026-10-04
+# iOS 1.1.0 acceptance — 2026-10-04
+
+## Feedback regression follow-up (36 → 37)
+
+The maintainer reported delayed/weak haptics in every RIMES layout on build 35.
+Build 36 removed repeated package reads from typing renders and moved Delete's
+pulse before text mutation. Its Release-optimized device install improved the
+feel, but the maintainer still observed weak slow typing and lag at speed.
+This is an open physical acceptance issue, not a completed performance claim.
+
+Build 37 additionally prepares the haptic engine when the keyboard appears and
+after each pulse, gives key-down feedback priority over preview/release pulses,
+coalesces only near-simultaneous (8 ms) presses, and uses the normal light impact
+instead of scaling it to 0.55. Haptics precede audio and typing-state updates.
+Candidate mode hides the settings and Buffer side buttons and uses their width;
+the controls return when the candidate/composition state ends.
+
+- Hosted iOS: 153 tests, 1 existing explicit skip, 0 failures.
+- Shared: 79 tests, 0 failures, including rapid presses after preview/release.
+- Ten layout/plugin render cases read zero plugin packages (previously 5–6 per
+  render). See [timing and scope](ios-feedback-regression.json); these are
+  simulator CPU timings, not measured physical haptic latency.
+- Release-optimized, development-signed 1.1.0 (37) installed on Higher's iPhone
+  without clearing data; device metadata confirmed version/build. Subjective
+  haptic acceptance is pending.
+- Build 35's external TestFlight review was withdrawn after the regression;
+  App Store Connect reports `Ready to Submit`. No replacement is submitted yet.
+- Explicit plugin reinstall now repairs corrupt/obsolete receipts while leaving
+  the plugin disabled and rejecting downloads started before the repair.
+
+## Earlier build 35 device coverage
 
 Signed development build on iPhone 15 Pro, iOS 26.7.1, team 585J2TL9U6.
 This is device acceptance of the app and keyboard; App Store export, upload,
