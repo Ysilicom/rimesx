@@ -5,7 +5,8 @@ param([string]$InstallRoot = "$env:ProgramFiles\RIMES",[switch]$NoAutostart,[swi
 Assert-Administrator
 $manifest=Read-VerifiedPackage $PSScriptRoot
 $InstallRoot=[IO.Path]::GetFullPath($InstallRoot)
-$target=Join-Path $InstallRoot ('versions\'+$manifest.version+'-'+$manifest.commit.Substring(0,12))
+$packageHash=(Get-FileHash -LiteralPath "$PSScriptRoot\PACKAGE.json" -Algorithm SHA256).Hash.ToLowerInvariant()
+$target=Join-Path $InstallRoot ('versions\'+$manifest.version+'-'+$manifest.commit.Substring(0,12)+'-'+$packageHash.Substring(0,12))
 $previous=$null
 $legacy=@()
 $requiresRestart=$false

@@ -1,3 +1,4 @@
+#include "rimes_version.hpp"
 #include <iostream>
 #include <memory>
 #include <string>
@@ -18,7 +19,7 @@ namespace {
 
 void PrintUsage() {
   std::wcout
-      << L"RIMES Windows Broker 0.2.0-preview\n\n"
+      << L"RIMES Windows Broker " << kProductVersionWide << L"\n\n"
       << L"Usage:\n"
       << L"  RimesBroker --print-endpoint\n"
       << L"  RimesBroker --print-paths\n"

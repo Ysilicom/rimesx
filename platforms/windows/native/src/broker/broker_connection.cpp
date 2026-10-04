@@ -1,3 +1,4 @@
+#include "rimes_version.hpp"
 #include "broker_connection.hpp"
 
 #include <atomic>
@@ -12,7 +13,7 @@
 namespace rimes::windows::broker {
 namespace {
 
-inline constexpr std::string_view kBrokerVersion = "0.2.0-dev";
+inline constexpr std::string_view kBrokerVersion = kProductVersion;
 inline constexpr std::size_t kMaxSessionsPerConnection = 64;
 
 constexpr std::uint32_t Flag(core::KeyEventFlags flag) noexcept {

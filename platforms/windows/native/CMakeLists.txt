@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.27)
 
-project(RIMESWindows VERSION 0.2.0 LANGUAGES CXX)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" RIMES_PRODUCT_VERSION)
+string(STRIP "${RIMES_PRODUCT_VERSION}" RIMES_PRODUCT_VERSION)
+if(NOT RIMES_PRODUCT_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "VERSION must contain MAJOR.MINOR.PATCH")
+endif()
+project(RIMESWindows VERSION ${RIMES_PRODUCT_VERSION} LANGUAGES CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "The native RIMES frontend currently builds on Windows only.")
@@ -12,6 +17,8 @@ option(RIMES_TSF_DIAGNOSTICS
        OFF)
 
 include(CTest)
+enable_language(RC)
+configure_file(src/product_version.hpp.in generated/rimes_version.hpp @ONLY)
 
 # Keep every runnable artifact together so architecture checks, registration,
 # and later packaging never need to guess target-specific subdirectories.
@@ -25,6 +32,7 @@ foreach(configuration DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
 endforeach()
 
 function(rimes_harden_target target)
+    target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
     target_compile_features(${target} PRIVATE cxx_std_20)
     target_compile_definitions(${target} PRIVATE
         UNICODE
@@ -409,4 +417,30 @@ if(NOT RIMES_BUILD_COMMIT)
     set(RIMES_BUILD_COMMIT "unknown")
 endif()
 target_compile_definitions(RimesWorkbench PRIVATE RIMES_BUILD_COMMIT="${RIMES_BUILD_COMMIT}")
-file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/$<CONFIG>/build-identity.json" CONTENT "{\"commit\":\"${RIMES_BUILD_COMMIT}\",\"version\":\"${PROJECT_VERSION}\",\"protocol\":2}\n")
+set(RIMES_SOURCE_SNAPSHOT "")
+set(RIMES_SOURCE_STATE "working-tree")
+if(EXISTS "${RIMES_REPOSITORY_ROOT}/SOURCE-SNAPSHOT.txt")
+    file(READ "${RIMES_REPOSITORY_ROOT}/SOURCE-SNAPSHOT.txt" RIMES_SOURCE_SNAPSHOT)
+    string(STRIP "${RIMES_SOURCE_SNAPSHOT}" RIMES_SOURCE_SNAPSHOT)
+    string(LENGTH "${RIMES_SOURCE_SNAPSHOT}" snapshot_length)
+    if(NOT snapshot_length EQUAL 64 OR NOT RIMES_SOURCE_SNAPSHOT MATCHES "^[0-9a-f]+$")
+        message(FATAL_ERROR "Invalid source snapshot SHA-256")
+    endif()
+    set(RIMES_SOURCE_STATE "snapshot")
+endif()
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/$<CONFIG>/build-identity.json" CONTENT "{\"commit\":\"${RIMES_BUILD_COMMIT}\",\"version\":\"${PROJECT_VERSION}\",\"protocol\":2,\"sourceState\":\"${RIMES_SOURCE_STATE}\",\"sourceSnapshot\":\"${RIMES_SOURCE_SNAPSHOT}\"}\n")
+
+# Explorer and installer version checks must agree with the runtime version.
+foreach(versioned_target RimesTsf RimesBroker RimesRegistrar RimesTsfTestHost)
+    if(TARGET ${versioned_target})
+        if(versioned_target STREQUAL "RimesTsf")
+            set(RIMES_RESOURCE_TYPE "VFT_DLL")
+            set(RIMES_RESOURCE_FILENAME "${versioned_target}.dll")
+        else()
+            set(RIMES_RESOURCE_TYPE "VFT_APP")
+            set(RIMES_RESOURCE_FILENAME "${versioned_target}.exe")
+        endif()
+        configure_file(src/product_version.rc.in "generated/${versioned_target}.rc" @ONLY)
+        target_sources(${versioned_target} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/${versioned_target}.rc")
+    endif()
+endforeach()

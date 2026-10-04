@@ -1,3 +1,4 @@
+#include "rimes_version.hpp"
 #include "window.hpp"
 
 #include <commctrl.h>
@@ -190,7 +191,7 @@ void Window::EnsureSettings() {
     theme = preview;
     InvalidateRect(window, nullptr, FALSE);
   };
-  cb.about_text = L"RIMES Windows 0.2.0\nCommit: " + Wide(RIMES_BUILD_COMMIT) +
+  cb.about_text = std::wstring(L"RIMES Windows ") + kProductVersionWide + L"\nCommit: " + Wide(RIMES_BUILD_COMMIT) +
                   L"\n协议 v2\n词库：%APPDATA%\\RIMES\n设置与日志：%LOCALAPPDATA%"
                   L"\\RIMES";
   settings = std::make_unique<SettingsUiHost>(std::move(cb));
@@ -786,7 +787,7 @@ LRESULT CALLBACK Window::Procedure(HWND hwnd, UINT message, WPARAM wparam,
           }
           case kAbout: {
             const auto about_text =
-                L"RIMES Windows 0.2.0\nCommit: " + Wide(RIMES_BUILD_COMMIT) +
+                std::wstring(L"RIMES Windows ") + kProductVersionWide + L"\nCommit: " + Wide(RIMES_BUILD_COMMIT) +
                 L"\n协议 v2\n词库：%APPDATA%\\RIMES\n设置与日志：%LOCALAPPDATA%"
                 L"\\RIMES";
             MessageBoxW(hwnd, about_text.c_str(), L"版本与诊断", MB_OK);
