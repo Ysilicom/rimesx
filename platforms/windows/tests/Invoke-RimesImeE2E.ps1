@@ -129,14 +129,26 @@ $brokerArgs = @(
     '--user-data-dir', $userDir,
     '--log-dir', $logDir
 )
-$broker = Start-Process -FilePath $brokerPath -ArgumentList $brokerArgs -PassThru -WindowStyle Hidden `
-    -RedirectStandardOutput $brokerStdout -RedirectStandardError $brokerStderr
-if ($null -eq $broker) {
-    throw 'Failed to start RimesBroker.exe'
-}
+# The workbench reads LOCALAPPDATA, independently of librime's --user-data-dir.
+# Keep developer settings (including ASCII mode) out of the test, and never
+# allow a test workbench to save into the real user's configuration directory.
+$previousLocalAppData = $env:LOCALAPPDATA
+$testLocalAppData = Join-Path $workRoot 'appdata'
+New-Item -ItemType Directory -Path (Join-Path $testLocalAppData 'RIMES') -Force | Out-Null
+Write-RimesJson -Path (Join-Path $testLocalAppData 'RIMES/settings.json') -Object ([ordered]@{
+    schema = 'rime_ice'
+    ascii = $false
+})
 
+$broker = $null
 $e2eExit = 1
 try {
+    $env:LOCALAPPDATA = $testLocalAppData
+    $broker = Start-Process -FilePath $brokerPath -ArgumentList $brokerArgs -PassThru -WindowStyle Hidden `
+        -RedirectStandardOutput $brokerStdout -RedirectStandardError $brokerStderr
+    if ($null -eq $broker) {
+        throw 'Failed to start RimesBroker.exe'
+    }
     Start-Sleep -Seconds 2
     if ($broker.HasExited) {
         throw "RimesBroker exited before the typing tests with code $($broker.ExitCode). stderr=$(Get-Content -LiteralPath $brokerStderr -Raw -ErrorAction SilentlyContinue)"
@@ -156,7 +168,8 @@ try {
         throw "RimesTsfE2E.exe exited with code $e2eExit"
     }
 } finally {
-    if (-not $broker.HasExited) {
+    $env:LOCALAPPDATA = $previousLocalAppData
+    if ($null -ne $broker -and -not $broker.HasExited) {
         Stop-Process -Id $broker.Id -Force -ErrorAction SilentlyContinue
         try { $broker.WaitForExit(5000) | Out-Null } catch { }
     }

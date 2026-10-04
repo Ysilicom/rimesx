@@ -1,8 +1,8 @@
 # Isolated schema list for the Windows IME in-process typing tests.
-# Do not use the product rime_ice default here: that scheme needs the full
-# RIMES lua tree and is covered later on real hardware.
+# The fixture uses the workbench's default schema ID, but its own tiny Lua-free
+# table. The full product dictionary and Lua tree are covered on real hardware.
 schema_list:
-  - schema: rimes_e2e
+  - schema: rime_ice
 
 menu:
   page_size: 5

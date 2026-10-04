@@ -1,8 +1,8 @@
-# lua-free table schema so CI can type nihao without the product rime_ice
-# scripts. Behaviour is the Rime defaults: Space commits the highlight,
+# Lua-free fixture using the workbench's default schema ID. This is not the
+# product rime_ice schema. Behaviour is the Rime defaults: Space commits the highlight,
 # digits select, PageDown pages, Escape cancels.
 schema:
-  schema_id: rimes_e2e
+  schema_id: rime_ice
   name: RIMES E2E
   version: "0.1"
 
