@@ -1,5 +1,12 @@
 # macOS 1.1.0 acceptance — 2026-10-04
 
+## Local preflight package
+
+These checks cover the local preflight package. The formal `v1.1.0` package is
+built from `3fa9e40c9cd3eb74ae9cfb44559ff14f0d5d3eff` by
+[workflow 37197703815](https://github.com/scholay/rimes/actions/runs/37197703815)
+and must separately pass immutable-stage verification and same-package installation.
+
 - Universal arm64/x86_64 Release builds, native Swift build system; product source f9ec959.
 - Shared tests, macOS runtime smoke suite, settings-page previews and plugin catalog/import tests passed.
 - Packaged application passed plugin platform/distribution, Capsule, Mailbox, Music, engine, lexicon bridge, chord mapping and Ziranma smokes while development resource bundles were temporarily unavailable. Resource lookup therefore succeeds from the installed application itself.
