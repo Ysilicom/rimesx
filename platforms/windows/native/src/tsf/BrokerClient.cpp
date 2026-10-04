@@ -699,8 +699,7 @@ class NamedPipeBrokerClient final : public BrokerClient {
   bool Control(core::Json message) noexcept override {
     try {
       std::unique_lock lock(io_mutex_, std::defer_lock);
-      lock.try_lock_for(std::chrono::milliseconds(2));
-      if (!lock.owns_lock() || !connected_.load() || !input_session_id_)
+      if (!lock.try_lock_for(std::chrono::milliseconds(2)) || !connected_.load() || !input_session_id_)
         return false;
       message["session"] = input_session_id_;
       protocol::Frame response;
@@ -725,8 +724,7 @@ class NamedPipeBrokerClient final : public BrokerClient {
   bool SetContext(std::uint64_t context_id) noexcept override {
     try {
       std::unique_lock lock(io_mutex_, std::defer_lock);
-      lock.try_lock_for(std::chrono::milliseconds(2));
-      if (!lock.owns_lock()) return false;
+      if (!lock.try_lock_for(std::chrono::milliseconds(2))) return false;
       if (!connected_.load() || pipe_ == INVALID_HANDLE_VALUE) {
         ScheduleReconnectLocked();
         return false;
@@ -876,8 +874,7 @@ class NamedPipeBrokerClient final : public BrokerClient {
 
     try {
       std::unique_lock lock(io_mutex_, std::defer_lock);
-      lock.try_lock_for(std::chrono::milliseconds(2));
-      if (!lock.owns_lock()) {
+      if (!lock.try_lock_for(std::chrono::milliseconds(2))) {
         return BrokerKeyResult::kUnavailable;
       }
       if (key_up && !pressed_keys_[key_index].exchange(
