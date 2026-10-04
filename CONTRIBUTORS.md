@@ -14,7 +14,7 @@ Core maintainer / 核心维护者: [学术海](https://pm.scholay.com) ([GitHub:
 These tools helped design, implement, and review substantial parts of RIMES:
 
 - **Claude** (Anthropic) — Claude Code / Claude in Cursor
-- **Cursor** — AI-assisted editing and agent workflows
+- **[Cursor Agent](https://github.com/cursoragent)** — Cursor editor and CLI agent workflows
 - **[Codex](https://github.com/codex)** (OpenAI) — Codex CLI / desktop coding agent
 - **Grok** (xAI) — Cursor Grok agent
 
@@ -27,10 +27,15 @@ RIMES treats material work by coding agents as an open-source contribution:
 - Temporary subagents are credited through their parent agent unless they have their own persistent public identity.
 - Agents are credited only on work they actually participated in; published history is not rewritten solely to add attribution.
 
-Current verified commit identity:
+Current verified commit identities:
 
 ```text
 Co-authored-by: Codex <267193182+codex@users.noreply.github.com>
+Co-authored-by: Cursor Agent <cursoragent@cursor.com>
 ```
+
+Cursor Agent's public identity was checked on 2026-10-02 against its
+[GitHub account](https://github.com/cursoragent) and a
+[commit linked by GitHub to that account](https://github.com/demmyscoalexport-cell/futurestack-news-52/commit/bf8484e8a21873288b42de99d357fe523ec6386a).
 
 Human maintainers remain responsible for review, merge decisions, and releases.

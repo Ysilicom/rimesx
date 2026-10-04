@@ -1,3 +1,11 @@
+#include "rimes_version.hpp"
+#include <iostream>
+#include <memory>
+#include <string>
+#include <thread>
+
+#include "../engine/rime_engine.hpp"
+#include "../workbench/window.hpp"
 #include "autostart.hpp"
 #include "broker_connection.hpp"
 #include "broker_options.hpp"
@@ -6,21 +14,16 @@
 #include "single_instance.hpp"
 #include "win32_security.hpp"
 
-#include <iostream>
-#include <memory>
-#include <string>
-
-#include "../engine/rime_engine.hpp"
-
 namespace rimes::windows::broker {
 namespace {
 
 void PrintUsage() {
   std::wcout
-      << L"RIMES Windows Broker 0.1.0-dev\n\n"
+      << L"RIMES Windows Broker " << kProductVersionWide << L"\n\n"
       << L"Usage:\n"
       << L"  RimesBroker --print-endpoint\n"
       << L"  RimesBroker --print-paths\n"
+      << L"  RimesBroker --deploy-only\n"
       << L"  RimesBroker --install-autostart | --remove-autostart\n"
       << L"  RimesBroker [--once] [--rime-dll <absolute-path>]\n"
       << L"      [--shared-data-dir <absolute-path>]\n"
@@ -31,7 +34,8 @@ void PrintUsage() {
       << L"  --print-paths           Print resolved engine paths, then exit.\n"
       << L"  --install-autostart     Register a current-user logon Run key.\n"
       << L"  --remove-autostart      Remove the current-user logon Run key.\n"
-      << L"  --full-maintenance-check  Ask librime for a full maintenance pass.\n"
+      << L"  --full-maintenance-check  Ask librime for a full maintenance "
+         L"pass.\n"
       << L"  Missing engine paths default to %%LOCALAPPDATA%%\\RIMES and\n"
       << L"  %%APPDATA%%\\RIMES, or files next to this executable.\n";
 }
@@ -56,11 +60,11 @@ int wmain(const int argc, wchar_t** argv) {
   }
 
   UserSecurityContext security;
-  if (!security.Initialize(&error)) {
-    std::wcerr << L"Failed to initialize broker security: " << error << L'\n';
-    return 3;
-  }
   if (options.print_endpoint) {
+    if (!security.Initialize(&error)) {
+      std::wcerr << error << L'\n';
+      return 3;
+    }
     std::wcout << security.pipe_name() << L'\n';
     return 0;
   }
@@ -91,9 +95,8 @@ int wmain(const int argc, wchar_t** argv) {
                << L"shared-data-dir="
                << options.engine.shared_data_dir.wstring() << L'\n'
                << L"user-data-dir=" << options.engine.user_data_dir.wstring()
-               << L'\n'
-               << L"log-dir=" << options.engine.log_dir.wstring() << L'\n'
-               << L"used-defaults="
+               << L'\n' << L"log-dir=" << options.engine.log_dir.wstring()
+               << L'\n' << L"used-defaults="
                << (options.used_default_paths ? L"yes" : L"no") << L'\n';
     return 0;
   }
@@ -108,6 +111,23 @@ int wmain(const int argc, wchar_t** argv) {
     return 5;
   }
 
+  if (options.deploy_only) {
+    options.engine.full_maintenance_check = true;
+    options.engine.verify_input_session = false;
+    engine::RimeEngine deploy;
+    std::string failure;
+    if (!deploy.Start(options.engine, &failure)) {
+      std::cerr << "Deployment failed: " << failure << '\n';
+      return 5;
+    }
+    deploy.Stop();
+    std::cout << "Dictionary deployment finished. User data retained.\n";
+    return 0;
+  }
+  if (!security.Initialize(&error)) {
+    std::wcerr << error << L'\n';
+    return 3;
+  }
   SingleInstance instance;
   if (!instance.Acquire(security.mutex_name(), security.attributes(), &error)) {
     std::wcerr << L"Failed to acquire the broker mutex: " << error << L'\n';
@@ -126,18 +146,29 @@ int wmain(const int argc, wchar_t** argv) {
   }
 
   NamedPipeServer server(&security);
+  workbench::Runtime runtime;
+  const bool interactive = security.session_id() != 0;
+  std::jthread ui;
+  if (interactive && !options.serve_once)
+    ui = std::jthread([&] {
+      workbench::RunWindow(
+          runtime, [&] { server.RequestStop(); },
+          [&] { engine.RunMaintenance(true, nullptr); });
+    });
   error.clear();
   const ServeResult result = server.ServeClients(
-      [&security, &engine](DWORD) {
+      [&security, &engine, &runtime, interactive](DWORD) {
         auto connection = std::make_shared<BrokerConnection>(
-            security.session_id(), &engine);
-        return [connection](const core::Frame& request,
-                            const DWORD client_process_id,
-                            core::Frame* response) {
-          return connection->Handle(request, client_process_id, response);
-        };
+            security.session_id(), &engine, interactive ? &runtime : nullptr);
+        return
+            [connection](const core::Frame& request,
+                         const DWORD client_process_id, core::Frame* response) {
+              return connection->Handle(request, client_process_id, response);
+            };
       },
       options.serve_once, &error);
+  runtime.Stop();
+  if (ui.joinable()) ui.join();
   if (result == ServeResult::kFatalError) {
     std::wcerr << L"Broker pipe failure: " << error << L'\n';
     return 6;

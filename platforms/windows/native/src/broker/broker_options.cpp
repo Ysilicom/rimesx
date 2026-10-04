@@ -1,9 +1,9 @@
 #include "broker_options.hpp"
 
-#include "default_paths.hpp"
-
 #include <filesystem>
 #include <string_view>
+
+#include "default_paths.hpp"
 
 namespace rimes::windows::broker {
 namespace {
@@ -18,28 +18,21 @@ void SetError(std::wstring* error, std::wstring_view message) noexcept {
   }
 }
 
-bool ReadUniquePath(int argc,
-                    wchar_t** argv,
-                    int* index,
-                    bool* seen,
-                    std::filesystem::path* output,
-                    std::wstring_view option,
+bool ReadUniquePath(int argc, wchar_t** argv, int* index, bool* seen,
+                    std::filesystem::path* output, std::wstring_view option,
                     std::wstring* error) {
   if (*seen) {
-    SetError(error, std::wstring(L"duplicate option: ") +
-                        std::wstring(option));
+    SetError(error, std::wstring(L"duplicate option: ") + std::wstring(option));
     return false;
   }
   if (*index + 1 >= argc || argv[*index + 1] == nullptr ||
       argv[*index + 1][0] == L'\0') {
-    SetError(error, std::wstring(L"missing value for ") +
-                        std::wstring(option));
+    SetError(error, std::wstring(L"missing value for ") + std::wstring(option));
     return false;
   }
   const std::wstring_view value(argv[*index + 1]);
   if (value.starts_with(L"--")) {
-    SetError(error, std::wstring(L"missing value for ") +
-                        std::wstring(option));
+    SetError(error, std::wstring(L"missing value for ") + std::wstring(option));
     return false;
   }
   *output = std::filesystem::path(value);
@@ -49,21 +42,17 @@ bool ReadUniquePath(int argc,
 }
 
 bool RequireAbsolute(const std::filesystem::path& path,
-                     std::wstring_view option,
-                     std::wstring* error) {
+                     std::wstring_view option, std::wstring* error) {
   if (!path.empty() && path.is_absolute()) {
     return true;
   }
-  SetError(error, std::wstring(option) +
-                      L" requires an absolute local path");
+  SetError(error, std::wstring(option) + L" requires an absolute local path");
   return false;
 }
 
 }  // namespace
 
-bool ParseBrokerOptions(int argc,
-                        wchar_t** argv,
-                        BrokerOptions* options,
+bool ParseBrokerOptions(int argc, wchar_t** argv, BrokerOptions* options,
                         std::wstring* error) noexcept {
   if (options == nullptr || argc < 1 || argv == nullptr) {
     SetError(error, L"broker option output or process arguments are invalid");
@@ -98,6 +87,12 @@ bool ParseBrokerOptions(int argc,
         }
         saw_once = true;
         parsed.serve_once = true;
+      } else if (argument == L"--deploy-only") {
+        if (parsed.deploy_only) {
+          SetError(error, L"duplicate --deploy-only");
+          return false;
+        }
+        parsed.deploy_only = true;
       } else if (argument == L"--print-endpoint") {
         if (saw_endpoint) {
           SetError(error, L"duplicate option: --print-endpoint");
@@ -162,12 +157,18 @@ bool ParseBrokerOptions(int argc,
           return false;
         }
       } else {
-        SetError(error, std::wstring(L"unknown option: ") +
-                            std::wstring(argument));
+        SetError(error,
+                 std::wstring(L"unknown option: ") + std::wstring(argument));
         return false;
       }
     }
 
+    if (parsed.deploy_only && (parsed.serve_once || parsed.print_paths)) {
+      SetError(
+          error,
+          L"--deploy-only must not be combined with serving or inspection");
+      return false;
+    }
     if (parsed.show_help) {
       if (argc != 2) {
         SetError(error, L"the help option must be used by itself");
@@ -178,27 +179,30 @@ bool ParseBrokerOptions(int argc,
     }
 
     const bool has_any_engine_option = saw_dll || saw_shared || saw_user ||
-                                       saw_log || saw_full_maintenance;
+                                       saw_log || saw_full_maintenance ||
+                                       parsed.deploy_only;
     if (parsed.print_endpoint) {
-      if (parsed.serve_once || parsed.print_paths ||
-          parsed.install_autostart || parsed.remove_autostart ||
-          has_any_engine_option) {
+      if (parsed.serve_once || parsed.print_paths || parsed.install_autostart ||
+          parsed.remove_autostart || has_any_engine_option) {
         SetError(error,
-                 L"--print-endpoint cannot be combined with serving or engine options");
+                 L"--print-endpoint cannot be combined with serving or engine "
+                 L"options");
         return false;
       }
       *options = std::move(parsed);
       return true;
     }
     if (parsed.install_autostart && parsed.remove_autostart) {
-      SetError(error,
-               L"--install-autostart and --remove-autostart cannot be combined");
+      SetError(
+          error,
+          L"--install-autostart and --remove-autostart cannot be combined");
       return false;
     }
     if ((parsed.install_autostart || parsed.remove_autostart) &&
         (parsed.serve_once || parsed.print_paths || has_any_engine_option)) {
       SetError(error,
-               L"autostart commands cannot be combined with serving or engine options");
+               L"autostart commands cannot be combined with serving or engine "
+               L"options");
       return false;
     }
     if (parsed.remove_autostart || parsed.install_autostart) {
@@ -223,7 +227,8 @@ bool ParseBrokerOptions(int argc,
       if (!saw_log) {
         parsed.engine.log_dir = defaults.log_dir;
       }
-      parsed.used_default_paths = !saw_dll || !saw_shared || !saw_user || !saw_log;
+      parsed.used_default_paths =
+          !saw_dll || !saw_shared || !saw_user || !saw_log;
     }
     if (!RequireAbsolute(parsed.engine.dll_path, L"--rime-dll", error) ||
         !RequireAbsolute(parsed.engine.shared_data_dir, L"--shared-data-dir",

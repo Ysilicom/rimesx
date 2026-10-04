@@ -1,5 +1,3 @@
-#include "fake_tsf.hpp"
-
 #include <Windows.h>
 
 #include <cstdlib>
@@ -11,6 +9,7 @@
 #include "CandidateWindow.h"
 #include "ModuleState.h"
 #include "TextService.h"
+#include "fake_tsf.hpp"
 
 namespace {
 
@@ -26,6 +25,10 @@ void Expect(bool condition, std::string_view message) {
     Fail(message);
   }
 }
+
+}  // namespace
+#include "focus_tests.hpp"
+namespace {
 
 void DumpDocument(std::string_view label,
                   const rimes::windows::e2e::FakeDocument& document) {
@@ -47,9 +50,7 @@ void ClearCapsLockIfLatched() {
 }
 
 void TypeVirtualKey(rimes::windows::tsf::TextService* service,
-                    ITfContext* context,
-                    WPARAM virtual_key,
-                    bool require_eaten,
+                    ITfContext* context, WPARAM virtual_key, bool require_eaten,
                     rimes::windows::e2e::FakeDocument* document = nullptr,
                     bool dump_after_key_down = false) {
   using rimes::windows::tsf::TextService;
@@ -73,8 +74,7 @@ void TypeVirtualKey(rimes::windows::tsf::TextService* service,
   service->OnKeyUp(context, virtual_key, 0, &eaten);
 }
 
-void TypeLatin(rimes::windows::tsf::TextService* service,
-               ITfContext* context,
+void TypeLatin(rimes::windows::tsf::TextService* service, ITfContext* context,
                std::string_view letters,
                rimes::windows::e2e::FakeDocument* document = nullptr) {
   bool first = true;
@@ -123,6 +123,146 @@ void ResetDocument(rimes::windows::e2e::FakeDocument* document) {
   *document = rimes::windows::e2e::FakeDocument{};
 }
 
+// Documents the intentional cold/unavailable contract: keys before the Broker
+// is ready fail open immediately, are never marked consumed without processing,
+// and are never replayed after a later successful connect.
+void CheckUnavailablePassThroughAndNoReplay() {
+  using namespace rimes::windows::tsf;
+  auto client = CreateBrokerClient();
+  Expect(client != nullptr, "unavailable-contract client created");
+  if (!client) {
+    return;
+  }
+
+  Expect(!client->IsConnected(), "contract client starts disconnected");
+  BrokerInputState cold;
+  Expect(client->HandleKey({BrokerKeyPhase::kTestKeyDown, 'N', 0}, nullptr) ==
+             BrokerKeyResult::kUnavailable,
+         "cold TestKeyDown fails open");
+  Expect(client->HandleKey({BrokerKeyPhase::kKeyDown, 'N', 1}, &cold) ==
+             BrokerKeyResult::kUnavailable,
+         "cold KeyDown fails open");
+  Expect(!cold.has_snapshot, "cold KeyDown must not invent a snapshot");
+  Expect(client->HandleKey({BrokerKeyPhase::kKeyDown, 'I', 1}, &cold) ==
+             BrokerKeyResult::kUnavailable,
+         "second cold KeyDown fails open");
+  Expect(!cold.has_snapshot, "second cold KeyDown has no snapshot to replay");
+
+  client->BeginConnect();
+  const auto connected_at = GetTickCount64();
+  while (!client->IsConnected() && GetTickCount64() - connected_at < 15000) {
+    Sleep(50);
+  }
+  Expect(client->IsConnected(), "contract client connects for positive control");
+  if (!client->IsConnected()) {
+    client->Disconnect();
+    return;
+  }
+  Expect(client->SetContext(1001), "connected context bound");
+
+  BrokerInputState live;
+  Expect(client->HandleKey({BrokerKeyPhase::kKeyDown, 'N', 1}, &live) ==
+             BrokerKeyResult::kConsumed,
+         "connected KeyDown is processed");
+  Expect(live.has_snapshot && live.composing,
+         "connected KeyDown yields a live snapshot");
+  Expect(live.composition == L"n" && live.commit_text.empty(),
+         "first connected key has no replay of unavailable NI");
+  client->HandleKey({BrokerKeyPhase::kKeyUp, 'N', 0}, &live);
+  // Cancel any preedit so the next reconnect assertion is unambiguous.
+  BrokerInputState cancelled;
+  client->HandleKey({BrokerKeyPhase::kKeyDown, VK_ESCAPE, 1}, &cancelled);
+  client->HandleKey({BrokerKeyPhase::kKeyUp, VK_ESCAPE, 0}, &cancelled);
+
+  client->Disconnect();
+  Expect(!client->IsConnected(), "Disconnect returns to unavailable");
+
+  BrokerInputState dropped;
+  Expect(client->HandleKey({BrokerKeyPhase::kKeyDown, 'X', 1}, &dropped) ==
+             BrokerKeyResult::kUnavailable,
+         "post-disconnect KeyDown fails open");
+  Expect(client->HandleKey({BrokerKeyPhase::kKeyDown, 'Y', 1}, &dropped) ==
+             BrokerKeyResult::kUnavailable,
+         "second post-disconnect KeyDown fails open");
+  Expect(!dropped.has_snapshot,
+         "disconnected letters are not retained for replay");
+
+  client->BeginConnect();
+  const auto reconnected_at = GetTickCount64();
+  while (!client->IsConnected() && GetTickCount64() - reconnected_at < 15000) {
+    Sleep(50);
+  }
+  Expect(client->IsConnected(), "contract client reconnects");
+  if (!client->IsConnected()) {
+    client->Disconnect();
+    return;
+  }
+  Expect(client->SetContext(1002), "fresh context after reconnect");
+
+  BrokerInputState after;
+  Expect(client->HandleKey({BrokerKeyPhase::kKeyDown, 'N', 1}, &after) ==
+             BrokerKeyResult::kConsumed,
+         "first key after reconnect is processed fresh");
+  Expect(after.has_snapshot, "reconnect KeyDown has a snapshot");
+  Expect(after.composition == L"n" && after.commit_text.empty(),
+         "no delayed replay of unavailable or prior cancelled input");
+  client->HandleKey({BrokerKeyPhase::kKeyUp, 'N', 0}, &after);
+  Expect(client->HandleKey({BrokerKeyPhase::kKeyDown, 'I', 1}, &after) ==
+             BrokerKeyResult::kConsumed,
+         "second fresh key after reconnect is processed");
+  Expect(after.composition == L"ni" && after.commit_text.empty(),
+         "fresh reconnect composition contains exactly the new NI");
+  client->HandleKey({BrokerKeyPhase::kKeyUp, 'I', 0}, &after);
+  client->HandleKey({BrokerKeyPhase::kKeyDown, VK_ESCAPE, 1}, &after);
+  client->HandleKey({BrokerKeyPhase::kKeyUp, VK_ESCAPE, 0}, &after);
+  client->Disconnect();
+}
+
+void CheckCandidateGuardAfterKeyRelease() {
+  using namespace rimes::windows::tsf;
+  auto client = CreateBrokerClient();
+  Expect(client != nullptr, "candidate regression client created");
+  if (!client) return;
+  client->BeginConnect();
+  const auto started = GetTickCount64();
+  while (!client->IsConnected() && GetTickCount64() - started < 15000)
+    Sleep(50);
+  Expect(client->IsConnected(), "candidate regression client connected");
+  if (!client->IsConnected()) return;
+  Expect(client->SetContext(1), "candidate regression context bound");
+  BrokerInputState shown;
+  for (const auto key : {'N', 'I'}) {
+    BrokerInputState down, up;
+    Expect(client->HandleKey({BrokerKeyPhase::kKeyDown,
+                             static_cast<WPARAM>(key), 1}, &down) ==
+               BrokerKeyResult::kConsumed,
+           "candidate regression letter consumed");
+    if (down.has_snapshot) shown = down;
+    Expect(client->HandleKey({BrokerKeyPhase::kKeyUp,
+                             static_cast<WPARAM>(key), 0}, &up) ==
+               BrokerKeyResult::kConsumed,
+           "candidate regression matching release consumed");
+    if (up.has_snapshot) shown = up;
+  }
+  Expect(shown.composing && !shown.candidates.empty(),
+         "candidate remains displayed after letter release");
+  Expect(client->Control({{"op", "candidate_guard"},
+                          {"revision", shown.revision}, {"index", 0}}),
+         "current mouse candidate accepted after unhandled KeyUp");
+  BrokerInputState selected, released;
+  Expect(client->HandleKey({BrokerKeyPhase::kKeyDown, '1', 1}, &selected) ==
+             BrokerKeyResult::kConsumed,
+         "guarded candidate selection consumed");
+  if (!shown.candidates.empty())
+    Expect(selected.commit_text == shown.candidates[0].text,
+           "guarded candidate commits exactly the displayed item");
+  client->HandleKey({BrokerKeyPhase::kKeyUp, '1', 0}, &released);
+  Expect(!client->Control({{"op", "candidate_guard"},
+                           {"revision", shown.revision}, {"index", 0}}),
+         "old candidate rejected after commit");
+  client->Disconnect();
+}
+
 int RunTypingScenarios() {
   using rimes::windows::e2e::FakeContext;
   using rimes::windows::e2e::FakeDocument;
@@ -169,8 +309,12 @@ int RunTypingScenarios() {
   }
 
   ClearCapsLockIfLatched();
+  CheckFocusRestoration();
   std::cerr << "caps_lock=" << ((GetKeyState(VK_CAPITAL) & 1) != 0)
             << " shift=" << ((GetKeyState(VK_SHIFT) & 0x8000) != 0) << '\n';
+
+  CheckUnavailablePassThroughAndNoReplay();
+  CheckCandidateGuardAfterKeyRelease();
 
   TypeLatin(service, context, "nihao", &document);
   DumpDocument("after nihao", document);
@@ -198,7 +342,8 @@ int RunTypingScenarios() {
   ResetDocument(&document);
   TypeLatin(service, context, "nihao");
   const std::vector<std::wstring> before_number = CandidateTexts();
-  Expect(before_number.size() >= 2, "nihao should offer at least two candidates");
+  Expect(before_number.size() >= 2,
+         "nihao should offer at least two candidates");
   const std::wstring second =
       before_number.size() >= 2 ? before_number[1] : std::wstring();
   TypeVirtualKey(service, context, static_cast<WPARAM>('2'), true);
@@ -229,6 +374,40 @@ int RunTypingScenarios() {
          "Escape during preedit should not commit");
   Expect(!document.composing, "Escape should clear composing state");
 
+  // Native Edit controls may terminate preedit before notifying focus loss.
+  ResetDocument(&document);
+  TypeLatin(service, context, "ni");
+  context->TerminateComposition();
+  Expect(document.text.empty() && document.composition.empty() &&
+             !document.composing,
+         "host termination must erase preedit before it becomes raw text");
+  // The minimal E2E dictionary contains nihao and ni, not standalone hao.
+  TypeLatin(service, context, "nihao");
+  TypeVirtualKey(service, context, VK_SPACE, true);
+  Expect(document.text == L"你好",
+         "host termination must reset the old engine context too");
+
+  // An asynchronous edit accepted by RequestEditSession is still revocable.
+  ResetDocument(&document);
+  context->defer_edits = true;
+  TypeLatin(service, context, "nihao");
+  Expect(!context->delayed_edits.empty(),
+         "host queued asynchronous composition edits");
+  FakeDocument other_document;
+  auto* other = new FakeContext(&other_document);
+  TypeLatin(service, other, "nihao");
+  context->DrainEdits();
+  context->defer_edits = false;
+  Expect(document.text.empty() && !document.composing,
+         "old context edits revoked before execution");
+  TypeVirtualKey(service, other, VK_SPACE, true);
+  Expect(other_document.text == L"你好", "new context commits independently");
+  other->read_only = true;
+  BOOL protected_eaten = TRUE;
+  service->OnKeyDown(other, 'N', 0, &protected_eaten);
+  Expect(!protected_eaten, "read-only context never forwards input");
+  other->Release();
+
   service->Deactivate();
   service->Release();
   context->Release();
@@ -241,6 +420,4 @@ int RunTypingScenarios() {
 
 }  // namespace
 
-int wmain() {
-  return RunTypingScenarios();
-}
+int wmain() { return RunTypingScenarios(); }

@@ -54,11 +54,13 @@ struct RegistrationDelta {
   bool processor_created = false;
   bool profile_created = false;
   bool category_created = false;
+  bool display_created = false;
 };
 
 class ScopedCoInitialize final {
  public:
-  ScopedCoInitialize() : result_(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)) {}
+  ScopedCoInitialize()
+      : result_(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)) {}
   ~ScopedCoInitialize() {
     if (SUCCEEDED(result_)) {
       CoUninitialize();
@@ -127,16 +129,16 @@ std::string Utf8(const std::wstring_view value) {
   if (value.empty()) {
     return {};
   }
-  const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),
-                                       static_cast<int>(value.size()), nullptr, 0,
-                                       nullptr, nullptr);
+  const int size = WideCharToMultiByte(
+      CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),
+      static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
   if (size <= 0) {
     return "<unicode-conversion-failed>";
   }
   std::string result(static_cast<std::size_t>(size), '\0');
   const int written = WideCharToMultiByte(
-      CP_UTF8, WC_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()),
-      result.data(), size, nullptr, nullptr);
+      CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),
+      static_cast<int>(value.size()), result.data(), size, nullptr, nullptr);
   if (written != size) {
     return "<unicode-conversion-failed>";
   }
@@ -167,13 +169,12 @@ bool PrintWin32Failure(const char* operation, const LSTATUS result) {
 }
 
 void PrintUsage() {
-  std::cerr
-      << "Usage:\n"
-      << "  RimesRegistrar metadata\n"
-      << "  RimesRegistrar register --dll <absolute-path> [--dry-run]\n"
-      << "  RimesRegistrar unregister --dll <absolute-path> [--dry-run]\n"
-      << "  RimesRegistrar verify --dll <absolute-path>\n"
-      << "  RimesRegistrar verify-absent --dll <absolute-path>\n";
+  std::cerr << "Usage:\n"
+            << "  RimesRegistrar metadata\n"
+            << "  RimesRegistrar register --dll <absolute-path> [--dry-run]\n"
+            << "  RimesRegistrar unregister --dll <absolute-path> [--dry-run]\n"
+            << "  RimesRegistrar verify --dll <absolute-path>\n"
+            << "  RimesRegistrar verify-absent --dll <absolute-path>\n";
 }
 
 bool ParseOptions(const int argc, wchar_t** argv, Options* options) {
@@ -246,8 +247,8 @@ bool PathsEqual(const std::wstring& left, const std::wstring& right) {
 
 bool ReadFileExactlyAt(HANDLE file, const std::uint64_t offset, void* buffer,
                        const DWORD byte_count) {
-  if (offset > static_cast<std::uint64_t>(
-                   (std::numeric_limits<LONGLONG>::max)())) {
+  if (offset >
+      static_cast<std::uint64_t>((std::numeric_limits<LONGLONG>::max)())) {
     return false;
   }
   LARGE_INTEGER position{};
@@ -269,8 +270,8 @@ bool ValidatePeDll(HANDLE file, const std::wstring& path) {
   }
   const auto size = static_cast<std::uint64_t>(file_size.QuadPart);
   if (size < sizeof(IMAGE_DOS_HEADER)) {
-    std::cerr << "TSF DLL is too small to contain a DOS header: "
-              << Utf8(path) << '\n';
+    std::cerr << "TSF DLL is too small to contain a DOS header: " << Utf8(path)
+              << '\n';
     return false;
   }
 
@@ -286,8 +287,8 @@ bool ValidatePeDll(HANDLE file, const std::wstring& path) {
   constexpr std::uint64_t kFixedPeHeaderSize =
       sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER);
   if (pe_offset > size || size - pe_offset < kFixedPeHeaderSize) {
-    std::cerr << "TSF DLL has an out-of-bounds PE header offset: "
-              << Utf8(path) << '\n';
+    std::cerr << "TSF DLL has an out-of-bounds PE header offset: " << Utf8(path)
+              << '\n';
     return false;
   }
 
@@ -308,8 +309,8 @@ bool ValidatePeDll(HANDLE file, const std::wstring& path) {
     return false;
   }
   if ((file_header.Characteristics & IMAGE_FILE_DLL) == 0) {
-    std::cerr << "The supplied PE image is not marked as a DLL: "
-              << Utf8(path) << '\n';
+    std::cerr << "The supplied PE image is not marked as a DLL: " << Utf8(path)
+              << '\n';
     return false;
   }
 
@@ -386,14 +387,12 @@ bool ValidateDll(const std::wstring& path, std::wstring* full_path) {
     return false;
   }
 
-  ScopedHandle file(CreateFileW(resolved.c_str(), GENERIC_READ, FILE_SHARE_READ,
-                                nullptr, OPEN_EXISTING,
-                                FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
-                                nullptr));
+  ScopedHandle file(CreateFileW(
+      resolved.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+      FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
   if (!file.IsValid()) {
     std::cerr << "Unable to open TSF DLL for read-only PE validation: "
-              << Utf8(resolved) << " (Win32 error " << GetLastError()
-              << ")\n";
+              << Utf8(resolved) << " (Win32 error " << GetLastError() << ")\n";
     return false;
   }
   if (!ValidatePeDll(file.Get(), resolved)) {
@@ -421,8 +420,7 @@ constexpr REGSAM OtherRegistryView() {
 }
 
 std::wstring ClassSubkey() {
-  return std::wstring(L"SOFTWARE\\Classes\\CLSID\\") +
-         kTextServiceClsidString;
+  return std::wstring(L"SOFTWARE\\Classes\\CLSID\\") + kTextServiceClsidString;
 }
 
 bool QueryStringValue(HKEY key, const wchar_t* name, std::wstring* value,
@@ -430,8 +428,7 @@ bool QueryStringValue(HKEY key, const wchar_t* name, std::wstring* value,
   *found = false;
   DWORD type = 0;
   DWORD bytes = 0;
-  LSTATUS result =
-      RegQueryValueExW(key, name, nullptr, &type, nullptr, &bytes);
+  LSTATUS result = RegQueryValueExW(key, name, nullptr, &type, nullptr, &bytes);
   if (result == ERROR_FILE_NOT_FOUND) {
     return true;
   }
@@ -568,10 +565,10 @@ bool EnsureComRegistration(const std::wstring& dll_path, bool* created) {
 
   HKEY class_key = nullptr;
   DWORD class_disposition = 0;
-  LSTATUS result = RegCreateKeyExW(
-      HKEY_LOCAL_MACHINE, ClassSubkey().c_str(), 0, nullptr,
-      REG_OPTION_NON_VOLATILE, KEY_WRITE | RegistryView(), nullptr, &class_key,
-      &class_disposition);
+  LSTATUS result =
+      RegCreateKeyExW(HKEY_LOCAL_MACHINE, ClassSubkey().c_str(), 0, nullptr,
+                      REG_OPTION_NON_VOLATILE, KEY_WRITE | RegistryView(),
+                      nullptr, &class_key, &class_disposition);
   if (result != ERROR_SUCCESS) {
     return PrintWin32Failure("RegCreateKeyExW(CLSID)", result);
   }
@@ -587,10 +584,10 @@ bool EnsureComRegistration(const std::wstring& dll_path, bool* created) {
   HKEY inproc_key = nullptr;
   if (success) {
     const std::wstring inproc_subkey = ClassSubkey() + L"\\InprocServer32";
-    result = RegCreateKeyExW(HKEY_LOCAL_MACHINE, inproc_subkey.c_str(), 0,
-                             nullptr, REG_OPTION_NON_VOLATILE,
-                             KEY_WRITE | RegistryView(), nullptr, &inproc_key,
-                             nullptr);
+    result =
+        RegCreateKeyExW(HKEY_LOCAL_MACHINE, inproc_subkey.c_str(), 0, nullptr,
+                        REG_OPTION_NON_VOLATILE, KEY_WRITE | RegistryView(),
+                        nullptr, &inproc_key, nullptr);
     if (result != ERROR_SUCCESS) {
       success = PrintWin32Failure("RegCreateKeyExW(InprocServer32)", result);
     }
@@ -626,8 +623,7 @@ bool IsElevated() {
 bool CreateProfiles(ComPtr<ITfInputProcessorProfiles>* profiles) {
   const HRESULT result = CoCreateInstance(
       CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
-      IID_ITfInputProcessorProfiles,
-      reinterpret_cast<void**>(profiles->Put()));
+      IID_ITfInputProcessorProfiles, reinterpret_cast<void**>(profiles->Put()));
   if (FAILED(result)) {
     return PrintHResultFailure("CoCreateInstance(InputProcessorProfiles)",
                                result);
@@ -636,10 +632,9 @@ bool CreateProfiles(ComPtr<ITfInputProcessorProfiles>* profiles) {
 }
 
 bool CreateCategoryManager(ComPtr<ITfCategoryMgr>* categories) {
-  const HRESULT result =
-      CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
-                       IID_ITfCategoryMgr,
-                       reinterpret_cast<void**>(categories->Put()));
+  const HRESULT result = CoCreateInstance(
+      CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER, IID_ITfCategoryMgr,
+      reinterpret_cast<void**>(categories->Put()));
   if (FAILED(result)) {
     return PrintHResultFailure("CoCreateInstance(CategoryMgr)", result);
   }
@@ -707,11 +702,20 @@ bool IsProfileRegistered(ITfInputProcessorProfiles* profiles,
 bool IsKeyboardCategoryRegistered(ITfCategoryMgr* categories,
                                   bool* registered) {
   ComPtr<IEnumGUID> values;
-  const HRESULT result = categories->EnumItemsInCategory(
-      GUID_TFCAT_TIP_KEYBOARD, values.Put());
+  const HRESULT result =
+      categories->EnumItemsInCategory(GUID_TFCAT_TIP_KEYBOARD, values.Put());
   if (FAILED(result)) {
     return PrintHResultFailure("EnumItemsInCategory", result);
   }
+  return EnumContainsGuid(values.Get(), kTextServiceClsid, registered);
+}
+
+bool IsDisplayCategoryRegistered(ITfCategoryMgr* categories, bool* registered) {
+  ComPtr<IEnumGUID> values;
+  const auto result = categories->EnumItemsInCategory(
+      GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER, values.Put());
+  if (FAILED(result))
+    return PrintHResultFailure("EnumItemsInCategory(display)", result);
   return EnumContainsGuid(values.Get(), kTextServiceClsid, registered);
 }
 
@@ -728,11 +732,44 @@ bool LoadClassFactory() {
 
 bool VerifyTsf(const std::wstring& dll_path);
 
+bool VerifyTsfInFreshProcess(const std::wstring& dll_path) {
+  // On Windows 11 CategoryMgr retains the first EnumItemsInCategory result
+  // across COM instances in a process. Verification must observe the state
+  // after RegisterCategory, not the preflight enumeration cached above.
+  std::vector<wchar_t> executable(32768);
+  const DWORD length = GetModuleFileNameW(nullptr, executable.data(),
+                                         static_cast<DWORD>(executable.size()));
+  if (!length || length >= executable.size()) return false;
+  std::wstring command = L"\"" + std::wstring(executable.data(), length) +
+                         L"\" verify --dll \"" + dll_path + L"\"";
+  STARTUPINFOW startup{sizeof(startup)};
+  PROCESS_INFORMATION process{};
+  if (!CreateProcessW(executable.data(), command.data(), nullptr, nullptr,
+                      TRUE, 0, nullptr, nullptr, &startup, &process)) {
+    return PrintWin32Failure("Start registration verification", GetLastError());
+  }
+  ScopedHandle thread(process.hThread);
+  ScopedHandle child(process.hProcess);
+  if (WaitForSingleObject(child.Get(), 30000) != WAIT_OBJECT_0) {
+    TerminateProcess(child.Get(), 1);
+    std::cerr << "Registration verification timed out.\n";
+    return false;
+  }
+  DWORD code = 1;
+  return GetExitCodeProcess(child.Get(), &code) && code == 0;
+}
+
 bool RollBackRegistration(const std::wstring& dll_path,
                           ITfInputProcessorProfiles* profiles,
                           ITfCategoryMgr* categories,
                           const RegistrationDelta& delta) {
   bool success = true;
+  if (delta.display_created) {
+    if (FAILED(categories->UnregisterCategory(
+            kTextServiceClsid, GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER,
+            kTextServiceClsid)))
+      success = false;
+  }
   if (delta.category_created) {
     const HRESULT result = categories->UnregisterCategory(
         kTextServiceClsid, GUID_TFCAT_TIP_KEYBOARD, kTextServiceClsid);
@@ -778,9 +815,11 @@ bool RegisterTsf(const std::wstring& dll_path) {
   bool processor_exists = false;
   bool profile_exists = false;
   bool category_exists = false;
+  bool display_exists = false;
   if (!IsProcessorRegistered(profiles.Get(), &processor_exists) ||
       !IsProfileRegistered(profiles.Get(), &profile_exists) ||
-      !IsKeyboardCategoryRegistered(categories.Get(), &category_exists)) {
+      !IsKeyboardCategoryRegistered(categories.Get(), &category_exists) ||
+      !IsDisplayCategoryRegistered(categories.Get(), &display_exists)) {
     return false;
   }
   if (processor_exists != profile_exists ||
@@ -818,9 +857,8 @@ bool RegisterTsf(const std::wstring& dll_path) {
   }
 
   if (!category_exists) {
-    result = categories->RegisterCategory(kTextServiceClsid,
-                                          GUID_TFCAT_TIP_KEYBOARD,
-                                          kTextServiceClsid);
+    result = categories->RegisterCategory(
+        kTextServiceClsid, GUID_TFCAT_TIP_KEYBOARD, kTextServiceClsid);
     if (FAILED(result)) {
       PrintHResultFailure("RegisterCategory(TIP_KEYBOARD)", result);
       goto rollback;
@@ -828,17 +866,29 @@ bool RegisterTsf(const std::wstring& dll_path) {
     delta.category_created = true;
   }
 
+  if (!display_exists) {
+    result = categories->RegisterCategory(kTextServiceClsid,
+                                          GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER,
+                                          kTextServiceClsid);
+    if (FAILED(result)) {
+      PrintHResultFailure("RegisterCategory(display)", result);
+      goto rollback;
+    }
+    delta.display_created = true;
+  }
+
   // Verification is part of the registration transaction.  If loading the
   // class factory or any exact TSF-state check fails, roll back only entries
   // observed as absent before this invocation.  This is critical when the
   // other architecture, or a previous same-architecture install, already owns
   // some of the shared TSF state.
-  if (!VerifyTsf(dll_path)) {
+  if (!VerifyTsfInFreshProcess(dll_path)) {
     std::cerr << "Registration verification failed; rolling back only state "
                  "created by this invocation.\n";
     goto rollback;
   }
-  std::cout << "Registered RIMES TSF service (current process registry view).\n";
+  std::cout
+      << "Registered RIMES TSF service (current process registry view).\n";
   return true;
 
 rollback:
@@ -884,13 +934,24 @@ bool UnregisterTsf(const std::wstring& dll_path) {
   bool processor_exists = false;
   bool profile_exists = false;
   bool category_exists = false;
+  bool display_exists = false;
   if (!IsProcessorRegistered(profiles.Get(), &processor_exists) ||
       !IsProfileRegistered(profiles.Get(), &profile_exists) ||
-      !IsKeyboardCategoryRegistered(categories.Get(), &category_exists)) {
+      !IsKeyboardCategoryRegistered(categories.Get(), &category_exists) ||
+      !IsDisplayCategoryRegistered(categories.Get(), &display_exists)) {
     return false;
   }
 
   bool success = true;
+  if (display_exists) {
+    const auto result = categories->UnregisterCategory(
+        kTextServiceClsid, GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER,
+        kTextServiceClsid);
+    if (FAILED(result)) {
+      PrintHResultFailure("UnregisterCategory(display)", result);
+      success = false;
+    }
+  }
   if (category_exists) {
     const HRESULT result = categories->UnregisterCategory(
         kTextServiceClsid, GUID_TFCAT_TIP_KEYBOARD, kTextServiceClsid);
@@ -918,7 +979,8 @@ bool UnregisterTsf(const std::wstring& dll_path) {
     success = false;
   }
   if (success) {
-    std::cout << "Unregistered RIMES TSF service (current process registry view).\n";
+    std::cout
+        << "Unregistered RIMES TSF service (current process registry view).\n";
   }
   return success;
 }
@@ -931,7 +993,8 @@ bool VerifyTsf(const std::wstring& dll_path) {
   if (!com_state.complete || !PathsEqual(com_state.dll_path, dll_path) ||
       CompareStringOrdinal(com_state.threading_model.c_str(), -1,
                            kThreadingModel, -1, TRUE) != CSTR_EQUAL) {
-    std::cerr << "COM registration is absent, incomplete, or points elsewhere.\n";
+    std::cerr
+        << "COM registration is absent, incomplete, or points elsewhere.\n";
     return false;
   }
 
@@ -943,18 +1006,23 @@ bool VerifyTsf(const std::wstring& dll_path) {
   bool processor_exists = false;
   bool profile_exists = false;
   bool category_exists = false;
+  bool display_exists = false;
   if (!IsProcessorRegistered(profiles.Get(), &processor_exists) ||
       !IsProfileRegistered(profiles.Get(), &profile_exists) ||
-      !IsKeyboardCategoryRegistered(categories.Get(), &category_exists)) {
+      !IsKeyboardCategoryRegistered(categories.Get(), &category_exists) ||
+      !IsDisplayCategoryRegistered(categories.Get(), &display_exists)) {
     return false;
   }
-  if (!processor_exists || !profile_exists || !category_exists) {
+  if (!processor_exists || !profile_exists || !category_exists ||
+      !display_exists) {
     std::cerr << "TSF registration is incomplete: processor="
               << (processor_exists ? "present" : "missing")
               << ", language-profile="
               << (profile_exists ? "present" : "missing")
               << ", keyboard-category="
-              << (category_exists ? "present" : "missing") << ".\n";
+              << (category_exists ? "present" : "missing")
+              << ", display-category="
+              << (display_exists ? "present" : "missing") << ".\n";
     return false;
   }
   if (!LoadClassFactory()) {
@@ -980,23 +1048,28 @@ bool VerifyTsfAbsent() {
   bool processor_exists = false;
   bool profile_exists = false;
   bool category_exists = false;
+  bool display_exists = false;
   if (!IsProcessorRegistered(profiles.Get(), &processor_exists) ||
       !IsProfileRegistered(profiles.Get(), &profile_exists) ||
-      !IsKeyboardCategoryRegistered(categories.Get(), &category_exists)) {
+      !IsKeyboardCategoryRegistered(categories.Get(), &category_exists) ||
+      !IsDisplayCategoryRegistered(categories.Get(), &display_exists)) {
     return false;
   }
   if (com_state.class_key_exists) {
-    std::cerr << "The current-architecture COM registration is still present.\n";
+    std::cerr
+        << "The current-architecture COM registration is still present.\n";
     return false;
   }
   if (!other_view_state.class_key_exists &&
-      (processor_exists || profile_exists || category_exists)) {
+      (processor_exists || profile_exists || category_exists ||
+       display_exists)) {
     std::cerr << "Shared TSF registration remains without either COM "
                  "architecture.\n";
     return false;
   }
   if (other_view_state.class_key_exists &&
-      (!processor_exists || !profile_exists || !category_exists)) {
+      (!processor_exists || !profile_exists || !category_exists ||
+       !display_exists)) {
     std::cerr << "The other COM architecture remains, but its shared TSF "
                  "registration is incomplete.\n";
     return false;
@@ -1024,8 +1097,8 @@ void PrintMetadata() {
             << "  \"registrar\": \"RimesRegistrar.exe\",\n"
             << "  \"textService\": {\n"
             << "    \"clsid\": \"" << Utf8(kTextServiceClsidString) << "\",\n"
-            << "    \"profileGuid\": \""
-            << Utf8(kLanguageProfileGuidString) << "\",\n"
+            << "    \"profileGuid\": \"" << Utf8(kLanguageProfileGuidString)
+            << "\",\n"
             << "    \"languageId\": \"" << language_id.str() << "\",\n"
             << "    \"displayName\": \"" << Utf8(kDisplayName) << "\",\n"
             << "    \"dll\": \"" << Utf8(kDllFileName) << "\"\n"

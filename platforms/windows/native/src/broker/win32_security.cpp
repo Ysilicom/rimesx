@@ -32,10 +32,8 @@ std::uint64_t HashSid(std::wstring_view sid) {
   return hash;
 }
 
-bool ReadTokenUser(HANDLE token,
-                   std::vector<std::byte>* storage,
-                   TOKEN_USER** token_user,
-                   std::wstring* error) {
+bool ReadTokenUser(HANDLE token, std::vector<std::byte>* storage,
+                   TOKEN_USER** token_user, std::wstring* error) {
   DWORD required = 0;
   GetTokenInformation(token, TokenUser, nullptr, 0, &required);
   if (required == 0 || GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
@@ -97,8 +95,8 @@ bool UserSecurityContext::Initialize(std::wstring* error) {
   HANDLE raw_token = nullptr;
   if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw_token)) {
     if (error != nullptr) {
-      *error = L"OpenProcessToken failed: " +
-               FormatWindowsError(GetLastError());
+      *error =
+          L"OpenProcessToken failed: " + FormatWindowsError(GetLastError());
     }
     return false;
   }
@@ -138,8 +136,8 @@ bool UserSecurityContext::Initialize(std::wstring* error) {
 
   if (!ProcessIdToSessionId(GetCurrentProcessId(), &session_id_)) {
     if (error != nullptr) {
-      *error = L"ProcessIdToSessionId failed: " +
-               FormatWindowsError(GetLastError());
+      *error =
+          L"ProcessIdToSessionId failed: " + FormatWindowsError(GetLastError());
     }
     return false;
   }
@@ -161,16 +159,15 @@ bool UserSecurityContext::Initialize(std::wstring* error) {
   attributes_.bInheritHandle = FALSE;
 
   std::wostringstream suffix;
-  suffix << L".v1.session-" << session_id_ << L".user-" << std::hex
+  suffix << L".v2.session-" << session_id_ << L".user-" << std::hex
          << std::setw(16) << std::setfill(L'0') << HashSid(sid_string_);
   pipe_name_ = L"\\\\.\\pipe\\RIMES.Broker" + suffix.str();
   mutex_name_ = L"Local\\RIMES.Broker" + suffix.str();
   return true;
 }
 
-bool UserSecurityContext::VerifyConnectedPipeClient(
-    HANDLE pipe,
-    std::wstring* error) const {
+bool UserSecurityContext::VerifyConnectedPipeClient(HANDLE pipe,
+                                                    std::wstring* error) const {
   ULONG client_process_id = 0;
   if (!GetNamedPipeClientProcessId(pipe, &client_process_id)) {
     if (error != nullptr) {
@@ -189,12 +186,12 @@ bool UserSecurityContext::VerifyConnectedPipeClient(
     return false;
   }
 
-  UniqueHandle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
-                                   client_process_id));
+  UniqueHandle process(
+      OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, client_process_id));
   if (!process) {
     if (error != nullptr) {
-      *error = L"OpenProcess(client) failed: " +
-               FormatWindowsError(GetLastError());
+      *error =
+          L"OpenProcess(client) failed: " + FormatWindowsError(GetLastError());
     }
     return false;
   }

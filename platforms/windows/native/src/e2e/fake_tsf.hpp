@@ -15,12 +15,16 @@ struct FakeDocument {
   std::wstring last_commit;
   std::wstring composition;
   bool composing = false;
+  // Non-owning pointers, valid only while the fake host has a composition.
+  ITfComposition* active_composition = nullptr;
+  ITfCompositionSink* composition_sink = nullptr;
   RECT caret_rect{120, 180, 122, 204};
 };
 
 class FakeThreadMgr final : public ITfThreadMgr, public ITfKeystrokeMgr {
  public:
   FakeThreadMgr() noexcept = default;
+  bool thread_focus = true;
 
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interface_id,
                                            void** object) override;
@@ -33,18 +37,16 @@ class FakeThreadMgr final : public ITfThreadMgr, public ITfKeystrokeMgr {
   HRESULT STDMETHODCALLTYPE EnumDocumentMgrs(IEnumTfDocumentMgrs**) override;
   HRESULT STDMETHODCALLTYPE GetFocus(ITfDocumentMgr**) override;
   HRESULT STDMETHODCALLTYPE SetFocus(ITfDocumentMgr*) override;
-  HRESULT STDMETHODCALLTYPE AssociateFocus(HWND,
-                                           ITfDocumentMgr*,
+  HRESULT STDMETHODCALLTYPE AssociateFocus(HWND, ITfDocumentMgr*,
                                            ITfDocumentMgr**) override;
   HRESULT STDMETHODCALLTYPE IsThreadFocus(BOOL*) override;
   HRESULT STDMETHODCALLTYPE GetFunctionProvider(REFCLSID,
                                                 ITfFunctionProvider**) override;
-  HRESULT STDMETHODCALLTYPE EnumFunctionProviders(
-      IEnumTfFunctionProviders**) override;
+  HRESULT STDMETHODCALLTYPE
+  EnumFunctionProviders(IEnumTfFunctionProviders**) override;
   HRESULT STDMETHODCALLTYPE GetGlobalCompartment(ITfCompartmentMgr**) override;
 
-  HRESULT STDMETHODCALLTYPE AdviseKeyEventSink(TfClientId,
-                                               ITfKeyEventSink*,
+  HRESULT STDMETHODCALLTYPE AdviseKeyEventSink(TfClientId, ITfKeyEventSink*,
                                                BOOL) override;
   HRESULT STDMETHODCALLTYPE UnadviseKeyEventSink(TfClientId) override;
   HRESULT STDMETHODCALLTYPE GetForeground(CLSID*) override;
@@ -52,31 +54,62 @@ class FakeThreadMgr final : public ITfThreadMgr, public ITfKeystrokeMgr {
   HRESULT STDMETHODCALLTYPE TestKeyUp(WPARAM, LPARAM, BOOL*) override;
   HRESULT STDMETHODCALLTYPE KeyDown(WPARAM, LPARAM, BOOL*) override;
   HRESULT STDMETHODCALLTYPE KeyUp(WPARAM, LPARAM, BOOL*) override;
-  HRESULT STDMETHODCALLTYPE GetPreservedKey(ITfContext*,
-                                            const TF_PRESERVEDKEY*,
+  HRESULT STDMETHODCALLTYPE GetPreservedKey(ITfContext*, const TF_PRESERVEDKEY*,
                                             GUID*) override;
-  HRESULT STDMETHODCALLTYPE IsPreservedKey(REFGUID,
-                                           const TF_PRESERVEDKEY*,
+  HRESULT STDMETHODCALLTYPE IsPreservedKey(REFGUID, const TF_PRESERVEDKEY*,
                                            BOOL*) override;
-  HRESULT STDMETHODCALLTYPE PreserveKey(TfClientId,
-                                        REFGUID,
-                                        const TF_PRESERVEDKEY*,
-                                        const WCHAR*,
+  HRESULT STDMETHODCALLTYPE PreserveKey(TfClientId, REFGUID,
+                                        const TF_PRESERVEDKEY*, const WCHAR*,
                                         ULONG) override;
   HRESULT STDMETHODCALLTYPE UnpreserveKey(REFGUID,
                                           const TF_PRESERVEDKEY*) override;
-  HRESULT STDMETHODCALLTYPE SetPreservedKeyDescription(REFGUID,
-                                                       const WCHAR*,
+  HRESULT STDMETHODCALLTYPE SetPreservedKeyDescription(REFGUID, const WCHAR*,
                                                        ULONG) override;
   HRESULT STDMETHODCALLTYPE GetPreservedKeyDescription(REFGUID, BSTR*) override;
-  HRESULT STDMETHODCALLTYPE SimulatePreservedKey(ITfContext*,
-                                                 REFGUID,
+  HRESULT STDMETHODCALLTYPE SimulatePreservedKey(ITfContext*, REFGUID,
                                                  BOOL*) override;
 
  private:
-  ~FakeThreadMgr() = default;
+  ~FakeThreadMgr();
+  ITfDocumentMgr* focus_ = nullptr;
   std::atomic_ulong reference_count_{1};
   TfClientId client_id_ = 1;
+};
+
+class FakeDocumentMgr final : public ITfDocumentMgr {
+ public:
+  explicit FakeDocumentMgr(ITfContext* context) : context_(context) {
+    if (context_) context_->AddRef();
+  }
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** object) override;
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++refs_; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const auto refs = --refs_;
+    if (!refs) delete this;
+    return refs;
+  }
+  HRESULT STDMETHODCALLTYPE CreateContext(TfClientId, DWORD, IUnknown*,
+                                          ITfContext**, TfEditCookie*) override {
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE Push(ITfContext*) override { return E_NOTIMPL; }
+  HRESULT STDMETHODCALLTYPE Pop(DWORD) override { return E_NOTIMPL; }
+  HRESULT STDMETHODCALLTYPE GetTop(ITfContext** context) override {
+    if (!context) return E_POINTER;
+    *context = context_;
+    if (context_) context_->AddRef();
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE GetBase(ITfContext** context) override {
+    return GetTop(context);
+  }
+  HRESULT STDMETHODCALLTYPE EnumContexts(IEnumTfContexts**) override {
+    return E_NOTIMPL;
+  }
+ private:
+  ~FakeDocumentMgr() { if (context_) context_->Release(); }
+  std::atomic_ulong refs_{1};
+  ITfContext* context_;
 };
 
 class FakeContext final : public ITfContext,
@@ -86,24 +119,22 @@ class FakeContext final : public ITfContext,
                           public ITfProperty {
  public:
   explicit FakeContext(FakeDocument* document) noexcept;
+  bool defer_edits = false, read_only = false;
+  void DrainEdits();
+  void TerminateComposition();
+  std::vector<ITfEditSession*> delayed_edits;
 
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interface_id,
                                            void** object) override;
   ULONG STDMETHODCALLTYPE AddRef() override;
   ULONG STDMETHODCALLTYPE Release() override;
 
-  HRESULT STDMETHODCALLTYPE RequestEditSession(TfClientId,
-                                               ITfEditSession*,
-                                               DWORD,
-                                               HRESULT*) override;
+  HRESULT STDMETHODCALLTYPE RequestEditSession(TfClientId, ITfEditSession*,
+                                               DWORD, HRESULT*) override;
   HRESULT STDMETHODCALLTYPE InWriteSession(TfClientId, BOOL*) override;
-  HRESULT STDMETHODCALLTYPE GetSelection(TfEditCookie,
-                                         ULONG,
-                                         ULONG,
-                                         TF_SELECTION*,
-                                         ULONG*) override;
-  HRESULT STDMETHODCALLTYPE SetSelection(TfEditCookie,
-                                         ULONG,
+  HRESULT STDMETHODCALLTYPE GetSelection(TfEditCookie, ULONG, ULONG,
+                                         TF_SELECTION*, ULONG*) override;
+  HRESULT STDMETHODCALLTYPE SetSelection(TfEditCookie, ULONG,
                                          const TF_SELECTION*) override;
   HRESULT STDMETHODCALLTYPE GetStart(TfEditCookie, ITfRange**) override;
   HRESULT STDMETHODCALLTYPE GetEnd(TfEditCookie, ITfRange**) override;
@@ -112,69 +143,52 @@ class FakeContext final : public ITfContext,
   HRESULT STDMETHODCALLTYPE GetDocumentMgr(ITfDocumentMgr**) override;
   HRESULT STDMETHODCALLTYPE GetStatus(TS_STATUS*) override;
   HRESULT STDMETHODCALLTYPE GetProperty(REFGUID, ITfProperty**) override;
-  HRESULT STDMETHODCALLTYPE GetAppProperty(REFGUID, ITfReadOnlyProperty**) override;
-  HRESULT STDMETHODCALLTYPE TrackProperties(const GUID**,
-                                            ULONG,
-                                            const GUID**,
+  HRESULT STDMETHODCALLTYPE GetAppProperty(REFGUID,
+                                           ITfReadOnlyProperty**) override;
+  HRESULT STDMETHODCALLTYPE TrackProperties(const GUID**, ULONG, const GUID**,
                                             ULONG,
                                             ITfReadOnlyProperty**) override;
   HRESULT STDMETHODCALLTYPE EnumProperties(IEnumTfProperties**) override;
-  HRESULT STDMETHODCALLTYPE CreateRangeBackup(TfEditCookie,
-                                              ITfRange*,
+  HRESULT STDMETHODCALLTYPE CreateRangeBackup(TfEditCookie, ITfRange*,
                                               ITfRangeBackup**) override;
 
-  HRESULT STDMETHODCALLTYPE InsertTextAtSelection(TfEditCookie,
-                                                  DWORD,
-                                                  const WCHAR*,
-                                                  LONG,
+  HRESULT STDMETHODCALLTYPE InsertTextAtSelection(TfEditCookie, DWORD,
+                                                  const WCHAR*, LONG,
                                                   ITfRange**) override;
-  HRESULT STDMETHODCALLTYPE InsertEmbeddedAtSelection(TfEditCookie,
-                                                      DWORD,
+  HRESULT STDMETHODCALLTYPE InsertEmbeddedAtSelection(TfEditCookie, DWORD,
                                                       IDataObject*,
                                                       ITfRange**) override;
 
-  HRESULT STDMETHODCALLTYPE StartComposition(TfEditCookie,
-                                             ITfRange*,
+  HRESULT STDMETHODCALLTYPE StartComposition(TfEditCookie, ITfRange*,
                                              ITfCompositionSink*,
                                              ITfComposition**) override;
-  HRESULT STDMETHODCALLTYPE EnumCompositions(IEnumITfCompositionView**) override;
-  HRESULT STDMETHODCALLTYPE FindComposition(TfEditCookie,
-                                            ITfRange*,
+  HRESULT STDMETHODCALLTYPE
+  EnumCompositions(IEnumITfCompositionView**) override;
+  HRESULT STDMETHODCALLTYPE FindComposition(TfEditCookie, ITfRange*,
                                             IEnumITfCompositionView**) override;
-  HRESULT STDMETHODCALLTYPE TakeOwnership(TfEditCookie,
-                                          ITfCompositionView*,
+  HRESULT STDMETHODCALLTYPE TakeOwnership(TfEditCookie, ITfCompositionView*,
                                           ITfCompositionSink*,
                                           ITfComposition**) override;
 
-  HRESULT STDMETHODCALLTYPE GetRangeFromPoint(TfEditCookie,
-                                              const POINT*,
-                                              DWORD,
+  HRESULT STDMETHODCALLTYPE GetRangeFromPoint(TfEditCookie, const POINT*, DWORD,
                                               ITfRange**) override;
-  HRESULT STDMETHODCALLTYPE GetTextExt(TfEditCookie,
-                                       ITfRange*,
-                                       RECT*,
+  HRESULT STDMETHODCALLTYPE GetTextExt(TfEditCookie, ITfRange*, RECT*,
                                        BOOL*) override;
   HRESULT STDMETHODCALLTYPE GetScreenExt(RECT*) override;
   HRESULT STDMETHODCALLTYPE GetWnd(HWND*) override;
 
   HRESULT STDMETHODCALLTYPE GetType(GUID*) override;
   HRESULT STDMETHODCALLTYPE GetContext(ITfContext**) override;
-  HRESULT STDMETHODCALLTYPE EnumRanges(TfEditCookie,
-                                       IEnumTfRanges**,
+  HRESULT STDMETHODCALLTYPE EnumRanges(TfEditCookie, IEnumTfRanges**,
                                        ITfRange*) override;
-  HRESULT STDMETHODCALLTYPE GetValue(TfEditCookie,
-                                     ITfRange*,
+  HRESULT STDMETHODCALLTYPE GetValue(TfEditCookie, ITfRange*,
                                      VARIANT*) override;
-  HRESULT STDMETHODCALLTYPE SetValue(TfEditCookie,
-                                     ITfRange*,
+  HRESULT STDMETHODCALLTYPE SetValue(TfEditCookie, ITfRange*,
                                      const VARIANT*) override;
-  HRESULT STDMETHODCALLTYPE SetValueStore(TfEditCookie,
-                                          ITfRange*,
+  HRESULT STDMETHODCALLTYPE SetValueStore(TfEditCookie, ITfRange*,
                                           ITfPropertyStore*) override;
   HRESULT STDMETHODCALLTYPE Clear(TfEditCookie, ITfRange*) override;
-  HRESULT STDMETHODCALLTYPE FindRange(TfEditCookie,
-                                      ITfRange*,
-                                      ITfRange**,
+  HRESULT STDMETHODCALLTYPE FindRange(TfEditCookie, ITfRange*, ITfRange**,
                                       TfAnchor) override;
 
   FakeDocument* document() noexcept { return document_; }
@@ -194,68 +208,42 @@ class FakeRange final : public ITfRangeACP {
   ULONG STDMETHODCALLTYPE AddRef() override;
   ULONG STDMETHODCALLTYPE Release() override;
 
-  HRESULT STDMETHODCALLTYPE GetText(TfEditCookie,
-                                    DWORD,
-                                    WCHAR*,
-                                    ULONG,
+  HRESULT STDMETHODCALLTYPE GetText(TfEditCookie, DWORD, WCHAR*, ULONG,
                                     ULONG*) override;
-  HRESULT STDMETHODCALLTYPE SetText(TfEditCookie,
-                                    DWORD,
-                                    const WCHAR*,
+  HRESULT STDMETHODCALLTYPE SetText(TfEditCookie, DWORD, const WCHAR*,
                                     LONG) override;
   HRESULT STDMETHODCALLTYPE GetFormattedText(TfEditCookie,
                                              IDataObject**) override;
-  HRESULT STDMETHODCALLTYPE GetEmbedded(TfEditCookie,
-                                        REFGUID,
-                                        REFIID,
+  HRESULT STDMETHODCALLTYPE GetEmbedded(TfEditCookie, REFGUID, REFIID,
                                         IUnknown**) override;
-  HRESULT STDMETHODCALLTYPE InsertEmbedded(TfEditCookie,
-                                           DWORD,
+  HRESULT STDMETHODCALLTYPE InsertEmbedded(TfEditCookie, DWORD,
                                            IDataObject*) override;
-  HRESULT STDMETHODCALLTYPE ShiftStart(TfEditCookie,
-                                       LONG,
-                                       LONG*,
+  HRESULT STDMETHODCALLTYPE ShiftStart(TfEditCookie, LONG, LONG*,
                                        const TF_HALTCOND*) override;
-  HRESULT STDMETHODCALLTYPE ShiftEnd(TfEditCookie,
-                                     LONG,
-                                     LONG*,
+  HRESULT STDMETHODCALLTYPE ShiftEnd(TfEditCookie, LONG, LONG*,
                                      const TF_HALTCOND*) override;
-  HRESULT STDMETHODCALLTYPE ShiftStartToRange(TfEditCookie,
-                                              ITfRange*,
+  HRESULT STDMETHODCALLTYPE ShiftStartToRange(TfEditCookie, ITfRange*,
                                               TfAnchor) override;
-  HRESULT STDMETHODCALLTYPE ShiftEndToRange(TfEditCookie,
-                                            ITfRange*,
+  HRESULT STDMETHODCALLTYPE ShiftEndToRange(TfEditCookie, ITfRange*,
                                             TfAnchor) override;
-  HRESULT STDMETHODCALLTYPE ShiftStartRegion(TfEditCookie,
-                                             TfShiftDir,
+  HRESULT STDMETHODCALLTYPE ShiftStartRegion(TfEditCookie, TfShiftDir,
                                              BOOL*) override;
-  HRESULT STDMETHODCALLTYPE ShiftEndRegion(TfEditCookie,
-                                           TfShiftDir,
+  HRESULT STDMETHODCALLTYPE ShiftEndRegion(TfEditCookie, TfShiftDir,
                                            BOOL*) override;
   HRESULT STDMETHODCALLTYPE IsEmpty(TfEditCookie, BOOL*) override;
   HRESULT STDMETHODCALLTYPE Collapse(TfEditCookie, TfAnchor) override;
-  HRESULT STDMETHODCALLTYPE IsEqualStart(TfEditCookie,
-                                         ITfRange*,
-                                         TfAnchor,
+  HRESULT STDMETHODCALLTYPE IsEqualStart(TfEditCookie, ITfRange*, TfAnchor,
                                          BOOL*) override;
-  HRESULT STDMETHODCALLTYPE IsEqualEnd(TfEditCookie,
-                                       ITfRange*,
-                                       TfAnchor,
+  HRESULT STDMETHODCALLTYPE IsEqualEnd(TfEditCookie, ITfRange*, TfAnchor,
                                        BOOL*) override;
-  HRESULT STDMETHODCALLTYPE CompareStart(TfEditCookie,
-                                         ITfRange*,
-                                         TfAnchor,
+  HRESULT STDMETHODCALLTYPE CompareStart(TfEditCookie, ITfRange*, TfAnchor,
                                          LONG*) override;
-  HRESULT STDMETHODCALLTYPE CompareEnd(TfEditCookie,
-                                       ITfRange*,
-                                       TfAnchor,
+  HRESULT STDMETHODCALLTYPE CompareEnd(TfEditCookie, ITfRange*, TfAnchor,
                                        LONG*) override;
-  HRESULT STDMETHODCALLTYPE AdjustForInsert(TfEditCookie,
-                                            ULONG,
+  HRESULT STDMETHODCALLTYPE AdjustForInsert(TfEditCookie, ULONG,
                                             BOOL*) override;
   HRESULT STDMETHODCALLTYPE GetGravity(TfGravity*, TfGravity*) override;
-  HRESULT STDMETHODCALLTYPE SetGravity(TfEditCookie,
-                                       TfGravity,
+  HRESULT STDMETHODCALLTYPE SetGravity(TfEditCookie, TfGravity,
                                        TfGravity) override;
   HRESULT STDMETHODCALLTYPE Clone(ITfRange**) override;
   HRESULT STDMETHODCALLTYPE GetContext(ITfContext**) override;

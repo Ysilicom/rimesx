@@ -1,18 +1,19 @@
+#include "rimes_version.hpp"
 #include "broker_connection.hpp"
 
-#include "key_translation.hpp"
-
+#include <atomic>
 #include <iostream>
 #include <limits>
 #include <string_view>
 #include <utility>
 
 #include "../engine/rime_snapshot.hpp"
+#include "key_translation.hpp"
 
 namespace rimes::windows::broker {
 namespace {
 
-inline constexpr std::string_view kBrokerVersion = "0.2.0-dev";
+inline constexpr std::string_view kBrokerVersion = kProductVersion;
 inline constexpr std::size_t kMaxSessionsPerConnection = 64;
 
 constexpr std::uint32_t Flag(core::KeyEventFlags flag) noexcept {
@@ -28,8 +29,7 @@ constexpr bool HasFlag(std::uint32_t value, std::uint32_t flag) noexcept {
 }
 
 void LogEngineFailure(std::string_view operation,
-                      std::uint64_t broker_session_id,
-                      std::string_view error) {
+                      std::uint64_t broker_session_id, std::string_view error) {
   std::clog << "RIMES broker " << operation << " failed for session "
             << broker_session_id;
   if (!error.empty()) {
@@ -41,12 +41,13 @@ void LogEngineFailure(std::string_view operation,
 }  // namespace
 
 BrokerConnection::BrokerConnection(DWORD broker_session_id,
-                                   engine::RimeEngine* engine) noexcept
-    : broker_session_id_(broker_session_id), engine_(engine) {}
+                                   engine::RimeEngine* engine,
+                                   workbench::Runtime* runtime) noexcept
+    : broker_session_id_(broker_session_id),
+      engine_(engine),
+      runtime_(runtime) {}
 
-BrokerConnection::~BrokerConnection() {
-  CloseAllSessions();
-}
+BrokerConnection::~BrokerConnection() { CloseAllSessions(); }
 
 ClientAction BrokerConnection::Handle(const core::Frame& request,
                                       DWORD verified_client_process_id,
@@ -69,6 +70,44 @@ ClientAction BrokerConnection::Handle(const core::Frame& request,
     return HandleHello(request, verified_client_process_id, response);
   }
 
+  if (request.header.message_type == core::MessageType::kControl) {
+    auto message = core::DecodeControl(request.payload);
+    if (!message) {
+      MakeError(request, core::BrokerErrorCode::kMalformedPayload,
+                "Invalid control frame", response);
+      return ClientAction::kCloseAfterResponse;
+    }
+    try {
+      if (message->value("op", "") == "candidate_guard") {
+        const auto session = sessions_.find(message->value("session", 0ULL));
+        const bool valid =
+            session != sessions_.end() && session->second.composing &&
+            session->second.revision == message->value("revision", 0ULL) &&
+            message->value("index", 99U) < 9;
+        if (valid)
+          session->second.candidate_guard = session->second.settings_revision;
+        MakeResponse(request, core::MessageType::kControlState,
+                     core::EncodeControl({{"kind", valid ? "ok" : "stale"}}),
+                     response);
+        return ClientAction::kContinue;
+      }
+      // Candidate validation belongs to the engine session and is available
+      // in the headless integration Broker as well. Other controls need UI.
+      if (!runtime_) {
+        MakeError(request, core::BrokerErrorCode::kUnsupportedMessage,
+                  "workbench controls require an interactive Broker", response);
+        return ClientAction::kCloseAfterResponse;
+      }
+      auto output = runtime_->Control(*message, verified_client_process_id);
+      MakeResponse(request, core::MessageType::kControlState,
+                   core::EncodeControl(output), response);
+      return ClientAction::kContinue;
+    } catch (...) {
+      MakeError(request, core::BrokerErrorCode::kMalformedPayload,
+                "Invalid control fields", response);
+      return ClientAction::kCloseAfterResponse;
+    }
+  }
   switch (request.header.message_type) {
     case core::MessageType::kPing:
       if (!request.payload.empty()) {
@@ -100,10 +139,9 @@ ClientAction BrokerConnection::Handle(const core::Frame& request,
   }
 }
 
-ClientAction BrokerConnection::HandleHello(
-    const core::Frame& request,
-    DWORD verified_client_process_id,
-    core::Frame* response) {
+ClientAction BrokerConnection::HandleHello(const core::Frame& request,
+                                           DWORD verified_client_process_id,
+                                           core::Frame* response) {
   core::ClientHello hello;
   std::string error;
   if (!core::DecodeClientHello(request.payload, &hello, &error) ||
@@ -118,7 +156,8 @@ ClientAction BrokerConnection::HandleHello(
   core::BrokerHello broker_hello;
   broker_hello.process_id = GetCurrentProcessId();
   broker_hello.session_id = broker_session_id_;
-  broker_hello.capabilities = 0;
+  broker_hello.capabilities = runtime_ ? 1 : 0;
+  peer_process_ = verified_client_process_id;
   broker_hello.broker_version = std::string(kBrokerVersion);
   std::vector<std::byte> payload;
   if (!core::EncodeBrokerHello(broker_hello, &payload)) {
@@ -146,9 +185,10 @@ ClientAction BrokerConnection::HandleOpenSession(const core::Frame& request,
     return ClientAction::kContinue;
   }
   if (!open.schema_id.empty()) {
-    MakeError(request, core::BrokerErrorCode::kUnsupportedMessage,
-              "explicit schema selection is not available at this engine boundary",
-              response);
+    MakeError(
+        request, core::BrokerErrorCode::kUnsupportedMessage,
+        "explicit schema selection is not available at this engine boundary",
+        response);
     return ClientAction::kContinue;
   }
   if (engine_ == nullptr || !engine_->IsHealthy()) {
@@ -171,8 +211,7 @@ ClientAction BrokerConnection::HandleOpenSession(const core::Frame& request,
   if (session_id == 0) {
     engine_->DestroySession(engine_session, nullptr);
     MakeError(request, core::BrokerErrorCode::kInternalError,
-              "could not allocate a broker input session identifier",
-              response);
+              "could not allocate a broker input session identifier", response);
     return ClientAction::kContinue;
   }
 
@@ -181,6 +220,17 @@ ClientAction BrokerConnection::HandleOpenSession(const core::Frame& request,
     state.context_id = open.context_id;
     state.engine_session_id = engine_session;
     state.schema_id = open.schema_id;
+    if (runtime_) {
+      const auto config = runtime_->Configuration();
+      if (!engine_->Configure(engine_session, config.schema, config.ascii,
+                              config.traditional, config.ascii_punctuation,
+                              nullptr))
+        throw std::runtime_error("Schema unavailable");
+      state.target =
+          runtime_->Register(peer_process_, session_id, open.context_id);
+      state.schema_id = config.schema;
+      state.settings_revision = config.revision;
+    }
     sessions_.emplace(session_id, std::move(state));
   } catch (...) {
     engine_->DestroySession(engine_session, nullptr);
@@ -193,7 +243,7 @@ ClientAction BrokerConnection::HandleOpenSession(const core::Frame& request,
   opened.session_id = session_id;
   // RimeEngine does not yet expose schema selection/query APIs. Empty is an
   // honest "engine default" response; never echo an unverified requested ID.
-  opened.active_schema_id.clear();
+  opened.active_schema_id = sessions_.at(session_id).schema_id;
   std::vector<std::byte> payload;
   if (!core::EncodeInputSessionOpened(opened, &payload)) {
     const auto session = sessions_.find(session_id);
@@ -227,6 +277,7 @@ ClientAction BrokerConnection::HandleCloseSession(const core::Frame& request,
 
   const engine::RimeEngine::SessionId engine_session =
       session->second.engine_session_id;
+  if (runtime_) runtime_->Remove(session->second.target);
   sessions_.erase(session);
   std::string engine_error;
   if (engine_ == nullptr ||
@@ -270,6 +321,26 @@ ClientAction BrokerConnection::HandleKeyEvent(const core::Frame& request,
     return ClientAction::kCloseAfterResponse;
   }
   session.last_sequence_id = key.sequence_id;
+  if (session.candidate_guard) {
+    const auto revision = runtime_ ? runtime_->Configuration().revision : 0;
+    const bool valid = *session.candidate_guard == revision;
+    session.candidate_guard.reset();
+    if (!valid) return RespondPassThrough(request, key, session, response);
+  }
+  if (runtime_) {
+    const auto config = runtime_->Configuration();
+    const bool capture = runtime_->Capturing(session.target);
+    if (session.settings_revision != config.revision ||
+        session.capture != capture) {
+      if (!engine_->Configure(session.engine_session_id, config.schema,
+                              config.ascii, config.traditional,
+                              config.ascii_punctuation, nullptr))
+        return RespondPassThrough(request, key, session, response);
+      session.settings_revision = config.revision;
+      session.composing = false;
+      session.capture = capture;
+    }
+  }
 
   const bool key_down =
       HasFlag(key.event_flags, Flag(core::KeyEventFlags::kKeyDown));
@@ -292,6 +363,21 @@ ClientAction BrokerConnection::HandleKeyEvent(const core::Frame& request,
     return RespondWithInputState(request, std::move(state), response);
   }
 
+  if (!test_only && runtime_ &&
+      runtime_->BeforeKey(session.target, key, session.composing)) {
+    core::InputState state;
+    state.session_id = key.session_id;
+    state.sequence_id = key.sequence_id;
+    state.revision = ++session.revision;
+    state.state_flags = StateFlag(core::InputStateFlags::kHandled);
+    if (runtime_->Capturing(session.target))
+      state.state_flags |= StateFlag(core::InputStateFlags::kBufferCapture);
+    if (key_down)
+      session.handled_key_downs.set(key.virtual_key);
+    else
+      session.handled_key_downs.reset(key.virtual_key);
+    return RespondWithInputState(request, std::move(state), response);
+  }
   if (preserved) {
     if (!key_down) {
       session.handled_key_downs.reset(key.virtual_key);
@@ -324,6 +410,16 @@ ClientAction BrokerConnection::HandleKeyEvent(const core::Frame& request,
     return RespondPassThrough(request, key, session, response);
   }
 
+  if (runtime_ && runtime_->Capturing(session.target)) {
+    // In ASCII mode librime passes printable keys through; Buffer still owns
+    // them.
+    if (key_down && !snapshot.handled && translated->keycode >= 32 &&
+        translated->keycode <= 126) {
+      snapshot.handled = true;
+      snapshot.commit_text.assign(1, static_cast<char>(translated->keycode));
+    }
+    runtime_->Capture(session.target, &snapshot);
+  }
   std::uint64_t next_revision = session.revision;
   if (snapshot.handled) {
     ++next_revision;
@@ -334,13 +430,17 @@ ClientAction BrokerConnection::HandleKeyEvent(const core::Frame& request,
   if (!engine::MapSnapshotToInputState(key.session_id, key.sequence_id,
                                        next_revision, snapshot, &state,
                                        &mapping_error)) {
-    LogEngineFailure("MapSnapshotToInputState", key.session_id,
-                     mapping_error);
+    LogEngineFailure("MapSnapshotToInputState", key.session_id, mapping_error);
     return RespondPassThrough(request, key, session, response);
   }
 
+  if (runtime_ && runtime_->Capturing(session.target))
+    state.state_flags |= StateFlag(core::InputStateFlags::kBufferCapture);
   session.revision = next_revision;
-  session.composing = snapshot.composing;
+  // An unhandled event has no authoritative snapshot (notably letter KeyUp).
+  // Preserve the displayed composition just as BrokerClient does, otherwise
+  // candidate_guard rejects every mouse selection after the final key release.
+  if (snapshot.handled) session.composing = snapshot.composing;
   if (key_down && snapshot.handled) {
     session.handled_key_downs.set(key.virtual_key);
   } else if (!key_down) {
@@ -349,10 +449,9 @@ ClientAction BrokerConnection::HandleKeyEvent(const core::Frame& request,
   return RespondWithInputState(request, std::move(state), response);
 }
 
-ClientAction BrokerConnection::RespondWithInputState(
-    const core::Frame& request,
-    core::InputState state,
-    core::Frame* response) {
+ClientAction BrokerConnection::RespondWithInputState(const core::Frame& request,
+                                                     core::InputState state,
+                                                     core::Frame* response) {
   std::vector<std::byte> payload;
   if (!core::EncodeInputState(state, &payload)) {
     MakeError(request, core::BrokerErrorCode::kInternalError,
@@ -364,11 +463,10 @@ ClientAction BrokerConnection::RespondWithInputState(
   return ClientAction::kContinue;
 }
 
-ClientAction BrokerConnection::RespondPassThrough(
-    const core::Frame& request,
-    const core::KeyEvent& key,
-    const SessionState& session,
-    core::Frame* response) {
+ClientAction BrokerConnection::RespondPassThrough(const core::Frame& request,
+                                                  const core::KeyEvent& key,
+                                                  const SessionState& session,
+                                                  core::Frame* response) {
   core::InputState state;
   state.session_id = key.session_id;
   state.sequence_id = key.sequence_id;
@@ -377,24 +475,15 @@ ClientAction BrokerConnection::RespondPassThrough(
 }
 
 std::uint64_t BrokerConnection::AllocateSessionId() noexcept {
-  for (std::size_t attempt = 0; attempt <= kMaxSessionsPerConnection;
-       ++attempt) {
-    const std::uint64_t candidate = next_session_id_;
-    if (next_session_id_ == std::numeric_limits<std::uint64_t>::max()) {
-      next_session_id_ = 1;
-    } else {
-      ++next_session_id_;
-    }
-    if (candidate != 0 && !sessions_.contains(candidate)) {
-      return candidate;
-    }
-  }
-  return 0;
+  static std::atomic_uint64_t next{1};
+  const auto id = next.fetch_add(1);
+  return id == 0 || id == UINT64_MAX ? 0 : id;
 }
 
 void BrokerConnection::CloseAllSessions() noexcept {
   if (engine_ != nullptr) {
     for (const auto& [broker_session_id, session] : sessions_) {
+      if (runtime_) runtime_->Remove(session.target);
       std::string error;
       if (!engine_->DestroySession(session.engine_session_id, &error)) {
         LogEngineFailure("DestroySession during disconnect", broker_session_id,
@@ -418,8 +507,7 @@ void BrokerConnection::MakeResponse(const core::Frame& request,
 
 void BrokerConnection::MakeError(const core::Frame& request,
                                  core::BrokerErrorCode code,
-                                 std::string message,
-                                 core::Frame* response) {
+                                 std::string message, core::Frame* response) {
   core::ErrorResponse error_dto{code, std::move(message)};
   std::vector<std::byte> payload;
   core::EncodeErrorResponse(error_dto, &payload);

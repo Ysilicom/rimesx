@@ -1,8 +1,9 @@
 # RIMES Native Windows Foundation
 
+Next stable target: **1.0.0**. See [release preparation](RELEASE-1.0.0.md). Version resources are unified; historical previews and remaining acceptance are recorded separately.
+
 This directory contains the native Windows implementation of RIMES. It is
 separate from the Weasel data preview in the parent directory.
-See [VALIDATION.md](VALIDATION.md) for dated native builds and their limits.
 
 The in-process TSF DLL stays small:
 
@@ -21,8 +22,8 @@ The in-process TSF DLL stays small:
 
 TSF still must not load `librime` or do network I/O. Broker failure fail-opens.
 
-This is not a signed Windows release. Buffer, Capsule, Mailbox, installation
-and signing are upcoming milestones in the [platform roadmap](../../../PLATFORM-ROADMAP.md).
+Final installation and host acceptance remain part of the
+[1.0.0 release preparation](RELEASE-1.0.0.md).
 
 ## Interaction (macOS-aligned)
 
@@ -132,7 +133,7 @@ independent attestation of that external build.
 Place the resulting `shared` beside `RimesBroker.exe` or pass `--shared-data-dir`.
 Run `RimesEngineSmoke` with the matching-architecture DLL and a **fresh test user
 directory**, then complete [real-host checks](MANUAL-TEST.md). Successful staging
-alone does not prove Windows librime, TSF or a signed installer works.
+alone does not prove Windows librime, TSF or the final installer works.
 
 ## Safety boundaries
 
@@ -146,11 +147,11 @@ alone does not prove Windows librime, TSF or a signed installer works.
 
 ## Later-step blockers
 
-- Product data can now be staged with the tool above. The default scheme passed
-  engine smoke on x64/x86; all schemes and real hosts still need full acceptance.
+- Product data can now be staged with the tool above. The complete product
+  schemas still need to be exercised on Windows with the pinned MSVC DLL.
 - Display-attribute underline depends on the host querying
   `ITfDisplayAttributeProvider`. The registrar does not add a new TSF
   category, so some hosts may skip the dotted underline.
-- Buffer, Capsule, and Mailbox have no Windows frontend yet.
-- There is no signed installer; SmartScreen will warn on downloaded binaries.
-- Dual-architecture registration remains a manual/elevated step.
+- Capsule and Mailbox have no Windows frontend yet; Buffer and AI are available in this branch.
+- The 1.0.0 release may use an unsigned EXE installer. Windows security prompts may appear; signing is optional.
+- The EXE installer handles elevated dual-architecture registration; final new-install and upgrade acceptance is still required.

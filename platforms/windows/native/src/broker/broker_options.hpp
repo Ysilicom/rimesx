@@ -7,6 +7,7 @@
 namespace rimes::windows::broker {
 
 struct BrokerOptions {
+  bool deploy_only = false;
   bool serve_once = false;
   bool print_endpoint = false;
   bool print_paths = false;
@@ -21,9 +22,7 @@ struct BrokerOptions {
 // --log-dir when present. Otherwise the parser fills the per-user defaults
 // from ResolveDefaultBrokerPaths. --help, --print-endpoint, --print-paths,
 // and the autostart commands may run without a live engine.
-bool ParseBrokerOptions(int argc,
-                        wchar_t** argv,
-                        BrokerOptions* options,
+bool ParseBrokerOptions(int argc, wchar_t** argv, BrokerOptions* options,
                         std::wstring* error) noexcept;
 
 }  // namespace rimes::windows::broker

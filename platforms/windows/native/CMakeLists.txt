@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.27)
 
-project(RIMESWindows VERSION 0.1.0 LANGUAGES CXX)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" RIMES_PRODUCT_VERSION)
+string(STRIP "${RIMES_PRODUCT_VERSION}" RIMES_PRODUCT_VERSION)
+if(NOT RIMES_PRODUCT_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "VERSION must contain MAJOR.MINOR.PATCH")
+endif()
+project(RIMESWindows VERSION ${RIMES_PRODUCT_VERSION} LANGUAGES CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "The native RIMES frontend currently builds on Windows only.")
@@ -12,6 +17,8 @@ option(RIMES_TSF_DIAGNOSTICS
        OFF)
 
 include(CTest)
+enable_language(RC)
+configure_file(src/product_version.hpp.in generated/rimes_version.hpp @ONLY)
 
 # Keep every runnable artifact together so architecture checks, registration,
 # and later packaging never need to guess target-specific subdirectories.
@@ -25,6 +32,7 @@ foreach(configuration DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
 endforeach()
 
 function(rimes_harden_target target)
+    target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
     target_compile_features(${target} PRIVATE cxx_std_20)
     target_compile_definitions(${target} PRIVATE
         UNICODE
@@ -84,6 +92,16 @@ target_include_directories(RimesEngine PUBLIC
 target_link_libraries(RimesEngine PUBLIC RimesCore)
 rimes_harden_target(RimesEngine)
 
+add_library(RimesWorkbench STATIC
+    src/workbench/model.cpp
+    src/workbench/provider.cpp
+    src/workbench/runtime.cpp
+    src/workbench/settings_ui.cpp
+    src/workbench/window.cpp
+)
+target_link_libraries(RimesWorkbench PUBLIC RimesCore winhttp advapi32 user32 d2d1 dwrite shell32 wtsapi32 ole32 comctl32 gdi32 dwmapi)
+rimes_harden_target(RimesWorkbench)
+
 add_executable(RimesBroker
     src/broker/autostart.cpp
     src/broker/broker_connection.cpp
@@ -101,6 +119,7 @@ target_include_directories(RimesBroker PRIVATE
 target_link_libraries(RimesBroker PRIVATE
     RimesCore
     RimesEngine
+    RimesWorkbench
     advapi32
 )
 rimes_harden_target(RimesBroker)
@@ -124,6 +143,7 @@ target_link_libraries(RimesTsf PRIVATE
     RimesCore
     advapi32
     gdi32
+    msimg32
     ole32
     oleaut32
     user32
@@ -152,6 +172,30 @@ rimes_harden_target(RimesRegistrar)
 rimes_use_unicode_console_entrypoint(RimesRegistrar)
 
 if(RIMES_BUILD_TESTS)
+    add_executable(RimesProductProbe src/engine/product_probe.cpp)
+    target_link_libraries(RimesProductProbe PRIVATE RimesEngine)
+    rimes_harden_target(RimesProductProbe)
+    rimes_use_unicode_console_entrypoint(RimesProductProbe)
+    add_executable(RimesRuntimeTests src/workbench/runtime_tests.cpp)
+    target_link_libraries(RimesRuntimeTests PRIVATE RimesWorkbench)
+    rimes_harden_target(RimesRuntimeTests)
+    add_test(NAME RimesRuntime COMMAND RimesRuntimeTests)
+    add_executable(RimesProviderProbe src/workbench/provider_probe.cpp src/workbench/provider.cpp src/workbench/model.cpp)
+    target_link_libraries(RimesProviderProbe PRIVATE RimesCore winhttp advapi32)
+    rimes_harden_target(RimesProviderProbe)
+    rimes_use_unicode_console_entrypoint(RimesProviderProbe)
+    add_executable(RimesSseTests src/workbench/sse_tests.cpp)
+    rimes_harden_target(RimesSseTests)
+    add_test(NAME RimesSseControl COMMAND RimesSseTests)
+    add_executable(RimesWorkbenchTests src/workbench/model.cpp src/workbench/model_tests.cpp)
+    rimes_harden_target(RimesWorkbenchTests)
+    add_test(NAME RimesWorkbench COMMAND RimesWorkbenchTests)
+    add_executable(RimesBufferLayoutTests src/workbench/buffer_layout_tests.cpp)
+    target_include_directories(RimesBufferLayoutTests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    rimes_harden_target(RimesBufferLayoutTests)
+    add_test(NAME RimesBufferLayout COMMAND RimesBufferLayoutTests)
     add_executable(RimesBrokerProtocolTests
         src/core/broker_protocol_tests.cpp
     )
@@ -198,8 +242,55 @@ if(RIMES_BUILD_TESTS)
     )
     target_include_directories(RimesCandidateLayoutTests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src/tsf"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
     rimes_harden_target(RimesCandidateLayoutTests)
+
+    # Own-window mouse/no-activation contracts; never touches an installed IME
+    # or a user's input window and is safe in the SSH test session.
+    add_executable(RimesCandidateWindowTests
+        src/tsf/candidate_window_tests.cpp
+        src/tsf/CandidateWindow.cpp
+        src/tsf/ModuleState.cpp
+    )
+    target_link_libraries(RimesCandidateWindowTests PRIVATE
+        user32 gdi32 msimg32
+    )
+    rimes_harden_target(RimesCandidateWindowTests)
+    add_test(NAME RimesCandidateWindow COMMAND RimesCandidateWindowTests)
+
+    add_executable(RimesSettingsTests
+        src/workbench/settings_tests.cpp
+        src/workbench/provider.cpp
+        src/workbench/model.cpp
+    )
+    target_link_libraries(RimesSettingsTests PRIVATE RimesCore winhttp advapi32)
+    rimes_harden_target(RimesSettingsTests)
+    add_test(NAME RimesSettings COMMAND RimesSettingsTests)
+
+    add_executable(RimesSettingsUiTests src/workbench/settings_ui_tests.cpp)
+    target_link_libraries(RimesSettingsUiTests PRIVATE RimesWorkbench)
+    rimes_harden_target(RimesSettingsUiTests)
+    add_test(NAME RimesSettingsUi COMMAND RimesSettingsUiTests)
+
+    # Fail-open contract for a disconnected BrokerClient. Does not launch a
+    # Broker or touch Session 1; safe as a default CTest.
+    add_executable(RimesBrokerClientContractTests
+        src/tsf/broker_client_contract_tests.cpp
+        src/tsf/BrokerClient.cpp
+        src/tsf/ModuleState.cpp
+    )
+    target_include_directories(RimesBrokerClientContractTests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/tsf"
+    )
+    target_link_libraries(RimesBrokerClientContractTests PRIVATE
+        RimesCore
+        advapi32
+        ole32
+        user32
+    )
+    rimes_harden_target(RimesBrokerClientContractTests)
+    rimes_use_unicode_console_entrypoint(RimesBrokerClientContractTests)
 
     # In-process TSF + live Broker typing host. Not a default CTest: it needs
     # a launched Broker, a pinned rime.dll, and the isolated e2e schema.
@@ -215,11 +306,13 @@ if(RIMES_BUILD_TESTS)
     target_include_directories(RimesTsfE2E PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src/e2e"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/tsf"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
     target_link_libraries(RimesTsfE2E PRIVATE
         RimesCore
         advapi32
         gdi32
+        msimg32
         ole32
         oleaut32
         user32
@@ -227,6 +320,40 @@ if(RIMES_BUILD_TESTS)
     )
     rimes_harden_target(RimesTsfE2E)
     rimes_use_unicode_console_entrypoint(RimesTsfE2E)
+
+    add_executable(RimesVisualPreview WIN32
+        src/visual_preview/main.cpp
+        src/workbench/settings_ui.cpp
+        src/workbench/provider.cpp
+        src/workbench/model.cpp
+        src/tsf/CandidateWindow.cpp
+        src/tsf/ModuleState.cpp
+    )
+    target_include_directories(RimesVisualPreview PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/tsf"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/workbench"
+    )
+    target_link_libraries(RimesVisualPreview PRIVATE
+        RimesCore
+        dwmapi
+        d2d1
+        dwrite
+        gdi32
+        msimg32
+        user32
+        advapi32
+        comctl32
+        winhttp
+        shell32
+        ole32
+        windowscodecs
+    )
+    rimes_harden_target(RimesVisualPreview)
+    target_compile_definitions(RimesVisualPreview PRIVATE
+        RIMES_BUILD_COMMIT="visual-preview"
+        RIMES_VISUAL_PREVIEW=1
+    )
 
     # Live end-to-end probe. It deliberately is not a default CTest because it
     # requires an already-running Broker configured with real librime data.
@@ -255,6 +382,8 @@ if(RIMES_BUILD_TESTS)
              COMMAND RimesBrokerKeyTranslationTests)
     add_test(NAME RimesBrokerOptions COMMAND RimesBrokerOptionsTests)
     add_test(NAME RimesCandidateLayout COMMAND RimesCandidateLayoutTests)
+    add_test(NAME RimesBrokerClientContract
+             COMMAND RimesBrokerClientContractTests)
     add_test(NAME RimesRegistrarMetadata COMMAND RimesRegistrar metadata)
     add_test(NAME RimesBrokerEndpoint COMMAND RimesBroker --print-endpoint)
     add_test(NAME RimesBrokerPrintPaths COMMAND RimesBroker --print-paths)
@@ -265,9 +394,53 @@ if(RIMES_BUILD_TESTS)
         RimesBrokerKeyTranslation
         RimesBrokerOptions
         RimesCandidateLayout
+        RimesCandidateWindow
+        RimesSettings
+        RimesBufferLayout
+        RimesBrokerClientContract
         RimesRegistrarMetadata
         RimesBrokerEndpoint
         RimesBrokerPrintPaths
         PROPERTIES TIMEOUT 10
     )
 endif()
+
+# Source identity follows both Git checkouts and verified source archives.
+get_filename_component(RIMES_REPOSITORY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
+if(EXISTS "${RIMES_REPOSITORY_ROOT}/SOURCE-COMMIT.txt")
+    file(READ "${RIMES_REPOSITORY_ROOT}/SOURCE-COMMIT.txt" RIMES_BUILD_COMMIT)
+    string(STRIP "${RIMES_BUILD_COMMIT}" RIMES_BUILD_COMMIT)
+else()
+    execute_process(COMMAND git rev-parse HEAD WORKING_DIRECTORY "${RIMES_REPOSITORY_ROOT}" OUTPUT_VARIABLE RIMES_BUILD_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+endif()
+if(NOT RIMES_BUILD_COMMIT)
+    set(RIMES_BUILD_COMMIT "unknown")
+endif()
+target_compile_definitions(RimesWorkbench PRIVATE RIMES_BUILD_COMMIT="${RIMES_BUILD_COMMIT}")
+set(RIMES_SOURCE_SNAPSHOT "")
+set(RIMES_SOURCE_STATE "working-tree")
+if(EXISTS "${RIMES_REPOSITORY_ROOT}/SOURCE-SNAPSHOT.txt")
+    file(READ "${RIMES_REPOSITORY_ROOT}/SOURCE-SNAPSHOT.txt" RIMES_SOURCE_SNAPSHOT)
+    string(STRIP "${RIMES_SOURCE_SNAPSHOT}" RIMES_SOURCE_SNAPSHOT)
+    string(LENGTH "${RIMES_SOURCE_SNAPSHOT}" snapshot_length)
+    if(NOT snapshot_length EQUAL 64 OR NOT RIMES_SOURCE_SNAPSHOT MATCHES "^[0-9a-f]+$")
+        message(FATAL_ERROR "Invalid source snapshot SHA-256")
+    endif()
+    set(RIMES_SOURCE_STATE "snapshot")
+endif()
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/$<CONFIG>/build-identity.json" CONTENT "{\"commit\":\"${RIMES_BUILD_COMMIT}\",\"version\":\"${PROJECT_VERSION}\",\"protocol\":2,\"sourceState\":\"${RIMES_SOURCE_STATE}\",\"sourceSnapshot\":\"${RIMES_SOURCE_SNAPSHOT}\"}\n")
+
+# Explorer and installer version checks must agree with the runtime version.
+foreach(versioned_target RimesTsf RimesBroker RimesRegistrar RimesTsfTestHost)
+    if(TARGET ${versioned_target})
+        if(versioned_target STREQUAL "RimesTsf")
+            set(RIMES_RESOURCE_TYPE "VFT_DLL")
+            set(RIMES_RESOURCE_FILENAME "${versioned_target}.dll")
+        else()
+            set(RIMES_RESOURCE_TYPE "VFT_APP")
+            set(RIMES_RESOURCE_FILENAME "${versioned_target}.exe")
+        endif()
+        configure_file(src/product_version.rc.in "generated/${versioned_target}.rc" @ONLY)
+        target_sources(${versioned_target} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/${versioned_target}.rc")
+    endif()
+endforeach()
