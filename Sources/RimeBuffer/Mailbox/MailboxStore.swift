@@ -279,7 +279,7 @@ final class MailboxStore {
     func selectLatestUnreadOrMostRecent() -> UUID? {
         let target: UUID?
         lock.lock()
-        let sorted = sortedThreadsLocked()
+        let sorted = sortedThreadsLocked().filter { $0.archivedAt == nil }
         target = sorted.first(where: \.unread)?.id
             ?? selectedThreadID.flatMap { selected in
                 sorted.contains(where: { $0.id == selected }) ? selected : nil
@@ -635,6 +635,40 @@ final class MailboxStore {
                                  response: String,
                                  pngData: Data,
                                  author: String? = nil) throws -> UUID {
+        let imageFileName = try persistPNG(pngData)
+        let imageURL = storageDirectoryURL.appendingPathComponent("images")
+            .appendingPathComponent(imageFileName)
+        do {
+            let now = dateProvider()
+            return try mutate(change: .completedMessage(threadID: handle.threadID)) { candidate in
+                let index = try Self.currentGenerationIndex(handle, in: candidate)
+                guard Self.messageCapacityAllows(
+                    appending: 1,
+                    to: candidate.threads[index],
+                    limits: limits,
+                    preserveActiveGenerationReservation: false
+                ) else { throw MailboxStoreError.capacityExceeded }
+                let message = MailboxMessage(
+                    role: .inbound,
+                    author: author ?? candidate.threads[index].source.displayName,
+                    body: response,
+                    imageFileName: imageFileName,
+                    createdAt: now
+                )
+                let generation = candidate.threads[index].generation!
+                candidate.threads[index].messages.append(message)
+                candidate.threads[index].generation = generation.succeeding(at: now)
+                candidate.threads[index].unread = true
+                candidate.threads[index].updatedAt = now
+                return message.id
+            }
+        } catch {
+            unlink(imageURL.path)
+            throw error
+        }
+    }
+
+    private func persistPNG(_ pngData: Data) throws -> String {
         let signature: [UInt8] = [137, 80, 78, 71, 13, 10, 26, 10]
         guard pngData.count >= 24,
               pngData.count <= Self.maximumImageBytes,
@@ -668,33 +702,58 @@ final class MailboxStore {
             unlink(imageURL.path)
             throw error
         }
+        return imageFileName
+    }
+
+    /// User-selected terminal output becomes a durable receipt in one store
+    /// transaction. A failed publication removes only its own new attachment.
+    @discardableResult
+    func importTerminalResult(sessionID: UUID, sourceName: String,
+                              title: String, body: String,
+                              pngData: Data? = nil) throws -> MailboxThread {
+        let filename = try pngData.map(persistPNG)
+        let now = dateProvider()
+        let id = UUID()
         do {
-            let now = dateProvider()
-            return try mutate(change: .completedMessage(threadID: handle.threadID)) { candidate in
-                let index = try Self.currentGenerationIndex(handle, in: candidate)
-                guard Self.messageCapacityAllows(
-                    appending: 1,
-                    to: candidate.threads[index],
-                    limits: limits,
-                    preserveActiveGenerationReservation: false
-                ) else { throw MailboxStoreError.capacityExceeded }
-                let message = MailboxMessage(
-                    role: .inbound,
-                    author: author ?? candidate.threads[index].source.displayName,
-                    body: response,
-                    imageFileName: imageFileName,
-                    createdAt: now
+            return try mutate(change: .completedMessage(threadID: id)) { candidate in
+                guard candidate.threads.count < limits.maximumThreads,
+                      candidate.nextSequence > 0, candidate.nextSequence < Int.max else {
+                    throw MailboxStoreError.capacityExceeded
+                }
+                let message = MailboxMessage(role: .inbound, author: sourceName,
+                                             body: body, imageFileName: filename, createdAt: now)
+                let thread = MailboxThread(
+                    id: id, sequence: candidate.nextSequence, title: title,
+                    source: MailboxSource(kind: .other, displayName: sourceName,
+                                          replyCapability: .localNotesOnly),
+                    messages: [message], generation: nil, workspace: .inbox,
+                    terminalSessionID: sessionID, unread: true, createdAt: now, updatedAt: now
                 )
-                let generation = candidate.threads[index].generation!
-                candidate.threads[index].messages.append(message)
-                candidate.threads[index].generation = generation.succeeding(at: now)
-                candidate.threads[index].unread = true
-                candidate.threads[index].updatedAt = now
-                return message.id
+                candidate.threads.append(thread)
+                candidate.nextSequence += 1
+                return thread
             }
         } catch {
-            unlink(imageURL.path)
+            if let filename { removeImages(named: [filename]) }
             throw error
+        }
+    }
+
+    func setArchived(_ archived: Bool, threadID: UUID) throws {
+        try mutate { candidate in
+            guard let index = candidate.threads.firstIndex(where: { $0.id == threadID }) else {
+                throw MailboxStoreError.missingThread
+            }
+            candidate.threads[index].archivedAt = archived ? dateProvider() : nil
+        }
+    }
+
+    func renameThread(_ id: UUID, title: String) throws {
+        try mutate { candidate in
+            guard let index = candidate.threads.firstIndex(where: { $0.id == id }) else {
+                throw MailboxStoreError.missingThread
+            }
+            candidate.threads[index].title = Self.normalizedOptional(title)
         }
     }
 
@@ -1117,6 +1176,7 @@ final class MailboxStore {
                   ),
                   Self.validDate(thread.createdAt),
                   Self.validDate(thread.updatedAt),
+                  thread.archivedAt.map(Self.validDate) ?? true,
                   Self.validOptionalText(thread.title,
                                          maximum: maximumTitleCharacters),
                   Self.validSource(thread.source) else {

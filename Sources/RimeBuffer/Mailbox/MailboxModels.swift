@@ -443,6 +443,11 @@ struct MailboxThread: Identifiable, Codable, Equatable {
     /// Present only when a one-way inbound message needs, or has received, a
     /// local Buffer review decision. Older Mailbox files decode this as nil.
     var review: MailboxReview? = nil
+    /// Optional additions preserve schema-v1 documents. Terminal processes are
+    /// never reconstructed from untrusted source labels or from these IDs.
+    var workspace: MailboxContentWorkspace? = nil
+    var terminalSessionID: UUID? = nil
+    var archivedAt: Date? = nil
     var unread: Bool
     let createdAt: Date
     var updatedAt: Date
@@ -501,7 +506,7 @@ struct MailboxStoreSnapshot: Equatable {
     }
 
     var unreadCount: Int {
-        threads.reduce(0) { $0 + ($1.unread ? 1 : 0) }
+        threads.reduce(0) { $0 + ($1.unread && $1.archivedAt == nil ? 1 : 0) }
     }
 
     func thread(id: UUID) -> MailboxThread? {

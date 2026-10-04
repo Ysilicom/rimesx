@@ -845,6 +845,15 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         window?.makeKeyAndOrderFront(nil)
     }
 
+    func showMailboxPlugins() {
+        guard show() else { return }
+        _ = navigation.selectRoute(SettingsCoreRoute.plugins.id, catalog: routeCatalog)
+        _ = navigation.selectSubpage(PluginManagementSubpage.mailboxPlugins.id,
+                                     catalog: routeCatalog)
+        showCurrentRoute()
+        window?.makeKeyAndOrderFront(nil)
+    }
+
     /// Dev-only: render one settings page to a PNG by drawing the window's own
     /// view hierarchy (no screen-recording permission needed). Used to preview
     /// the UI without a live input session.
@@ -4019,6 +4028,17 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         let showBuiltIns = subpageID == PluginManagementSubpage.all.rawValue
             || subpageID == PluginManagementSubpage.builtInExtensions.rawValue
         var views: [NSView] = showExternal ? [heading, spacer(8)] : []
+        if subpageID == PluginManagementSubpage.all.rawValue
+            || subpageID == PluginManagementSubpage.mailboxPlugins.rawValue {
+            let modules = PluginRegistry.shared.plugins(source: .builtIn).filter {
+                $0.descriptor.kind == .mailbox
+            }
+            views.append(sectionLabel("Mailbox 插件"))
+            views.append(cardGrid(modules.map {
+                pluginCard($0, mode: .enablement)
+            }, columns: 3, height: 116))
+            views.append(spacer(16))
+        }
         if showCapsule {
             let modules = PluginRegistry.shared.plugins(source: .builtIn).filter {
                 $0.descriptor.kind == .capsule

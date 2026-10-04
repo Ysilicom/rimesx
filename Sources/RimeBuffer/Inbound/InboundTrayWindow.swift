@@ -19,7 +19,7 @@ final class MailboxWindowController: NSObject, NSWindowDelegate {
     private static let frameAutosaveName = "RIMES.MailboxWindow"
 
     private var window: NSWindow?
-    private var contentController: MailboxStandaloneViewController?
+    private var contentController: MailboxWorkspaceViewController?
     private var appearanceObserver: NSObjectProtocol?
 
     deinit {
@@ -30,7 +30,7 @@ final class MailboxWindowController: NSObject, NSWindowDelegate {
 
     static func refreshIfOpen() {
         guard shared.window?.isVisible == true else { return }
-        shared.contentController?.paneController.reloadFromStore()
+        shared.contentController?.reloadFromStore()
     }
 
     static var isVisible: Bool { shared.window?.isVisible == true }
@@ -60,25 +60,20 @@ final class MailboxWindowController: NSObject, NSWindowDelegate {
         // Mailbox is a standalone key window; showing it does not require the
         // current input source to belong to RIMES.
         if window == nil { build() }
-        if let threadID, MailboxStore.shared.snapshot.thread(id: threadID) != nil {
-            _ = MailboxStore.shared.selectThread(id: threadID)
-        } else {
-            _ = MailboxStore.shared.selectLatestUnreadOrMostRecent()
-        }
         applyAppearance()
-        contentController?.paneController.reloadFromStore()
+        contentController?.show(selecting: threadID)
         if let window {
             StandaloneWindowFocusCoordinator.shared.windowWillPresent(window)
         }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
         DispatchQueue.main.async { [weak self] in
-            self?.contentController?.paneController.windowBecameKey()
+            self?.contentController?.windowBecameKey()
         }
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
-        contentController?.paneController.windowBecameKey()
+        contentController?.windowBecameKey()
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -92,27 +87,28 @@ final class MailboxWindowController: NSObject, NSWindowDelegate {
 
     private func build() {
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 860, height: 620),
+            contentRect: NSRect(origin: .zero, size: MailboxUI.defaultSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         win.title = "RIMES Mailbox"
         win.isReleasedWhenClosed = false
-        win.minSize = NSSize(width: 760, height: 520)
+        win.contentMinSize = MailboxUI.minimumSize
         win.appearance = RimeUI.appKitAppearance
         win.animationBehavior = .documentWindow
         win.delegate = self
 
-        let paneController = MailboxPaneViewController(
-            reviewRouter: MailboxBufferReviewAdapter.shared
-        )
-        let contentController = MailboxStandaloneViewController(
-            paneController: paneController
-        )
+        let contentController = MailboxWorkspaceViewController()
         win.contentViewController = contentController
+        win.setContentSize(MailboxUI.defaultSize)
 
         let restored = win.setFrameUsingName(Self.frameAutosaveName)
+        if let size = win.contentView?.bounds.size,
+           size.width < MailboxUI.minimumSize.width || size.height < MailboxUI.minimumSize.height {
+            win.setContentSize(NSSize(width: max(size.width, MailboxUI.minimumSize.width),
+                                      height: max(size.height, MailboxUI.minimumSize.height)))
+        }
         _ = win.setFrameAutosaveName(Self.frameAutosaveName)
         if !restored { win.center() }
 
@@ -226,65 +222,4 @@ func runMailboxWindowSmokeTest() -> Bool {
     }
     print("mailbox-window-smoke: ok")
     return true
-}
-
-private final class MailboxStandaloneViewController: NSViewController {
-    let paneController: MailboxPaneViewController
-
-    private let titleLabel = NSTextField(labelWithString: "$ rimes mailbox")
-    private let subtitleLabel = NSTextField(labelWithString: "外部推送 + AI 会话 · local persistence")
-
-    init(paneController: MailboxPaneViewController) {
-        self.paneController = paneController
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func loadView() {
-        let root = NSView()
-        root.wantsLayer = true
-
-        titleLabel.font = MailboxTerminalTypography.font(ofSize: 15, weight: .semibold)
-        subtitleLabel.font = MailboxTerminalTypography.font(ofSize: 10)
-        let copy = NSStackView(views: [titleLabel, subtitleLabel])
-        copy.orientation = .vertical
-        copy.alignment = .leading
-        copy.spacing = 2
-        copy.translatesAutoresizingMaskIntoConstraints = false
-
-        addChild(paneController)
-        let pane = paneController.view
-        pane.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(copy)
-        root.addSubview(pane)
-        NSLayoutConstraint.activate([
-            copy.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
-            copy.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -16),
-            copy.topAnchor.constraint(equalTo: root.topAnchor, constant: 14),
-
-            pane.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
-            pane.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
-            pane.topAnchor.constraint(equalTo: copy.bottomAnchor, constant: 12),
-            pane.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -16),
-            pane.heightAnchor.constraint(greaterThanOrEqualToConstant: 460),
-        ])
-        view = root
-        applyAppearance()
-    }
-
-    func applyAppearance() {
-        guard isViewLoaded else { return }
-        view.layer?.backgroundColor = RimeUI.surface.cgColor
-        titleLabel.textColor = RimeUI.textPrimary
-        subtitleLabel.textColor = RimeUI.textSecondary
-        paneController.applyAppearanceForHost()
-    }
-}
-
-private extension MailboxPaneViewController {
-    func applyAppearanceForHost() {
-        reloadFromStore()
-    }
 }

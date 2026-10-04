@@ -49,6 +49,7 @@ enum PluginCapability: String, Codable, CaseIterable, Hashable {
     case localStorage
     case connector
     case capsuleModule
+    case mailboxModule
     case hostModule
 
     var title: String {
@@ -61,6 +62,7 @@ enum PluginCapability: String, Codable, CaseIterable, Hashable {
         case .localStorage: return "本地数据"
         case .connector: return "连接器"
         case .capsuleModule: return "Capsule 模块"
+        case .mailboxModule: return "Mailbox 模块"
         case .hostModule: return "内容模块"
         }
     }
@@ -70,12 +72,14 @@ enum PluginCapability: String, Codable, CaseIterable, Hashable {
 enum PluginKind: String, Codable, CaseIterable {
     case buffer
     case capsule
+    case mailbox
     case extensionModule
 
     var title: String {
         switch self {
         case .buffer: return "缓冲插件"
         case .capsule: return "Capsule 插件"
+        case .mailbox: return "Mailbox 插件"
         case .extensionModule: return "内置扩展"
         }
     }
@@ -113,6 +117,7 @@ struct PluginDescriptor: Identifiable, Hashable {
     var id: PluginKey { key }
 
     var kind: PluginKind {
+        if capabilities.contains(.mailboxModule) { return .mailbox }
         if capabilities.contains(.capsuleModule) { return .capsule }
         if capabilities.contains(.bufferAction) { return .buffer }
         return .extensionModule

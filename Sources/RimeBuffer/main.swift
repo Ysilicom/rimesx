@@ -761,6 +761,11 @@ if CommandLine.arguments.contains("mailbox-store-smoke") {
 if CommandLine.arguments.contains("mailbox-window-smoke") {
     exit(runMailboxWindowSmokeTest() ? 0 : 1)
 }
+if let index = CommandLine.arguments.firstIndex(of: "mailbox-workspace-smoke") {
+    let output = CommandLine.arguments.indices.contains(index + 1)
+        ? URL(fileURLWithPath: CommandLine.arguments[index + 1]) : nil
+    exit(runMailboxWorkspaceSmoke(output: output) ? 0 : 1)
+}
 if let index = CommandLine.arguments.firstIndex(of: "capture-permission-preview-smoke"), CommandLine.arguments.indices.contains(index + 1) {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory); app.finishLaunching()

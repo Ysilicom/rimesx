@@ -39,6 +39,7 @@ enum BuiltInPlugins {
             ScholayAcademicInternalPlugin(kind: .latex),
             MorseInternalPlugin(),
         ] + CapsuleModuleID.allCases.map(CapsuleBuiltInPlugin.init)
+          + MailboxModuleID.allCases.map(MailboxBuiltInPlugin.init)
           + AITextProviderKind.allCases.map { kind in
             kind == .openAICompatible
                 ? AITextChannelInternalPlugin(kind: kind)
