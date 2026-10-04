@@ -484,14 +484,6 @@ COMPANION_AGENT_BACKUP=""
 COMPANION_AGENT_CHANGED=0
 rm -rf "$DEST_BACKUP"
 
-# TextInputMenuAgent can keep the previous input method's title and icon after
-# the bundle swap even when TIS reports the new RIMES mode as selected. Let
-# macOS relaunch the agent so the menu bar reflects the registered source.
-if /usr/bin/pgrep -x TextInputMenuAgent >/dev/null 2>&1; then
-    echo "==> refreshing the macOS input-source menu"
-    /usr/bin/killall TextInputMenuAgent 2>/dev/null || true
-fi
-
 if [ "$ACTIVATION_READY" -eq 1 ]; then
     activation_summary="Installed, registered, and enabled RIMES."
 else

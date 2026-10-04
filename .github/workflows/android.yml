@@ -40,7 +40,10 @@ jobs:
           assert actual == '7a9ce74cff467ca1bf60a4fcd9f05185acceda4d0f382434d393e17864262c5d', actual
           PY
       - name: Install compile SDK in the runner SDK
-        run: sdkmanager 'platforms;android-37.2' 'build-tools;36.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
+        run: |
+          sdkmanager_path="${ANDROID_HOME:?}/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdkmanager_path"
+          "$sdkmanager_path" 'platforms;android-37.2' 'build-tools;36.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
       - name: Build both native ABIs and offline dictionaries
         run: python3 scripts/build-engine.py
       - name: Run real Android x86_64 engine and learning contracts

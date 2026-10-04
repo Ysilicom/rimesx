@@ -162,9 +162,26 @@ final class KeySurface: UIView {
             let item = KeyAccessibility(accessibilityContainer: self); item.accessibilityLabel = labels[key] ?? key.uppercased(); item.accessibilityTraits = .keyboardKey; item.accessibilityFrameInContainerSpace = rect
             item.activate = { [weak self] in guard let self else { return }; self.onTypingPress?(); self.feedback.send(.press); self.onKey?(self.shifted && !self.numeric ? key.uppercased() : key) }; return item
         }
-        accessibilityElements = letters + ([emojiButton, languageButton] + [languageCellView].compactMap { $0 } + emojiButtons + [backButton]).filter { !$0.isHidden }
-            + (usesCustomLayout ? customFunctionViews.values.filter { !$0.isHidden }.sorted { $0.frame.minY == $1.frame.minY ? $0.frame.minX < $1.frame.minX : $0.frame.minY < $1.frame.minY } : [])
-            + (usesStandardLayout ? standardFunctionViews.values.filter { !$0.isHidden }.sorted { $0.frame.minY == $1.frame.minY ? $0.frame.minX < $1.frame.minX : $0.frame.minY < $1.frame.minY } : [])
+        var utilityElements: [UIView] = [emojiButton, languageButton]
+        if let languageCellView { utilityElements.append(languageCellView) }
+        utilityElements.append(contentsOf: emojiButtons)
+        utilityElements.append(backButton)
+        var orderedElements: [Any] = letters
+        orderedElements.append(contentsOf: utilityElements.filter { !$0.isHidden })
+        func readingOrder(_ left: UIView, _ right: UIView) -> Bool {
+            left.frame.minY == right.frame.minY
+                ? left.frame.minX < right.frame.minX
+                : left.frame.minY < right.frame.minY
+        }
+        if usesCustomLayout {
+            let visible = customFunctionViews.values.filter { !$0.isHidden }
+            orderedElements.append(contentsOf: visible.sorted(by: readingOrder))
+        }
+        if usesStandardLayout {
+            let visible = standardFunctionViews.values.filter { !$0.isHidden }
+            orderedElements.append(contentsOf: visible.sorted(by: readingOrder))
+        }
+        accessibilityElements = orderedElements
         redraw()
     }
     override func draw(_ rect: CGRect) {
