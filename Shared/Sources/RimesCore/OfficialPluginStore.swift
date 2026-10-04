@@ -12,7 +12,7 @@ public struct OfficialPluginCatalog: Decodable {
     public let plugins: [Entry]
 
     public static func bundled() throws -> Self {
-        guard let url = Bundle.module.url(forResource: "catalog", withExtension: "json", subdirectory: "OfficialPlugins") else {
+        guard let url = RimesCoreResources.bundle.url(forResource: "catalog", withExtension: "json", subdirectory: "OfficialPlugins") else {
             throw OfficialPluginStateError.invalidPackage
         }
         let catalog = try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
@@ -23,7 +23,7 @@ public struct OfficialPluginCatalog: Decodable {
     }
 
     public static func bundledData(_ entry: Entry) throws -> Data {
-        guard let url = Bundle.module.url(forResource: entry.downloadAssetName, withExtension: nil, subdirectory: "OfficialPlugins") else {
+        guard let url = RimesCoreResources.bundle.url(forResource: entry.downloadAssetName, withExtension: nil, subdirectory: "OfficialPlugins") else {
             throw OfficialPluginStateError.invalidPackage
         }
         return try Data(contentsOf: url)

@@ -177,7 +177,7 @@ enum PluginVisualIdentity {
             (chatGPTSymbolName, "chatgpt"),
             (claudeSymbolName, "claude"),
         ] {
-            guard let url = Bundle.module.url(forResource: filename,
+            guard let url = ProductResources.bundle.url(forResource: filename,
                                               withExtension: "png",
                                               subdirectory: "PluginIcons"),
                   let image = NSImage(contentsOf: url) else { continue }

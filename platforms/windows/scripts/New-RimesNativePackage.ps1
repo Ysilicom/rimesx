@@ -78,6 +78,12 @@ Copy-Item -LiteralPath "$windowsRoot\native\librime\librime-windows.lock.json" -
 Copy-Item -LiteralPath "$windowsRoot\native\third_party\nlohmann\LICENSE.MIT" -Destination "$stage\LICENSE-nlohmann-json.txt"
 Copy-Item -LiteralPath "$windowsRoot\native\third_party\nlohmann\README.md" -Destination "$stage\THIRD-PARTY-json.md"
 Copy-Item -LiteralPath "$windowsRoot\..\..\LICENSE" -Destination "$stage\LICENSE-RIMES.txt"
+# Preserve host, inherited MIT, and official plug-in notices in binary delivery.
+foreach($name in @('NOTICE','LICENSING.md','ATTRIBUTION.md','THIRD_PARTY_NOTICES.md')) {
+    Copy-Item -LiteralPath "$windowsRoot\..\..\$name" -Destination $stage
+}
+Copy-Item -LiteralPath "$windowsRoot\..\..\LICENSES" -Destination "$stage\licenses\RIMES" -Recurse
+Copy-Item -LiteralPath "$windowsRoot\..\..\OfficialPlugins\NOTICE" -Destination "$stage\NOTICE-OfficialPlugins.txt"
 $packagingSource | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath "$stage\PACKAGING-SOURCE.json" -Encoding UTF8
 $packagingSourceHash=(Get-FileHash -LiteralPath "$stage\PACKAGING-SOURCE.json" -Algorithm SHA256).Hash.ToLowerInvariant()
 $files=@(Get-ChildItem -LiteralPath $stage -Recurse -File | Sort-Object FullName | ForEach-Object {

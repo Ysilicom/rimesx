@@ -175,7 +175,7 @@ final class PresetBufferPluginInstallationStore {
     }
 
     static func bundledPackageData(id: String) -> Data? {
-        guard let url = Bundle.module.url(forResource: id, withExtension: "json",
+        guard let url = ProductResources.bundle.url(forResource: id, withExtension: "json",
                                           subdirectory: "OfficialPlugins") else { return nil }
         return try? Data(contentsOf: url)
     }

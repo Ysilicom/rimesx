@@ -123,7 +123,7 @@ void ResetDocument(rimes::windows::e2e::FakeDocument* document) {
   *document = rimes::windows::e2e::FakeDocument{};
 }
 
-// SetContext is deliberately nonblocking while the connection/control worker
+// SetContext has a bounded wait while the connection/control worker
 // owns its mutex. Transport readiness alone does not mean a focus binding has
 // completed. Wait for that setup boundary before sending test keys; never
 // retry or replay an input event.
@@ -389,17 +389,19 @@ int RunTypingScenarios() {
   Expect(!document.composing, "Escape should clear composing state");
 
   // Native Edit controls may terminate preedit before notifying focus loss.
-  ResetDocument(&document);
-  TypeLatin(service, context, "ni");
-  context->TerminateComposition();
-  Expect(document.text.empty() && document.composition.empty() &&
-             !document.composing,
-         "host termination must erase preedit before it becomes raw text");
-  // The minimal E2E dictionary contains nihao and ni, not standalone hao.
-  TypeLatin(service, context, "nihao");
-  TypeVirtualKey(service, context, VK_SPACE, true);
-  Expect(document.text == L"你好",
-         "host termination must reset the old engine context too");
+  for (int iteration = 0; iteration < 25; ++iteration) {
+    ResetDocument(&document);
+    TypeLatin(service, context, "ni");
+    context->TerminateComposition();
+    Expect(document.text.empty() && document.composition.empty() &&
+               !document.composing,
+           "host termination must erase preedit before it becomes raw text");
+    // The minimal E2E dictionary contains nihao and ni, not standalone hao.
+    TypeLatin(service, context, "nihao");
+    TypeVirtualKey(service, context, VK_SPACE, true);
+    Expect(document.text == L"你好",
+           "host termination must reset the old engine context too");
+  }
 
   // An asynchronous edit accepted by RequestEditSession is still revocable.
   ResetDocument(&document);

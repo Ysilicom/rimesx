@@ -79,7 +79,7 @@ enum AITextSkillMounting {
         }
         switch skill {
         case .imagegen:
-            guard let source = Bundle.module.url(forResource: "imagegen",
+            guard let source = ProductResources.bundle.url(forResource: "imagegen",
                                                  withExtension: nil,
                                                  subdirectory: "Skills") else {
                 throw AITextProviderError.unavailable("imagegen Skill 未随应用安装")

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -697,7 +698,8 @@ class NamedPipeBrokerClient final : public BrokerClient {
   }
   bool Control(core::Json message) noexcept override {
     try {
-      std::unique_lock lock(io_mutex_, std::try_to_lock);
+      std::unique_lock lock(io_mutex_, std::defer_lock);
+      lock.try_lock_for(std::chrono::milliseconds(2));
       if (!lock.owns_lock() || !connected_.load() || !input_session_id_)
         return false;
       message["session"] = input_session_id_;
@@ -722,7 +724,8 @@ class NamedPipeBrokerClient final : public BrokerClient {
 
   bool SetContext(std::uint64_t context_id) noexcept override {
     try {
-      std::unique_lock lock(io_mutex_, std::try_to_lock);
+      std::unique_lock lock(io_mutex_, std::defer_lock);
+      lock.try_lock_for(std::chrono::milliseconds(2));
       if (!lock.owns_lock()) return false;
       if (!connected_.load() || pipe_ == INVALID_HANDLE_VALUE) {
         ScheduleReconnectLocked();
@@ -872,7 +875,8 @@ class NamedPipeBrokerClient final : public BrokerClient {
     }
 
     try {
-      std::unique_lock lock(io_mutex_, std::try_to_lock);
+      std::unique_lock lock(io_mutex_, std::defer_lock);
+      lock.try_lock_for(std::chrono::milliseconds(2));
       if (!lock.owns_lock()) {
         return BrokerKeyResult::kUnavailable;
       }
@@ -1467,7 +1471,10 @@ class NamedPipeBrokerClient final : public BrokerClient {
   std::mutex notification_mutex_;
   std::deque<core::Json> notifications_;
   std::thread control_thread_;
-  std::mutex io_mutex_;
+  // The control worker holds this only briefly while reading/updating state.
+  // A zero-wait try_lock on the input thread can drop a healthy first letter
+  // during that snapshot; allow at most 2 ms, never an unbounded mutex wait.
+  std::timed_mutex io_mutex_;
   HANDLE pipe_ = INVALID_HANDLE_VALUE;
   HANDLE stop_event_ = nullptr;
   std::thread connect_thread_;

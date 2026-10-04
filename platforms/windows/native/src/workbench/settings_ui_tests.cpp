@@ -128,6 +128,9 @@ void TestPluginManagementAndChordSelection() {
   const HWND window = host.hwnd();
   Check(window != nullptr, "plugin fixture window opens");
   if (!window) return;
+  // SSH/CTest can inherit STARTF_USESHOWWINDOW=SW_HIDE. Explicitly show the
+  // disposable fixture after Open so visibility checks cover the controls.
+  ShowWindow(window, SW_SHOWNOACTIVATE);
   ui::SettingsDraft draft;
   auto layout = Layout(window, draft);
   Check(layout.nav.size() == 6, "six settings pages");
