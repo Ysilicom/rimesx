@@ -1,25 +1,28 @@
 # RIMES Android
 
-**0.1.0-dev.7** is a native Java Android input method for daily Chinese input and
+**1.0.0** is the next release target of the native Java Android input method for daily Chinese input and
 local dictionary learning. Minimum Android 8.0 / API 26; development package
-`org.scholay.rimes.android.debug`. This is a local development build, not a store release.
+`org.scholay.rimes.android.debug`; release identity `org.scholay.rimes.android`.
+Build code is now **9**. This anchors the next product release; no 1.0.0 package has been published.
+The dev8 physical-device evidence remains historical and must be repeated on the signed release.
+See [release preparation](RELEASE.md) for signing and upgrade requirements.
 Current evidence and remaining acceptance are in [VALIDATION.md](VALIDATION.md).
 
 ## Main app settings
 
-Open **RIMES Dev** from the launcher, or the system input-method settings entry.
+Open **RIMES** from the launcher (**RIMES Dev** for a debug build), or the system input-method settings entry.
 The home follows the iOS grouped navigation: welcome, getting started, typing,
 and data/privacy. Try typing has its own page; trial text is never restored.
 Settings include the default Chinese scheme, standard and chord layouts, an
 actual geometry preview, 18 themes, all 427 built-in chord mappings, local
-translation direction, the AI Mock enable switch, word learning and bundled licenses.
+translation direction, CometAPI configuration, the AI Mock switch, word learning and bundled licenses.
 The keyboard and main app share validated preferences. Nine-key selects Pinyin;
 another Chinese scheme returns it to QWERTY. Selecting a regular scheme exits
 chord mode. Turning Mock off cancels existing AI work and revokes its output while
 preserving Buffer source; local translation remains available.
 
-The Android feature-status page lists remaining iOS differences. Real AI provider
-URL/credentials/models, Apple translation packs, custom Rime/chord imports,
+The Android feature-status page lists remaining iOS differences. Other AI providers,
+image generation, Apple translation packs, custom Rime/chord imports,
 pet animation/rotation pools, poem word cards and typing-stat cards are not
 implemented in this Android revision.
 
@@ -118,8 +121,9 @@ independent of their hit areas. Nine-key Return spans two visible rows (98 / 69 
   翻译, 快问, 润色, 作诗 and 画画. Each is 68 × 30 dp with a 6 dp gap.
   Tap enables Buffer and selects the plugin; tapping it again returns to ordinary
   Buffer. Long-press opens its settings; switching keeps source blocks intact.
-  Translation uses the bundled local Chinese–English dictionary; AI entries use
-  a clearly labelled OpenAI-format local Mock. Run executes, Cancel stops work,
+  Translation defaults to the bundled local Chinese–English dictionary. Configure
+  CometAPI in the main app for real AI and optional contextual AI translation;
+  otherwise AI entries use a clearly labelled OpenAI-format local Mock. Run executes, Cancel stops work,
   and Send/Return insert only a completed result. Private/password fields have no entries.
   Punctuation remains on the numeric/symbol page and nine-key punctuation control.
   Key labels size within fixed touch cells for system fonts.
@@ -158,7 +162,7 @@ route and preserve confirmed Buffer blocks. Switching a theme only changes color
 Nine-key schemas have the same private/off-learning variants and share the
 existing Pinyin user dictionary; they are compiled on the build machine.
 
-## Local translation and AI interface
+## Translation and AI
 
 Translation performs CC-CEDICT word/phrase lookup in both directions, using a
 pinned **125,166-entry** source. Automatic direction follows the source script;
@@ -170,15 +174,32 @@ zero matches fail without consuming source. This is lexical lookup, not contextu
 sentence translation. [Source, license and conversion](resources/dictionary/README.md)
 include CC BY-SA 4.0 attribution for both original and derived dictionary data.
 
-The other four entries use a local **Mock**, without sockets, API credentials,
-model inference or the INTERNET permission. The adapter encodes Chat Completions
-`model` / `messages` / `stream` requests, and consumes real JSON SSE frames with
-`choices[0].delta.content`, a successful `finish_reason` and `[DONE]`. The mock
-transport deliberately fragments UTF-8 bytes and emits about ten preview chunks.
-Its 40 ms pauses make cancellation visible; they do not model provider performance.
-The transport boundary can be replaced later; `/v1/chat/completions` is currently
-metadata, not a configured remote connection. Ask/polish/poem are synthetic text;
-art produces a textual prompt example, without generating an image.
+**Online AI is opt-in.** In **AI services → CometAPI**, enter a key and model,
+enable CometAPI, optionally enable AI translation, and save. The verified model
+is `deepseek-v4-flash`; the fixed endpoint is
+`https://api.cometapi.com/v1/chat/completions` ([official documentation](https://apidoc.cometapi.com/)).
+Only an explicit Run sends the current Buffer source. Ordinary typing, local
+lookup, password and private fields do not call the service. Ask, polish and poem
+produce real text; art still produces text prompts, not images. CometAPI-enabled
+translation translates sentences rather than performing dictionary lookup.
+
+The key is encrypted with AES-GCM using a non-exportable Android Keystore key.
+Settings show only a blank masked input; blank on Save preserves the existing key.
+Remove key disables the online route. Configuration changes revoke in-flight and
+completed results. There are no embedded credentials, key/prompt/response logs,
+request history, automatic retries, or redirects. Network errors preserve source
+and do not fall back to mock replies. HTTP 401/403, 402, 429, redirects, server
+errors, wrong content types, truncation and invalid UTF-8 fail closed.
+
+Requests have a 10-second connect timeout, 20-second read timeout and 60-second
+total deadline. Cancellation disconnects the network asynchronously. Output is
+limited to 2,048 tokens and 16,384 UTF-16 units; wire size is limited to 1 MiB.
+DeepSeek requests disable thinking. The JSON/SSE codec requires a successful
+`finish_reason` plus `[DONE]` and complete stream validation before Send is enabled.
+
+When online AI is off, the optional **Mock** remains an explicitly labelled local
+demo. Its fragmented UTF-8 SSE frames and 40 ms delays test the same streaming
+interface; they are not real model inference or provider-performance evidence.
 
 Type source into the lower Buffer rail, then tap Run or press a clean Return.
 During execution Run becomes Cancel; preview remains unsendable. Complete output
@@ -200,7 +221,8 @@ UTF-16 units. Ordinary Buffer retains its existing next/all block delivery behav
 
 “Learn words on this device” in Setup is on by default. Rime candidate selections,
 including Buffer selections, update local user dictionaries. There is no complete
-input-history log, network permission, clipboard access or cloud synchronization.
+input-history log, clipboard access or cloud synchronization. The INTERNET
+permission serves only explicitly configured and invoked online AI.
 Turning learning off preserves existing data and uses precompiled schema variants
 with `enable_user_dict: false`. A live setting change settles unfinished raw code
 through the current route, preserves confirmed Buffer blocks, and switches the
@@ -214,6 +236,13 @@ this directory. Preferences stay in `shared_prefs/keyboard.xml`. User dictionari
 are excluded from backup; cloud/device-transfer rules also exclude app data.
 Only validated, precompiled resources are extracted on-device. There is no runtime
 maintenance/deployment, dictionary compiler invocation or resource download.
+
+CometAPI may reject an endpoint with `403 / region_restricted` for a network
+location it does not serve. RIMES shows a region-specific error and preserves the
+source; contact the provider to confirm service availability. The October 3
+phone run initially received this response. After the maintainer changed the
+phone's network, real quick-question, polish and translation replies succeeded.
+See [the dev.8 validation record](validation/2026-10-03-dev8.md) for exact scope.
 
 ## Build
 

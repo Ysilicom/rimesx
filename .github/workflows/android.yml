@@ -49,6 +49,10 @@ jobs:
           python3 scripts/test-linux-native.py 2>&1 | tee .native/engine-contract.log
       - name: Test Buffer and keyboard layouts, build development APK and run Lint
         run: ./gradlew --no-daemon :core:test :app:assembleDebug :app:lintDebug :app:assembleDebugAndroidTest :testhost:assembleDebug :testhost:assembleDebugAndroidTest :testhost:lintDebug
+      - name: Compile the 1.0 release configuration without publishing
+        run: ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease :app:lintRelease
+      - name: Verify release APK alignment
+        run: "$ANDROID_HOME/build-tools/36.0.0/zipalign -c -P 16 -v 4 app/build/outputs/apk/release/app-release-unsigned.apk"
       - name: Verify packaged offline translation dictionary
         run: python3 resources/dictionary/verify-dictionary.py --check --apk app/build/outputs/apk/debug/app-debug.apk
       - name: Verify APK 16 KB alignment
@@ -69,3 +73,14 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
       # No publishing, production signing keys, device install or macOS release gate.
+
+      - name: Upload unsigned release preparation artifacts
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: RIMES-Android-UNSIGNED-release-check-${{ github.sha }}
+          path: |
+            platforms/android/app/build/outputs/apk/release/*unsigned.apk
+            platforms/android/app/build/outputs/bundle/release/*.aab
+            platforms/android/app/build/reports/lint-results-release.*
+          retention-days: 14

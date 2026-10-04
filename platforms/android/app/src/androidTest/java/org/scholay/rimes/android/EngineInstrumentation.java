@@ -11,6 +11,42 @@ public final class EngineInstrumentation extends Instrumentation {
     @Override public void onStart() {
         Bundle result=new Bundle();
         try {
+            if(arguments!=null && "comet-diagnostics".equals(arguments.getString("mode"))) {
+                NetworkAiContract.foreground(this);
+                StringBuilder diagnostic=new StringBuilder();
+                try { diagnostic.append("DNS addresses=").append(java.net.InetAddress.getAllByName("api.cometapi.com").length).append('\n'); }
+                catch(Exception error) { diagnostic.append("DNS ").append(error.getClass().getSimpleName()).append(": ").append(error.getMessage()).append('\n'); }
+                for(String agent:new String[]{"", "RIMES-Android"}) {
+                    javax.net.ssl.HttpsURLConnection connection=null;
+                    try {
+                        connection=(javax.net.ssl.HttpsURLConnection)new java.net.URL("https://api.cometapi.com/api/models").openConnection();
+                        connection.setInstanceFollowRedirects(false); connection.setConnectTimeout(10000); connection.setReadTimeout(10000);
+                        if(!agent.isEmpty()) connection.setRequestProperty("User-Agent",agent);
+                        int code=connection.getResponseCode();
+                        diagnostic.append("Public HTTPS agent=").append(agent.isEmpty()?"system":agent).append(" status=").append(code).append('\n');
+                        if(code!=200 && connection.getErrorStream()!=null) {
+                            byte[] bytes=new byte[256]; int count=connection.getErrorStream().read(bytes);
+                            if(count>0) diagnostic.append("Public unauthenticated error: ").append(new String(bytes,0,count,java.nio.charset.StandardCharsets.UTF_8)).append('\n');
+                        }
+                    } catch(Exception error) { diagnostic.append("Public HTTPS ").append(error.getClass().getSimpleName()).append(": ").append(error.getMessage()).append('\n'); }
+                    finally { if(connection!=null) connection.disconnect(); }
+                }
+                result.putString("stream",diagnostic.toString()); finish(-1,result); return;
+            }
+            if(arguments!=null && "ai-network".equals(arguments.getString("mode"))) {
+                result.putString("stream","PASS AI network checks="+NetworkAiContract.run(this)+"\n"); finish(-1,result); return;
+            }
+            if(arguments!=null && "comet-prepare".equals(arguments.getString("mode"))) {
+                result.putString("stream",NetworkAiContract.prepareLive(this)); finish(-1,result); return;
+            }
+            if(arguments!=null && "comet-configure".equals(arguments.getString("mode"))) {
+                NetworkAiContract.configureLive(this);
+                result.putString("stream","PASS temporary encrypted profile configured; no API request\n"); finish(-1,result); return;
+            }
+            if(arguments!=null && "comet-clear".equals(arguments.getString("mode"))) {
+                new CometAiSettings(getTargetContext()).clear();
+                result.putString("stream","PASS temporary CometAPI key removed; online AI disabled\n"); finish(-1,result); return;
+            }
             if(arguments!=null && "appsettings".equals(arguments.getString("mode"))) {
                 result.putString("stream","PASS grouped app settings checks="+AppSettingsContract.run(this)+"\n"); finish(-1,result); return;
             }

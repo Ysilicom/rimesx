@@ -41,6 +41,8 @@ public final class RimesInputMethodService extends InputMethodService {
     private InputConnection target;
     private SharedPreferences preferences;
     private KeyboardSettings settings;
+    private CometAiSettings cometSettings;
+    private CometAiSettings.Snapshot cometProfile=CometAiSettings.disabled();
     private String translationDirection="auto";
     private boolean aiMockEnabled=true,learningEnabled=true,changingSettingsPair;
     private KeyboardSettings.Snapshot deferredSettingsPair;
@@ -99,6 +101,7 @@ public final class RimesInputMethodService extends InputMethodService {
         super.onCreate();
         preferences=getSharedPreferences(KeyboardSettings.PREFERENCES_NAME,MODE_PRIVATE);
         settings=new KeyboardSettings(preferences);
+        cometSettings=new CometAiSettings(this);
         preferences.registerOnSharedPreferenceChangeListener(preferenceListener);
         restoreSettings();
         pluginExecutor=new BufferPluginExecutor(getApplicationContext());
@@ -167,6 +170,7 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private void restoreSettings() {
         KeyboardSettings.Snapshot saved=settings.snapshot();
+        cometProfile=cometSettings.snapshot();
         schema=saved.schema; layout=saved.layout; theme=KeyboardTheme.named(saved.theme);
         translationDirection=saved.translationDirection; aiMockEnabled=saved.aiMockEnabled; learningEnabled=saved.learning;
     }
@@ -201,6 +205,9 @@ public final class RimesInputMethodService extends InputMethodService {
     private void preferenceChanged(SharedPreferences changed,String key) {
         if(destroyed || changingSettingsPair) return;
         KeyboardSettings.Snapshot saved=settings.snapshot();
+        if(CometAiSettings.KEY.equals(key)) {
+            cometProfile=cometSettings.snapshot(); invalidatePlugin(); render(); return;
+        }
         if(KeyboardSettings.KEY_THEME.equals(key)) { theme=KeyboardTheme.named(saved.theme); render(); return; }
         if(KeyboardSettings.KEY_SCHEMA.equals(key) || KeyboardSettings.KEY_LAYOUT.equals(key)) {
             // Both per-key notifications see the same atomic pair. Settle the old code only once.
@@ -713,6 +720,10 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private void invalidatePlugin() { cancelPlugin(); pluginSession.invalidate(); }
     private String pluginStatus(PluginSession.Snapshot state) {
+        if(cometProfile.remote(activePlugin)) {
+            if(state.status==PluginSession.Status.ERROR) return state.message;
+            return state.status==PluginSession.Status.RUNNING?"AI 生成中… · 点停止可取消":"CometAPI · "+cometProfile.model+" · 点执行";
+        }
         if(state.status==PluginSession.Status.RUNNING) return activePlugin.equals("translate")?"本机词典查译中…":"Mock 生成中…";
         if(state.status==PluginSession.Status.ERROR) return state.message;
         if(!"translate".equals(activePlugin) && !aiMockEnabled) return "AI Mock 已关闭 · 在 RIMES 主应用中启用";
@@ -728,7 +739,7 @@ public final class RimesInputMethodService extends InputMethodService {
         if(request==null) return;
         InputEpoch.Ticket ticket=epoch.issue(); InputConnection connection=target;
         pluginSettingsOpen=false; render();
-        pluginJob=pluginExecutor.run(request.plugin,request.source.text,translationDirection,new BufferPluginExecutor.Listener() {
+        pluginJob=pluginExecutor.run(request.plugin,request.source.text,translationDirection,cometProfile,new BufferPluginExecutor.Listener() {
             public void onUpdate(String text,boolean complete) { main.post(() -> {
                 if(!epoch.current(ticket) || connection!=target || !ownsTarget() || privateField || !pluginAllowed()) return;
                 if(pluginSession.update(request,buffer,text,complete)) { if(pluginSession.snapshot(buffer).status==PluginSession.Status.ERROR) cancelPlugin(); else if(complete) pluginJob=null; render(); }
@@ -739,7 +750,7 @@ public final class RimesInputMethodService extends InputMethodService {
             }); }
         });
     }
-    private boolean pluginAllowed() { return "translate".equals(activePlugin) || aiMockEnabled; }
+    private boolean pluginAllowed() { return "translate".equals(activePlugin) || cometProfile.enabled || aiMockEnabled; }
     private void insertPluginResult() {
         if(!canSelectPlugin() || !buffer.isEnabled() || !pluginAllowed()) return;
         PluginSession.Delivery delivery=pluginSession.prepare(buffer); InputConnection connection=target;

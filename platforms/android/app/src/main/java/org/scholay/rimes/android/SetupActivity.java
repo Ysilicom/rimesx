@@ -222,7 +222,7 @@ public final class SetupActivity extends Activity {
         row(typing,KeyboardIcon.KEYBOARD,t("键盘布局与换肤","Keyboard layout & skins"),null,null,"settings.home.appearance",() -> navigate("appearance"));
         row(typing,KeyboardIcon.STACK_LAYERS,t("Rime 方案与词典","Rime schemes & dictionaries"),null,null,"settings.home.resources",() -> navigate("resources"));
         row(typing,KeyboardIcon.TRANSLATE,t("本机翻译词典","Local translation dictionary"),null,null,"settings.home.translation",() -> navigate("translation"));
-        row(typing,KeyboardIcon.MAGIC_WAND,t("AI 服务","AI services"),null,"Mock","settings.home.ai",() -> navigate("ai"));
+        row(typing,KeyboardIcon.MAGIC_WAND,t("AI 服务","AI services"),null,new CometAiSettings(this).snapshot().enabled?"CometAPI":"Mock","settings.home.ai",() -> navigate("ai"));
         LinearLayout more=group(t("数据与隐私","Data & privacy"));
         row(more,KeyboardIcon.STACK_LAYERS,t("数据管理","Data management"),null,null,"settings.home.data",() -> navigate("data"));
         row(more,KeyboardIcon.BOOK,t("隐私与第三方许可","Privacy & third-party licenses"),null,null,"settings.home.privacy",() -> navigate("privacy"));
@@ -351,14 +351,47 @@ public final class SetupActivity extends Activity {
         toggle.setOnCheckedChangeListener((button,value) -> save.accept(value)); group.addView(toggle,new LinearLayout.LayoutParams(-1,-2));
     }
     private void ai() {
-        LinearLayout service=group(t("当前服务","Current service")); row(service,KeyboardIcon.MAGIC_WAND,t("本机演示服务","On-device demo service"),"OpenAI Chat Completions · Mock",null,"settings.ai.service",null);
+        CometAiSettings comet=new CometAiSettings(this); CometAiSettings.Snapshot profile=comet.snapshot();
+        LinearLayout remote=group("CometAPI");
+        row(remote,KeyboardIcon.MAGIC_WAND,t("联网 AI","Online AI"),"https://api.cometapi.com/v1",profile.enabled?t("已启用","Enabled"):t("未启用","Off"),"settings.ai.comet",null);
+        note(t("启用并点执行后，仅将本次 Buffer 原文发送给 CometAPI。普通打字不联网；密码和隐私输入框禁用 AI。结果须手动发送。","After enabling, Run sends only the current Buffer source to CometAPI. Ordinary typing stays offline; AI is disabled in password and private fields. Insert results manually."));
+        LinearLayout configuration=group(t("连接设置","Connection settings"));
+        EditText model=aiField(configuration,t("模型","Model"),profile.model,"settings.ai.comet.model",false);
+        EditText key=aiField(configuration,"API Key","","settings.ai.comet.key",true);
+        key.setHint(profile.hasKey()?t("已安全保存；留空保留现有密钥","Saved securely; leave blank to keep"):t("输入 API Key","Enter API key"));
+        boolean[] enabled={profile.enabled},translation={profile.translation};
+        toggle(configuration,t("启用 CometAPI","Enable CometAPI"),"settings.ai.comet.enabled",enabled[0],value -> enabled[0]=value);
+        toggle(configuration,t("翻译也使用 AI","Use AI for translation"),"settings.ai.comet.translation",translation[0],value -> translation[0]=value);
+        TextView status=text("",14,secondary,false); status.setPadding(dp(16),dp(8),dp(16),dp(8)); status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); configuration.addView(status);
+        row(configuration,KeyboardIcon.CHECK,t("保存设置","Save settings"),null,null,"settings.ai.comet.save",() -> {
+            try {
+                comet.save(model.getText().toString(),key.getText().toString(),enabled[0],translation[0]);
+                key.setText(""); show("ai");
+                android.widget.Toast.makeText(this,t("AI 设置已保存","AI settings saved"),android.widget.Toast.LENGTH_SHORT).show();
+            } catch(OpenAiChatCodec.Failure error) { status.setText(error.getMessage()); }
+        });
+        row(configuration,null,t("移除密钥并关闭联网 AI","Remove key and disable online AI"),null,null,"settings.ai.comet.clear",() -> {
+            try { comet.clear(); key.setText(""); show("ai"); }
+            catch(OpenAiChatCodec.Failure error) { status.setText(error.getMessage()); }
+        });
+        note(t("密钥由 Android Keystore 加密，不参与备份。不保存请求或回复正文。未启用 AI 翻译时，翻译仍使用本机词典。","Keys are encrypted with Android Keystore and excluded from backup. Request and reply text is not saved. Translation uses the local dictionary unless AI translation is enabled."));
+        LinearLayout service=group(t("本机演示","Local demo")); row(service,KeyboardIcon.MAGIC_WAND,t("本机演示服务","On-device demo service"),"OpenAI Chat Completions · Mock",null,"settings.ai.service",null);
         toggle(service,t("启用 AI Mock","Enable AI Mock"),"settings.ai_mock_enabled",settings.isAiMockEnabled(),settings::setAiMockEnabled);
         row(service,null,t("模型","Model"),OpenAiChatCodec.MOCK_MODEL,null,"settings.ai.model",null);
         row(service,null,t("接口格式","Interface format"),"/v1/chat/completions",null,"settings.ai.format",null);
         row(service,null,t("回复方式","Reply format"),null,t("流式 SSE","Streaming SSE"),"settings.ai.stream",null);
         note(t("快问、润色、作诗和画画提示词使用本机模拟回复。无需 API Key，也不会向外发送输入。","Quick questions, polish, poems and art prompts use simulated local replies. No API key is needed and input is not sent off-device."));
         LinearLayout flow=group(t("在键盘中使用","Use from the keyboard")); paragraph(flow,t("候选栏没有候选字时显示 Buffer 插件快捷入口。选择插件，在 Buffer 确认原文后点执行；检查结果，再点发送。","When there are no candidates, the candidate bar shows Buffer plugin shortcuts. Choose a plugin, confirm text in Buffer, then run; review the result and insert it."));
-        note(t("真实 AI 服务的地址、密钥和模型配置尚未接通。这一版保持本机 Mock。","Real AI service URL, key and model configuration is not connected yet. This version uses the local mock."));
+        note(t("CometAPI 启用时优先使用联网 AI。联网失败会保留原文，不切换到模拟回复。画画目前只生成文字提示词。","CometAPI takes priority when enabled. Network failures preserve the source without falling back to mock replies. Art currently produces text prompts only."));
+    }
+    private EditText aiField(LinearLayout group,String label,String value,String tag,boolean secret) {
+        TextView title=text(label,14,secondary,false); title.setPadding(dp(16),dp(12),dp(16),0); group.addView(title);
+        EditText field=new EditText(this); field.setTag(tag); field.setContentDescription(label); field.setTextSize(16); field.setTextColor(ink); field.setHintTextColor(secondary);
+        field.setSingleLine(true); field.setSaveEnabled(false); field.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
+        field.setInputType(InputType.TYPE_CLASS_TEXT|(secret?InputType.TYPE_TEXT_VARIATION_PASSWORD:InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS));
+        field.setImeOptions(EditorInfo.IME_ACTION_DONE|EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
+        if(secret) field.setTransformationMethod(android.text.method.PasswordTransformationMethod.getInstance());
+        field.setText(value); LinearLayout.LayoutParams frame=new LinearLayout.LayoutParams(-1,dp(52)); frame.setMargins(dp(16),0,dp(16),dp(4)); group.addView(field,frame); return field;
     }
     private void data() {
         LinearLayout learning=group(t("用户词库","Learned words")); toggle(learning,getString(R.string.learning),"settings.learning",settings.isLearningEnabled(),settings::setLearningEnabled); note(getString(R.string.learning_detail));
@@ -366,18 +399,18 @@ public final class SetupActivity extends Activity {
     }
     private void privacy() {
         LinearLayout input=group(t("输入与学习","Typing & learning")); paragraph(input,getString(R.string.privacy)+"\n\n"+getString(R.string.learning_detail));
-        LinearLayout plugins=group(t("翻译与 AI","Translation & AI")); paragraph(plugins,t("翻译查阅随应用安装的 CC-CEDICT 词典。AI 使用本机 Mock，没有网络请求，不读取剪贴板、联系人或完整输入历史。结果只有点发送后进入当前输入框。","Translation uses the bundled CC-CEDICT dictionary. AI uses a local mock with no network requests, clipboard access, contacts access or full typing history. Results enter the current field only after you insert them."));
+        LinearLayout plugins=group(t("翻译与 AI","Translation & AI")); paragraph(plugins,t("翻译默认查阅本机 CC-CEDICT 词典。联网 AI 需在 AI 服务中配置并启用，点执行后仅发送本次 Buffer 原文给 CometAPI。未启用时可用本机 Mock。不读取剪贴板、联系人或完整输入历史。结果只有点发送后进入当前输入框。","Translation defaults to bundled CC-CEDICT lookup. Online AI requires explicit configuration and enabling; Run sends only the current Buffer source to CometAPI. A local mock is available when online AI is off. There is no clipboard, contacts or full typing-history access. Results enter the current field only after you insert them."));
         LinearLayout legal=group(t("开源软件与资源","Open-source software & resources")); row(legal,KeyboardIcon.BOOK,t("第三方许可","Third-party licenses"),null,null,"settings.privacy.licenses",() -> navigate("licenses"));
     }
     private void differences() {
-        LinearLayout available=group(t("已可配置","Available settings")); paragraph(available,t("全拼、自然码、五笔；26 键、九键、两种并击布局；18 套配色；本机中英查译方向；AI Mock 开关；本机词库学习。","Pinyin, Natural Code and Wubi; QWERTY, 9-key and two chord layouts; 18 colors; local Chinese–English lookup direction; AI mock toggle; local word learning."));
+        LinearLayout available=group(t("已可配置","Available settings")); paragraph(available,t("全拼、自然码、五笔；26 键、九键、两种并击布局；18 套配色；本机中英查译方向；CometAPI 密钥、模型、AI 翻译与 Mock 开关；本机词库学习。","Pinyin, Natural Code and Wubi; QWERTY, 9-key and two chord layouts; 18 colors; local Chinese–English lookup direction; CometAPI key, model, AI translation and mock toggles; local word learning."));
         LinearLayout later=group(t("与 iOS 的功能差异","Features still different from iOS"));
         String[][] entries={
-            {t("真实 AI 服务","Real AI providers"),t("当前为本机 Mock，暂未接通地址、密钥和模型选择。","Currently local mock; URL, API key and model selection are not connected.")},
+            {t("更多 AI 服务","More AI providers"),t("已接通 CometAPI 文字模型；其他提供商和图像生成尚未接通。","CometAPI text models are connected; other providers and image generation are not connected yet.")},
             {t("翻译语言包","Translation language packs"),t("Android 使用本机中英词典，不使用苹果翻译语言包。","Android uses a local Chinese–English dictionary rather than Apple Translation packs.")},
             {t("并击与 Rime 方案导入","Chord & Rime profile import"),t("当前仅内置方案，尚未接通自定义导入与编辑。","Built-in profiles only; custom import and editing are not connected.")},
             {t("宠物轮换与动画","Pet rotation & animation"),t("配色可切换，当前是静态图示，无自选轮换池。","Colors can be selected; symbols are static, with no custom rotation pool.")},
-            {t("作诗句式与词卡","Poem forms & word cards"),t("作诗为 Mock，尚无句式与词卡库配置。","Poems use mock replies; forms and word-card configuration are not available.")},
+            {t("作诗句式与词卡","Poem forms & word cards"),t("作诗支持联网 AI；尚无句式与词卡库配置。","Poems support online AI; forms and word-card configuration are not available.")},
             {t("打字统计卡片","Typing stats cards"),t("尚未实现。","Not implemented yet.")}
         };
         for(String[] entry:entries) row(later,null,entry[0],entry[1],null,null,null);

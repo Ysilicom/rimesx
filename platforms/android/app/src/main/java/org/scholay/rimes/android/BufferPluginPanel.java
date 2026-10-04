@@ -7,7 +7,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-/** Plugin settings keep execution local and make dictionary/mock limits visible. */
+/** Plugin settings explain the selected local or remote route. */
 final class BufferPluginPanel extends ScrollView {
     interface Listener {
         void onPlugin(String id);
@@ -71,10 +71,12 @@ final class BufferPluginPanel extends ScrollView {
         shortcuts.render(theme,pluginID,true); defaultBuffer.theme(theme); close.theme(theme);
         directions.setVisibility("translate".equals(pluginID)?VISIBLE:GONE);
         for(int i=0;i<directionButtons.length;i++) { directionButtons[i].theme(theme); directionButtons[i].setSelected(DIRECTION_IDS[i].equals(direction)); }
-        if(!rendered || !java.util.Objects.equals(displayedPlugin,pluginID)) {
+        {
+            CometAiSettings.Snapshot profile=new CometAiSettings(getContext()).snapshot();
             String name=pluginName(pluginID);
             notice.setText(name==null?"普通 Buffer 保留本次输入，确认发送后才进入输入框。"
-                    :"translate".equals(pluginID)?"本机中英词典查译，未覆盖词保留原文。\n逐词查译不保证句子语法；点执行后可发送结果。":name+"使用 OpenAI 格式本机 Mock。\n无网络请求，不需要 API Key；画画仅生成示例提示词。");
+                    :profile.remote(pluginID)?"CometAPI · "+profile.model+"\n点执行后将本次 Buffer 原文发送给 AI；结果需确认发送。"
+                    :"translate".equals(pluginID)?"本机中英词典查译，未覆盖词保留原文。\n逐词查译不保证句子语法；点执行后可发送结果。":name+"使用 OpenAI 格式本机 Mock。\n无网络请求；在 RIMES 主应用的 AI 服务中配置联网 AI。画画仅生成提示词。");
             displayedPlugin=pluginID;
             rendered=true;
         }
