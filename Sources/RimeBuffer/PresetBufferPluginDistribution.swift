@@ -122,7 +122,7 @@ final class PresetBufferPluginInstallationStore {
         static let enabledOptional = "plugins.internal.presetDistribution.enabledOptional.v1"
     }
 
-    static let shared = PresetBufferPluginInstallationStore()
+    static let shared = PresetBufferPluginInstallationStore(defaults: OfficialPluginSmokePreferences.shared)
 
     let rootURL: URL
 

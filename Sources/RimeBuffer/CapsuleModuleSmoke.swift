@@ -1,6 +1,16 @@
 import AppKit
 import Foundation
 
+private final class RestrictedModuleSmokePlugin: InternalPlugin, HostModuleContribution {
+    let descriptor = CapsuleBuiltInPlugin(.notes).descriptor
+    let hostID = "capsule"
+    var moduleKey: PluginKey { descriptor.key }
+    let actions: Set<HostModuleAction> = [.open]
+    func start() {}
+    func stop() {}
+    func makeSettingsViewController(subpageID: String) -> NSViewController? { nil }
+}
+
 func runCapsuleModuleSmokeTest() -> Bool {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(
         "rimes-capsule-module-smoke-\(UUID().uuidString)", isDirectory: true
@@ -24,6 +34,20 @@ func runCapsuleModuleSmokeTest() -> Bool {
         )
         let oldNote = try content.put(CapsuleContentWriteRequest(
             type: .note, title: "旧笔记", content: "plain Markdown"))
+
+        let restricted = RestrictedModuleSmokePlugin()
+        let restrictedRegistry = PluginRegistry(internalPlugins: [restricted], defaults: defaults,
+            bufferPluginSelection: BufferPluginSelectionStore(defaults: defaults),
+            chordExtensionStore: ChordExtensionStore(defaults: defaults))
+        guard restrictedRegistry.allowsHostModuleAction(.open, for: restricted.moduleKey),
+              !restrictedRegistry.allowsHostModuleAction(.search, for: restricted.moduleKey) else {
+            return fail("host must honor the module's declared action set")
+        }
+        try restrictedRegistry.setEnabled(false, for: restricted.moduleKey)
+        guard !restrictedRegistry.allowsHostModuleAction(.open, for: restricted.moduleKey) else {
+            return fail("disabled module cannot open")
+        }
+        try restrictedRegistry.setEnabled(true, for: restricted.moduleKey)
 
         let registry = PluginRegistry(
             internalPlugins: CapsuleModuleID.allCases.map(CapsuleBuiltInPlugin.init),

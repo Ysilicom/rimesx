@@ -118,7 +118,18 @@ final class MailboxMessagesWorkspace: NSViewController, NSSearchFieldDelegate {
     }
 
     private func visibleThreads() -> [MailboxThread] {
-        MailboxWorkspaceRules.threads(snapshot.threads, module: module, query: search.stringValue, filter: filter)
+        let searchable = PluginRegistry.shared.allowsHostModuleAction(.search, for: module.pluginKey)
+        search.isEnabled = searchable
+        let filters = module.filters
+        for item in MailboxInboxFilter.allCases {
+            filterControl.setEnabled(filters.contains(item), forSegment: item.rawValue)
+        }
+        if !filters.contains(filter) {
+            filter = filters.first ?? .all
+            filterControl.selectedSegment = filter.rawValue
+        }
+        return MailboxWorkspaceRules.threads(snapshot.threads, module: module,
+            query: searchable ? search.stringValue : "", filter: filter)
     }
     func reloadFromStore() {
         guard isViewLoaded else { return }

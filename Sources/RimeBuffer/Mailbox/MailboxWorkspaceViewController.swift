@@ -18,7 +18,7 @@ final class MailboxWorkspaceViewController: NSViewController {
     private(set) lazy var terminal = MailboxTerminalWorkspace(store: store)
 
     init(store: MailboxStore = .shared, remembersModule: Bool = true,
-         isEnabled: @escaping (MailboxModuleID) -> Bool = { PluginRegistry.shared.isEnabled($0.pluginKey) }) {
+         isEnabled: @escaping (MailboxModuleID) -> Bool = { PluginRegistry.shared.allowsHostModuleAction(.open, for: $0.pluginKey) }) {
         self.store = store; self.isEnabled = isEnabled; self.remembersModule = remembersModule
         selectedModule = remembersModule
             ? MailboxModuleID(rawValue: UserDefaults.standard.string(forKey: "mailbox.workspace") ?? "inbox") ?? .inbox

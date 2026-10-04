@@ -186,7 +186,7 @@ def stage(repo: Path, output: Path, opencc_data: Path, opencc_license: Path, rev
         shutil.copyfile(opencc_license, temporary / LICENSE)
         shutil.copyfile(chord, temporary / "my_combo.schema.yaml")
         for name, content in WINDOWS_PATCHES.items():
-            (temporary / name).write_text(content, encoding="utf-8")
+            (temporary / name).write_bytes(content.encode("utf-8"))
         files = sorted(set(result["included"]) | expected_runtime(temporary) | set(WINDOWS_PATCHES) | {"my_combo.schema.yaml"})
         manifest = {
             "formatVersion": 1,

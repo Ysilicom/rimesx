@@ -328,7 +328,7 @@ enum BufferPluginActivationError: LocalizedError, Equatable {
 /// buffer workspace currently owns the exclusive action surface. Statistics,
 /// learning and other non-buffer capabilities remain freely composable.
 final class BufferPluginSelectionStore {
-    static let shared = BufferPluginSelectionStore()
+    static let shared = BufferPluginSelectionStore(defaults: OfficialPluginSmokePreferences.shared)
 
     private enum Key {
         static let hasSelection = "plugins.buffer.active.hasValue.v1"
@@ -448,6 +448,7 @@ final class BufferPluginSelectionStore {
 final class PluginRegistry {
     static let shared = PluginRegistry(
         internalPlugins: BuiltInPlugins.makeAll(),
+        defaults: OfficialPluginSmokePreferences.shared,
         presetInstallationStore: .shared
     )
 
@@ -684,6 +685,12 @@ final class PluginRegistry {
             }
             return item.descriptor.capabilities.contains(capability)
         }
+    }
+
+    func allowsHostModuleAction(_ action: HostModuleAction, for key: PluginKey) -> Bool {
+        guard key.domain == .builtIn, isEnabled(key),
+              let module = internalPlugins[key.rawID] as? HostModuleContribution else { return false }
+        return module.actions.contains(action)
     }
 
     func enabledSettingsContributions() -> [(pluginKey: PluginKey, contribution: PluginSettingsContribution)] {

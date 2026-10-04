@@ -24,7 +24,7 @@
     "native/macos/BufferMusicTheory.swift": "eff9cc1112ff9685606b52553eba76e59623478abf4fe0203afb89d4fff3437e",
     "native/macos/BufferMusicView.swift": "d25baf82cd809d0ce6f83f18d1f4ac1a35cdd47ba5ffcf2728c8de011b374fa5",
     "native/macos/BuiltInPlugins.swift": "21c5e6f5370aca14fd69216afde1b5eb64492fb733b0a893ae06dcd54afb0e68",
-    "native/macos/CapsuleModules.swift": "7e53f5253a7a7059448b75bea06c88f92d5b24227e1fa6ddb4d3704331e90aca",
+    "native/macos/CapsuleModules.swift": "d78809394546e6ea3daa863eed25f29dd0824435cc68311f60ec62ac9661038e",
     "native/macos/ChordController.swift": "d3443ce99dcb26caa8eb3ea8506670f3813c9b7b74dc209e00a7e27cd6ae92fe",
     "native/macos/ChordExtension.swift": "fa732e5fd6fb7f6116dc875d6f255bd4268b8c492ff17f0290b33d9962355732",
     "native/macos/ChordKeymap.swift": "5d094155f94a1a64bd4b1bcfdeae98f1f82371fbebfcbbe807333d32327470f8",
@@ -36,7 +36,7 @@
     "native/macos/FlyChordLearningSettingsViewController.swift": "c1e0455712b056372e60ba53e272e462a16d853492c6d3ce6f97b697186d63b3",
     "native/macos/KeyFrequencyStore.swift": "7c78593d70230699954cdab3df55f93cbbff0601bc2289ea610d0072c7b0c724",
     "native/macos/KeyboardHeatmapView.swift": "2184969c9436ce04ef97b9672fe404ce5f1a5cd810adce14b98e94c44f8b4b87",
-    "native/macos/Mailbox/MailboxModules.swift": "b72faeffed3fac8920f9a3a56f3ad7e41d8dc554260b7c58c576b8d8633f5ba7",
+    "native/macos/Mailbox/MailboxModules.swift": "9d03fa00da11812b5aa31d8dcbcc0aeba13087c348cfc2ebc25d3b54f4b8b77f",
     "native/macos/MorseCode.swift": "3f9ba61f6a9452205c0e88ef47cf6fa61a4e3dab174e411b73065dc3461abf2d",
     "native/macos/MorseInputBarView.swift": "63e73111e99f1b6d3671131cebed603cd59d7a6097e5bf8dd5f41f850ddb90a6",
     "native/macos/MorseSidetone.swift": "847045dc8d64fce75fce310d421e1811440bd632cc92d696a39e3c6d09b7cf1d",
@@ -93,6 +93,6 @@
     "source-map.json": "5ae358c2fe0c6a5e389dc89dca8bec3f1e7ca7ac0dc8ac2bf43f69af1d464912"
   },
   "repository": "https://github.com/scholay/rimes-plugins",
-  "revision": "2d076a7cbad3743043d3cec144acdfad342d1f2e",
+  "revision": "1825e243089240e13105f1609b85b099e62be16b",
   "schemaVersion": 1
 }
