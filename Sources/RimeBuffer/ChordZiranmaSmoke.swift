@@ -146,7 +146,7 @@ func runChordZiranmaEngineSmokeTest(reportDirectory: URL?) -> Bool {
     let unmarkedPairs: [(keys: [String], word: String)] = [
         (["xi", "an"], "西安"), (["fh", "an"], "方案"), (["djk", "an"], "答案"),
         (["dh", "an"], "档案"), (["wry", "an"], "平安"), (["qi", "eij"], "企鹅"),
-        (["cvi", "ah"], "激昂"), (["xcl", "xvu"], "海鸥"), (["tm", "an"], "天安"),
+        (["cvi", "ah"], "激昂"), (["xcl", "xvu"], "海鸥"), (["tm", "an"], "天安"), (["tu", "an"], "图案"),
     ]
 
     do {
@@ -238,7 +238,7 @@ func runChordZiranmaEngineSmokeTest(reportDirectory: URL?) -> Bool {
         // rime_ice has no sei reading; full pinyin reached Han only through
         // initials-only abbreviations, which 自然码 deliberately drops.
         let withoutDictionaryReading: Set<String> = ["sei"]
-        var rows = ["keys\tkind\tpinyin\tziranma\tinput2025\tinput2026\tpreedit2026\ttop2025\ttop2026\tstatus"]
+        var rows = ["keys\tkind\tpinyin\tziranma\tinput2025\tinput2026\tpreedit2025\tpreedit2026\ttop2025\ttop2026\tstatus"]
         var failures: [String] = []
         var sameTop = 0
         var syllableCount = 0
@@ -261,13 +261,19 @@ func runChordZiranmaEngineSmokeTest(reportDirectory: URL?) -> Bool {
                 let newTop = new.candidates.first { hasHan($0) }
                 if oldTop != nil, oldTop == newTop { sameTop += 1 }
                 if !withoutDictionaryReading.contains(entry.output) {
-                    if let oldTop, !new.candidates.contains(oldTop) { status.append("2025-top-missing") }
+                    // Full pinyin can segment one spelling into two syllables (tuan →
+                    // tu an / 图案). A Ziranma syllable must retain its own reading,
+                    // not a different segmentation's first candidate. The pair cases
+                    // above independently require tu + an to produce 图案.
+                    if spelling(old.preedit) == spelling(entry.output),
+                       let oldTop, !new.candidates.contains(oldTop) { status.append("2025-top-missing") }
                     if oldTop != nil, newTop == nil { status.append("no-han") }
+                    if entry.output == "tuan", !new.candidates.contains("团") { status.append("tuan-reading") }
                 }
             }
             if !status.isEmpty { failures.append("\(entry.keys)→\(entry.output)[\(status.joined(separator: ","))]") }
             let fields = [entry.keys, entry.kind.rawValue, entry.output, code,
-                          old.input, new.input, new.preedit,
+                          old.input, new.input, old.preedit, new.preedit,
                           old.candidates.first ?? "", new.candidates.first ?? "",
                           status.isEmpty ? "ok" : status.joined(separator: ",")]
             rows.append(fields.joined(separator: "\t"))
