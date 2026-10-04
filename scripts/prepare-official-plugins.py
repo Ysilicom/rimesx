@@ -27,6 +27,13 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def cpp_string(text):
+    # MSVC limits each source literal to 16,380 bytes. Adjacent small literals
+    # preserve the exact UTF-8 package bytes, including the full license text.
+    return "\n".join(json.dumps(text[i:i + 2048], ensure_ascii=False)
+                     for i in range(0, len(text), 2048)) or '""'
+
+
 def safe_path(root, name):
     if not isinstance(name, str) or not name or "\\" in name or PurePosixPath(name).is_absolute():
         raise ValueError("Invalid plugin source path")
@@ -103,14 +110,12 @@ def prepare(root, source, update_lock=False):
     windows = [entry for entry in packages if "windows" in entry["platforms"]]
     if windows:
         header = "// Generated from the pinned official plugin catalog. Do not edit.\n#pragma once\n#include <string_view>\nnamespace rimes::windows::official {\n"
-        header += 'inline constexpr std::string_view kCatalogJSON = R"rimes_catalog(' + canonical({"schemaVersion": 1, "plugins": windows}).decode() + ')rimes_catalog";\n'
+        header += 'inline constexpr std::string_view kCatalogJSON =\n' + cpp_string(canonical({"schemaVersion": 1, "plugins": windows}).decode()) + ';\n'
         header += "struct BundledPackage { std::string_view id, bytes; };\ninline constexpr BundledPackage kPackages[] = {\n"
         for entry in windows:
             package = {key: value for key, value in entry.items() if key not in ("sha256", "downloadAssetName", "downloadURL")}
             data = canonical(package).decode()
-            if ')rimes_package"' in data:
-                raise ValueError("Unsafe native package delimiter")
-            header += '{"' + entry["id"] + '", R"rimes_package(' + data + ')rimes_package"},\n'
+            header += '{' + cpp_string(entry["id"]) + ',\n' + cpp_string(data) + '},\n'
         header += "};\n}\n"
         imports["platforms/windows/native/src/workbench/official_plugin_catalog.generated.hpp"] = header.encode()
     inputs = {name: digest(safe_path(source, name).read_bytes()) for name in sorted(input_names)}

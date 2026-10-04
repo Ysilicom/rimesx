@@ -64,7 +64,7 @@
     "native/shared/Chord.swift": "2f241f8c8d9e0320992596665f5662445cf1a7acbcb37e561c2c69c463b7087c",
     "native/shared/ChordEncoding.swift": "b7d16dbd81ed70ea4c005afa62a38f427e97aa7988c5e77b50e17885ecfad0b1",
     "native/shared/TextArt.swift": "b394e467999379d875f7d8e334939ebbbfb8cc319b46bb93c18c51ad1de6e115",
-    "native/windows/my_combo.schema.yaml": "acb4d3fe7b77bdf58df4da8a2e070d93dbd2971095af51a9133d9b4d5d93c102",
+    "native/windows/my_combo.schema.yaml": "d2937f55ac93fe746bf2e854aa523d8488d426392e0e6d8b63f96966c8ec6bc9",
     "native/windows/official_features.hpp": "af487e0eca72540b0dac039f92382f640c846bc703b7120c7ca3f4c560b1ff82",
     "plugins/apple-translation/plugin.json": "f6bc6a6d0bb9cda8617e7c561252518feee1bc7a20b47614e3aa0d0b764541df",
     "plugins/art/plugin.json": "72df9fb903824590512865c435b631ff7aceb66c893b1377907630bdba3ad391",
@@ -93,6 +93,6 @@
     "source-map.json": "5ae358c2fe0c6a5e389dc89dca8bec3f1e7ca7ac0dc8ac2bf43f69af1d464912"
   },
   "repository": "https://github.com/scholay/rimes-plugins",
-  "revision": "1825e243089240e13105f1609b85b099e62be16b",
+  "revision": "a981f9b79887b7d5b5c126a5016e0412100f22ef",
   "schemaVersion": 1
 }
