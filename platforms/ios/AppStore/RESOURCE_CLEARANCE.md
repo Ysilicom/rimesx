@@ -25,6 +25,8 @@ Sources:
 - https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
 - https://www.copyright.gov/help/faq/faq-protect.html (US distinction between methods/systems and protected expression; not worldwide legal clearance)
 
-Outstanding physical acceptance checks in distribution-audit.json remain unverified.
-The owner's explicit release instruction is recorded separately and does not turn
-those checks into passing results. EU DSA account classification remains separate.
+Physical acceptance checks were completed on 2026-10-04; see
+`../validation/release-1.1.0/README.md` for the exact scope and limitations.
+The publisher declaration remains separately identified in distribution-audit.json;
+accepting that documented distribution basis does not claim independent clearance.
+EU DSA account classification remains separate.

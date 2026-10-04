@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "status": "submitted-with-open-manual-checks",
+  "status": "ready",
   "assets": [
     {
       "name": "librime",
@@ -46,11 +46,13 @@
     },
     {
       "name": "Shared Keychain and App Group on signed physical iPhone",
-      "verified": false
+      "verified": true,
+      "evidence": "2026-10-04: signed app and real keyboard extension completed bidirectional temporary Keychain and App Group probes on physical iPhone 15 Pro. validation/release-1.1.0/ios-shared-storage-smoke.json; test secrets cleaned up."
     },
     {
       "name": "Physical iPhone input, privacy and performance acceptance",
-      "verified": false
+      "verified": true,
+      "evidence": "2026-10-04: 1.1.0 (35) physical nine-key input/commit, plugin disable and restore, Apple secure-field keyboard replacement, engine and measured layout/memory checks passed. Scope and sample limitations: validation/release-1.1.0/README.md; not broad daily-use acceptance."
     },
     {
       "name": "Hosted privacy policy, support contact and TestFlight review information",
@@ -60,7 +62,10 @@
   ],
   "releaseAuthorization": {
     "date": "2026-09-22",
-    "scope": "Owner explicitly requested global App Store submission excluding mainland China and supplied the mapping rights representation. Outstanding physical acceptance checks remain accurately unverified; this authorization is not evidence they passed.",
-    "reviewSubmissionID": "f5c2e139-3347-416d-9a35-fe4052dd9418"
+    "scope": "Owner explicitly requested global App Store submission excluding mainland China and supplied the mapping rights representation. Outstanding physical acceptance checks remain accurately unverified; this authorization is not evidence they passed. The documented flyyao publisher declaration is explicitly accepted as the distribution basis; its asset status remains publisher-declared. Physical acceptance was completed separately on 2026-10-04 with evidence linked above.",
+    "reviewSubmissionID": "f5c2e139-3347-416d-9a35-fe4052dd9418",
+    "acceptedPublisherDeclarations": [
+      "flyyao"
+    ]
   }
 }

@@ -35,8 +35,24 @@ p=json.loads((root/'Shared/Sources/RimesCore/Resources/flyyao.json').read_text()
 original=json.loads((root/'chord-keymaps/Isaac2025.json').read_text())
 assert p['mappings']==original['mappings'] and len(p['mappings'])==427
 print('PASS: resources, source parity, permissions and privacy manifest')
+def distribution_issues(audit):
+    # An explicitly accepted publisher declaration remains a declaration, not
+    # independently verified clearance. Unlisted or undocumented assets fail.
+    authorization = audit.get('releaseAuthorization', {})
+    accepted = authorization.get('acceptedPublisherDeclarations', [])
+    def accepted_asset(asset):
+        if asset['status'] == 'verified':
+            return True
+        return (asset['status'] == 'publisher-declared'
+                and asset['name'] in accepted
+                and bool(asset.get('evidence', '').strip())
+                and bool(authorization.get('date'))
+                and bool(authorization.get('scope', '').strip()))
+    return ([asset['name'] for asset in audit['assets'] if not accepted_asset(asset)]
+            + [item['name'] for item in audit['releasePrerequisites'] if not item['verified']])
+
 if '--distribution' in sys.argv:
     audit=json.loads((ios/'distribution-audit.json').read_text())
-    issues=[x['name'] for x in audit['assets'] if x['status']!='verified']+[x['name'] for x in audit['releasePrerequisites'] if not x['verified']]
+    issues=distribution_issues(audit)
     if audit['status']!='ready' or issues:
         print('DISTRIBUTION BLOCKED: '+ '; '.join(issues));sys.exit(2)

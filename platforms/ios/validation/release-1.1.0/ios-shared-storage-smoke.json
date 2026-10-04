@@ -1,0 +1,9 @@
+{
+  "allPassed" : true,
+  "appGroupRoundTrip" : true,
+  "appReadKeyboardKey" : true,
+  "environment" : "signed physical app and keyboard extension",
+  "fullAccess" : true,
+  "keyboardBundle" : "org.scholay.rimes.ios.keyboard",
+  "keyboardReadAppKey" : true
+}
