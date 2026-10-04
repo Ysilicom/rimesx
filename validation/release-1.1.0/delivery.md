@@ -31,5 +31,5 @@ runtime. Platform build, installed behavior and public availability are separate
 ## Remaining user-side observations
 
 - Young's actual Windows upgrade completed and requested a restart to finish runtime installation. No restart or sign-out was forced; daily-use validation after restart remains open.
-- macOS package installation and packaged runtime smokes passed. Background GUI automation did not establish a foreground TextEdit IMK round trip, so it is not counted as real-host typing acceptance. The temporary document was closed and the original input source restored. Physical Intel testing remains open.
+- macOS package installation and packaged runtime smokes passed. Background GUI automation did not establish a foreground TextEdit IMK round trip, so it is not counted as real-host typing acceptance. The temporary document was closed; no user document was edited. Physical Intel testing remains open.
 - Broad app coverage, minimum-OS coverage and day-long soak tests are not claimed by these focused acceptance runs.
