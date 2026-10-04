@@ -211,7 +211,16 @@ bool OfficialPluginStore::InstallData(const std::string& id, const std::string& 
 bool OfficialPluginStore::Install(const std::string& id, std::string* error) {
   try {
     Json entry; std::string grant;
-    { std::lock_guard lock(mutex_); entry = Entry(id); grant = State(id).at("grant"); }
+    {
+      std::lock_guard lock(mutex_); entry = Entry(id);
+      if (!ready_) throw std::runtime_error("Plugin store unavailable");
+      try { grant = State(id).at("grant"); }
+      catch (const std::exception&) {
+        // Explicit install repairs corrupt/obsolete receipts, without granting
+        // execution or allowing an older download to overwrite the repair.
+        WriteState(id, false, false, false); grant = State(id).at("grant");
+      }
+    }
     const auto bytes = entry.at("platforms").at("windows").at("distribution") == "bundled" ? BundledData(id) : Download(entry.at("downloadURL"));
     return InstallData(id, bytes, grant, error);
   } catch (const std::exception& value) { Error(error, value); return false; }

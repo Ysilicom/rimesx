@@ -60,6 +60,21 @@ int main() {
     Check(restarted.Grant(official::kAI).empty(), "installed file is reverified before execution");
     Check(!restarted.Enable(official::kAI, true, &error), "corrupt file cannot be enabled");
     Check(restarted.Uninstall(official::kAI, &error), "corrupt package is removable");
+    for (const bool obsolete : {false, true}) {
+      Check(restarted.Enable(official::kTranslation, true, &error), "prepare repair fixture");
+      const auto old = GrantFor(restarted, official::kTranslation);
+      const auto receipt = location / L"builtin.apple-translation.state.json";
+      std::string bytes = "corrupt receipt";
+      if (obsolete) {
+        std::ifstream input(receipt);
+        auto value = core::Json::parse(input); value["sha256"] = std::string(64, '0'); bytes = value.dump();
+      }
+      std::ofstream(receipt, std::ios::trunc) << bytes;
+      Check(restarted.Grant(official::kTranslation).empty(), "bad receipt remains unauthorized");
+      Check(restarted.Install(official::kTranslation, &error), "explicit restore repairs bad receipt");
+      Check(restarted.Grant(official::kTranslation).empty(), "repair does not enable execution");
+      Check(!restarted.InstallData(official::kTranslation, workbench::OfficialPluginStore::BundledData(official::kTranslation), old, &error), "stale download cannot replace repaired installation");
+    }
   }
   {
     workbench::OfficialPluginStore legacy(root / L"plugins");
