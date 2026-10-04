@@ -34,7 +34,7 @@ struct PresetBufferPluginCatalogEntry: Equatable {
     }
 
     var isDownloadable: Bool {
-        !defaultInstalled && downloadAssetName != nil && sha256 != nil
+        defaultInstalled || (downloadAssetName != nil && sha256 != nil)
     }
 }
 
@@ -113,6 +113,7 @@ final class PresetBufferPluginInstallationStore {
     static let changedPluginIDUserInfoKey = "pluginID"
 
     private enum DefaultsKey {
+        static let removedBundled = "plugins.internal.removedBundled.v1"
         static let migrated = "plugins.internal.presetDistribution.migrated.v1"
         static let migratedPackagesV2 = "plugins.internal.presetDistribution.migrated.packages.v2"
         static let grandfathered = "plugins.internal.presetDistribution.grandfathered.v1"
@@ -170,7 +171,7 @@ final class PresetBufferPluginInstallationStore {
 
     static func currentHostVersion(bundle: Bundle = .main) -> String {
         bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString")
-            as? String ?? ""
+            as? String ?? PresetBufferPluginCatalog.releaseVersion
     }
 
     static func bundledPackageData(id: String) -> Data? {
@@ -264,7 +265,9 @@ final class PresetBufferPluginInstallationStore {
 
     private func isInstalledLocked(id: String) -> Bool {
         guard let entry = catalogEntry(id: id) else { return true }
-        if entry.defaultInstalled { return true }
+        if entry.defaultInstalled {
+            return !Set(defaults.stringArray(forKey: DefaultsKey.removedBundled) ?? []).contains(id)
+        }
         let grandfathered = Set(
             defaults.stringArray(forKey: DefaultsKey.grandfathered) ?? []
         )
@@ -347,10 +350,25 @@ final class PresetBufferPluginInstallationStore {
             ))
             return
         }
-        guard !entry.defaultInstalled else {
-            finish(completion, with: .failure(
-                PresetBufferPluginInstallationError.alreadyBundled(id)
-            ))
+        if entry.defaultInstalled {
+            do {
+                guard let data = bundledPackageDataProvider(id) else {
+                    throw PresetBufferPluginInstallationError.invalidManifest
+                }
+                try validateDownloadedPackage(data, for: entry)
+                stateLock.lock()
+                var removed = Set(defaults.stringArray(forKey: DefaultsKey.removedBundled) ?? [])
+                removed.remove(id)
+                defaults.set(removed.sorted(), forKey: DefaultsKey.removedBundled)
+                mutationGeneration &+= 1
+                stateLock.unlock()
+                completionQueue.async {
+                    NotificationCenter.default.post(name: Self.didChangeNotification, object: self,
+                        userInfo: [Self.rootPathUserInfoKey: self.rootURL.path,
+                                   Self.changedPluginIDUserInfoKey: id])
+                }
+                finish(completion, with: .success(entry))
+            } catch { finish(completion, with: .failure(error)) }
             return
         }
         if isInstalled(id: id) {
@@ -442,10 +460,14 @@ final class PresetBufferPluginInstallationStore {
     /// checks. Legacy profiles may use the exact pinned compatibility package
     /// shipped with the host, keeping existing plugins usable offline.
     func instruction(id: String, mode: String = "default") throws -> String {
+        try package(id: id).instruction(mode: mode)
+    }
+
+    func package(id: String, requireEnabled: Bool = true) throws -> OfficialPluginPackage {
         stateLock.lock()
         defer { stateLock.unlock() }
         guard let entry = catalogEntry(id: id), isInstalledLocked(id: id),
-              entry.defaultInstalled || isOptionalEnabledLocked(id: id) else {
+              !requireEnabled || entry.defaultInstalled || isOptionalEnabledLocked(id: id) else {
             throw PresetBufferPluginInstallationError.notEnabled(id)
         }
         let grandfathered = Set(defaults.stringArray(forKey: DefaultsKey.grandfathered) ?? [])
@@ -463,7 +485,7 @@ final class PresetBufferPluginInstallationStore {
             data, expectedID: entry.id, expectedVersion: entry.version,
             platform: "macos", hostVersion: hostVersion
         )
-        return try package.instruction(mode: mode)
+        return package
     }
 
     /// Remove package content and its authorization, retaining user settings,
@@ -474,8 +496,10 @@ final class PresetBufferPluginInstallationStore {
         guard let entry = catalogEntry(id: id) else {
             throw PresetBufferPluginInstallationError.unknownPlugin(id)
         }
-        guard !entry.defaultInstalled else {
-            throw PresetBufferPluginInstallationError.alreadyBundled(id)
+        if entry.defaultInstalled {
+            var removed = Set(defaults.stringArray(forKey: DefaultsKey.removedBundled) ?? [])
+            removed.insert(id)
+            defaults.set(removed.sorted(), forKey: DefaultsKey.removedBundled)
         }
         let directory = rootURL.appendingPathComponent(id, isDirectory: true)
         guard directory.deletingLastPathComponent().standardizedFileURL == rootURL,

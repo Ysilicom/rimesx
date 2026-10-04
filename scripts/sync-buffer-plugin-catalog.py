@@ -29,21 +29,12 @@ README_START = "<!-- BEGIN PRESET BUFFER PLUGINS -->"
 README_END = "<!-- END PRESET BUFFER PLUGINS -->"
 RELEASE_ASSET_PREFIX = "preset-plugin-"
 
-EXPECTED_IDS = [
-    "builtin.codex-cli",
-    "builtin.claude-code-cli",
-    "builtin.openai-compatible",
-    "builtin.scholay",
-    "builtin.polisher",
-    "builtin.latex",
-    "builtin.apple-translation",
-    "builtin.stream-input",
-    "builtin.music",
-    "builtin.morse",
-]
-OPTIONAL_IDS: set[str] = {"builtin.polisher", "builtin.latex"}
+PINNED_PACKAGES = [json.loads(p.read_bytes()) for p in sorted((ROOT / "OfficialPlugins/plugins").glob("*/plugin.json"))]
+MACOS_PACKAGES = [p for p in PINNED_PACKAGES if "macos" in p["platforms"]]
+EXPECTED_IDS = [p["id"] for p in MACOS_PACKAGES]
+OPTIONAL_IDS = {p["id"] for p in MACOS_PACKAGES if p["platforms"]["macos"]["distribution"] == "download"}
 DEFAULT_INSTALLED_IDS = set(EXPECTED_IDS) - OPTIONAL_IDS
-DEFAULT_ENABLED_IDS = DEFAULT_INSTALLED_IDS
+DEFAULT_ENABLED_IDS = DEFAULT_INSTALLED_IDS - {"builtin.fly-chord-learning"}
 
 ENTRY_KEYS = {
     "id",
@@ -148,22 +139,11 @@ def validate_catalog(catalog: dict[str, Any]) -> list[dict[str, Any]]:
         expected_asset_name = (
             f"{RELEASE_ASSET_PREFIX}{plugin_id}-{version}.json"
         )
-        if value["defaultInstalled"]:
-            if (
-                value["downloadAssetName"] is not None
-                or value["sha256"] is not None
-            ):
-                raise CatalogError(
-                    f"{plugin_id}: bundled plug-ins must not declare a download"
-                )
-        else:
-            if value["downloadAssetName"] != expected_asset_name:
-                raise CatalogError(
-                    f"{plugin_id}: downloadAssetName must be {expected_asset_name}"
-                )
-            digest = value["sha256"]
-            if not isinstance(digest, str) or not SHA256_PATTERN.fullmatch(digest):
-                raise CatalogError(f"{plugin_id}: sha256 must be 64 lowercase hex digits")
+        if value["downloadAssetName"] != expected_asset_name:
+            raise CatalogError(f"{plugin_id}: invalid asset name")
+        digest = value["sha256"]
+        if not isinstance(digest, str) or not SHA256_PATTERN.fullmatch(digest):
+            raise CatalogError(f"{plugin_id}: sha256 must be 64 lowercase hex digits")
 
     if ids != EXPECTED_IDS:
         raise CatalogError(
@@ -206,8 +186,6 @@ def sync_optional_manifests(
 ) -> None:
     expected_directories = set()
     for entry in entries:
-        if entry["defaultInstalled"]:
-            continue
         plugin_id = entry["id"]
         expected_directories.add(plugin_id)
         path = PLUGIN_MANIFEST_ROOT / plugin_id / "manifest.json"
@@ -318,7 +296,7 @@ def render_readme_section(entries: list[dict[str, Any]], language: str) -> str:
     if language == "zh":
         lines = [
             README_START,
-            "## 预置缓冲插件",
+            "## macOS 官方插件",
             "",
             "下表由 [`Catalog/buffer-plugins.json`](Catalog/buffer-plugins.json) 自动生成。更新插件时必须同步更新其版本，并运行 `python3 scripts/sync-buffer-plugin-catalog.py --check`。",
             "",
@@ -347,7 +325,7 @@ def render_readme_section(entries: list[dict[str, Any]], language: str) -> str:
 
     lines = [
         README_START,
-        "## Preset buffer plug-ins",
+        "## Official macOS plug-ins",
         "",
         "This table is generated from [`Catalog/buffer-plugins.json`](Catalog/buffer-plugins.json). Every plug-in update must also update its catalog version and pass `python3 scripts/sync-buffer-plugin-catalog.py --check`.",
         "",
@@ -465,6 +443,19 @@ def sync_release_assets(
 
 def run(*, check: bool) -> None:
     catalog = read_catalog()
+    projected = []
+    for package in MACOS_PACKAGES:
+        entry = {key: package[key] for key in MANIFEST_KEYS if key != "schemaVersion"}
+        entry["producerID"] = {"builtin.codex-cli": "openai", "builtin.claude-code-cli": "anthropic",
+                               "builtin.scholay": "scholay", "builtin.polisher": "scholay", "builtin.latex": "scholay"}.get(package["id"], "official")
+        entry["defaultInstalled"] = package["id"] in DEFAULT_INSTALLED_IDS
+        entry["defaultEnabled"] = package["id"] in DEFAULT_ENABLED_IDS
+        entry["downloadAssetName"] = f"{RELEASE_ASSET_PREFIX}{package['id']}-{package['version']}.json"
+        entry["sha256"] = hashlib.sha256(canonical_json_bytes(manifest_value(entry))).hexdigest()
+        projected.append(entry)
+    catalog["plugins"] = projected
+    if check and read_catalog()["plugins"] != projected:
+        raise CatalogError("host catalog projection differs from pinned official packages")
     entries = validate_catalog(catalog)
     sync_optional_manifests(entries, check=check)
 

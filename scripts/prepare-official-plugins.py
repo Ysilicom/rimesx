@@ -72,17 +72,34 @@ def prepare(root, source, update_lock=False):
         data = safe_path(source, origin).read_bytes()
         imports[destination] = data
         input_names.add(origin)
+    packages = []
+    release_version = (source / "VERSION").read_text().strip()
     for path in sorted((source / "plugins").glob("*/plugin.json")):
         input_names.add(path.relative_to(source).as_posix())
         package = json.loads(path.read_bytes())
         package = {**package, "licenseText": (source / "LICENSE").read_text(),
                    "notice": (source / "NOTICE").read_text()}
+        data = canonical(package)
+        asset = f"preset-plugin-{package['id']}-{package['version']}.json"
+        packages.append({**package, "sha256": digest(data), "downloadAssetName": asset,
+                         "downloadURL": f"https://github.com/scholay/rimes-plugins/releases/download/v{release_version}/{asset}"})
+        imports[f"Shared/Sources/RimesCore/Resources/OfficialPlugins/{asset}"] = data
+        if "android" in package["platforms"]:
+            imports[f"platforms/android/app/src/main/assets/official-plugins/{asset}"] = data
         # Compatibility contents let an existing user retain installed plugins
         # offline after migration. Fresh profiles still require an install receipt.
         if "macos" in package["platforms"]:
             destination = f"Sources/RimeBuffer/Resources/OfficialPlugins/{package['id']}.json"
             safe_path(root, destination)
             imports[destination] = canonical(package)
+    if packages:
+        catalog = {"schemaVersion": 1, "releaseVersion": release_version, "plugins": packages}
+        imports["Shared/Sources/RimesCore/Resources/OfficialPlugins/catalog.json"] = canonical(catalog)
+        for platform, destination in [
+            ("android", "platforms/android/app/src/main/assets/official-plugins/catalog.json"),
+            ("windows", "platforms/windows/native/resources/official-plugin-catalog.json")
+        ]:
+            imports[destination] = canonical({**catalog, "plugins": [p for p in packages if platform in p["platforms"]]})
     inputs = {name: digest(safe_path(source, name).read_bytes()) for name in sorted(input_names)}
     revision = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
     if update_lock:

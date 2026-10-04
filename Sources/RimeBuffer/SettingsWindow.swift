@@ -4115,7 +4115,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         let isActive = mode == .bufferEnablement
             && BufferPluginSelectionStore.shared.activeKey == plugin.descriptor.key
         let status = NSTextField(labelWithString: !plugin.isInstalled
-            ? "未下载" : isActive ? "正在使用" : plugin.isEnabled ? "已启用" : "已停用")
+            ? "未安装" : isActive ? "正在使用" : plugin.isEnabled ? "已启用" : "已停用")
         status.font = .systemFont(ofSize: 9, weight: .medium)
         status.textColor = isActive ? themeStatusColor : RimeUI.textMuted
         status.setContentHuggingPriority(.required, for: .horizontal)
@@ -4153,7 +4153,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
             download.pluginKey = plugin.descriptor.key
             download.isEnabled = !pluginDownloadInProgress
             configureCardIconButton(download, symbol: "arrow.down.circle",
-                                    label: "下载并安装\(plugin.descriptor.name)")
+                                    label: "安装\(plugin.descriptor.name)")
             bottomViews.append(download)
         }
         let bottom = NSStackView(views: bottomViews)
@@ -5273,7 +5273,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
             .first(where: { $0.descriptor.key == sender.pluginKey })?
             .descriptor.name ?? sender.pluginKey.rawID
         setPluginDownloadInProgress(true)
-        refreshPluginList(statusMessage: "正在从 GitHub 下载并校验 \(pluginName)…")
+        refreshPluginList(statusMessage: "正在安装并校验 \(pluginName)…")
         PresetBufferPluginInstallationStore.shared.install(
             id: sender.pluginKey.rawID
         ) { [weak self] result in

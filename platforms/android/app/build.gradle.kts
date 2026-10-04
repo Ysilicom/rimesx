@@ -54,6 +54,8 @@ android {
 }
 dependencies { implementation(project(":core")) }
 
+tasks.named("preBuild") { dependsOn(rootProject.tasks.named("prepareOfficialPlugins")) }
+
 // Generate with scripts/build-engine.py before Gradle; missing resources must fail closed.
 tasks.register("verifyEngineResources", Exec::class) {
     commandLine("python3", "../scripts/verify-engine.py")
