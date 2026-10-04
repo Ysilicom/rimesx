@@ -29,3 +29,5 @@ rime-data/**/build/
 # Python bytecode caches written by running the release and preview tooling
 __pycache__/
 *.pyc
+Shared/build/
+platforms/ios/RIMES.xcodeproj/-Xcc/
