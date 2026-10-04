@@ -1,5 +1,21 @@
 # Third-party notices
 
+## RIMES application license
+
+RIMES-maintained application and packaging code is licensed under Apache-2.0,
+except for separately identified components and resources. See [LICENSE](LICENSE),
+[NOTICE](NOTICE) and [LICENSING.md](LICENSING.md). Earlier MIT grants and the
+original copyright notice are retained in [LICENSES/MIT-legacy.txt](LICENSES/MIT-legacy.txt).
+These project terms do not replace the component licenses below.
+
+## Rime Input Method Engine (librime)
+
+RIMES Chinese input uses [rime/librime](https://github.com/rime/librime),
+licensed under BSD-3-Clause. Copyright (c) 2014, RIME Developers.
+The complete original license is retained in
+[LICENSES/librime-BSD-3-Clause.txt](LICENSES/librime-BSD-3-Clause.txt).
+Use of the engine and attribution do not imply endorsement by the Rime project.
+
 ## AudioKit
 
 The Buffer Music audio graph uses
@@ -98,8 +114,8 @@ repository declares no license; the file list, checksums, redistribution
 status and upstream data provenance are recorded in
 `rime-data/licenses/yoyo-SOURCE.md`.
 
-RIMES-authored application and packaging code remains MIT-licensed. Those MIT
-terms do not replace the licenses above for third-party data.
+The RIMES application license does not replace the licenses above for
+third-party data.
 
 ## GRDB.swift
 

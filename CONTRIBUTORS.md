@@ -2,6 +2,8 @@
 
 ## Maintainers & human contributors
 
+Core maintainer / 核心维护者: [学术海](https://pm.scholay.com) ([GitHub: scholay](https://github.com/scholay)).
+
 - [scholay](https://github.com/scholay)
 - EboneA
 - cuihaiyang
