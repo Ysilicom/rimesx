@@ -404,6 +404,9 @@ final class KeyboardViewController: UIInputViewController {
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        #if DEBUG
+        SharedStorageDeviceSmoke.keyboard(fullAccess: hasFullAccess)
+        #endif
         // Reinstall our own constraint after the remote host has attached us.
         // An unchanged constant alone does not renegotiate a stale host height.
         height.isActive = false

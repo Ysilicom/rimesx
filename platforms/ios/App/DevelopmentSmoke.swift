@@ -6,6 +6,8 @@ import RimesCore
 /// Explicit development diagnostic using the shipped engine and data. No customer content.
 @MainActor enum DevelopmentSmoke {
     static func runIfRequested() async {
+        if ProcessInfo.processInfo.arguments.contains("--shared-storage-prepare") { sharedStorageSmoke(prepare: true) }
+        if ProcessInfo.processInfo.arguments.contains("--shared-storage-verify") { sharedStorageSmoke(prepare: false) }
         if ProcessInfo.processInfo.arguments.contains("--typing-card-smoke") { await typingCardSmoke() }
         if ProcessInfo.processInfo.arguments.contains("--layout-config-backup") { backupLayoutConfiguration() }
         if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "--layout-import-smoke"),
@@ -46,6 +48,15 @@ import RimesCore
             let url = FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0].appendingPathComponent("development-smoke.json")
             try JSONSerialization.data(withJSONObject:report,options:[.prettyPrinted,.sortedKeys]).write(to:url,options:.atomic)
         } catch { assertionFailure("Could not write smoke report") }
+    }
+    private static func sharedStorageSmoke(prepare: Bool) {
+        var report: [String: Any]
+        do {
+            if prepare { try SharedStorageDeviceSmoke.prepare(); report = ["prepared": true] }
+            else { report = try SharedStorageDeviceSmoke.verify() }
+        } catch { report = ["allPassed": false, "error": error.localizedDescription] }
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("shared-storage-smoke.json")
+        try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)
     }
     private static func typingCardSmoke() async {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]

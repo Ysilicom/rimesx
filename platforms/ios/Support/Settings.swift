@@ -101,3 +101,64 @@ final class KeyboardPreferenceStore {
         if let data = try? JSONEncoder().encode(value) { defaults.set(data, forKey: "keyboard-preferences-v1") }
     }
 }
+
+#if DEBUG
+/// Opt-in physical-device probe. Only random synthetic values are exchanged;
+/// no provider configuration, existing credentials, or user text is touched.
+enum SharedStorageDeviceSmoke {
+    private struct Request: Codable {
+        let nonce: UUID, appKey: UUID, keyboardKey: UUID
+        let created: Date
+    }
+    private struct Receipt: Codable {
+        let nonce: UUID
+        let keyRead: Bool, keyWrite: Bool, fullAccess: Bool
+        let bundle: String
+    }
+    private static var root: URL? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: ConfigurationStore.groupID)
+    }
+    private static let requestName = "development-shared-storage-request.json"
+    private static let receiptName = "development-shared-storage-receipt.json"
+    private static func cleanup(_ request: Request, root: URL) {
+        try? KeychainStore().delete(request.appKey)
+        try? KeychainStore().delete(request.keyboardKey)
+        try? FileManager.default.removeItem(at: root.appendingPathComponent(requestName))
+        try? FileManager.default.removeItem(at: root.appendingPathComponent(receiptName))
+    }
+    static func prepare() throws {
+        guard let root else { throw NSError(domain: "SharedStorageDeviceSmoke", code: 1) }
+        if let data = try? Data(contentsOf: root.appendingPathComponent(requestName)),
+           let old = try? JSONDecoder().decode(Request.self, from: data) { cleanup(old, root: root) }
+        let request = Request(nonce: UUID(), appKey: UUID(), keyboardKey: UUID(), created: Date())
+        try KeychainStore().save(request.nonce.uuidString, id: request.appKey)
+        do {
+            try JSONEncoder().encode(request).write(to: root.appendingPathComponent(requestName), options: [.atomic, .completeFileProtection])
+        } catch { cleanup(request, root: root); throw error }
+    }
+    static func keyboard(fullAccess: Bool) {
+        guard let root, let data = try? Data(contentsOf: root.appendingPathComponent(requestName)),
+              let request = try? JSONDecoder().decode(Request.self, from: data),
+              (0...600).contains(Date().timeIntervalSince(request.created)) else { return }
+        let read = (try? KeychainStore().read(request.appKey)) == request.nonce.uuidString
+        let write: Bool
+        do { try KeychainStore().save(request.nonce.uuidString + "-keyboard", id: request.keyboardKey); write = true }
+        catch { write = false }
+        let receipt = Receipt(nonce: request.nonce, keyRead: read, keyWrite: write, fullAccess: fullAccess,
+                              bundle: Bundle.main.bundleIdentifier ?? "")
+        try? JSONEncoder().encode(receipt).write(to: root.appendingPathComponent(receiptName), options: [.atomic, .completeFileProtection])
+    }
+    static func verify() throws -> [String: Any] {
+        guard let root else { throw NSError(domain: "SharedStorageDeviceSmoke", code: 1) }
+        let request = try JSONDecoder().decode(Request.self, from: Data(contentsOf: root.appendingPathComponent(requestName)))
+        defer { cleanup(request, root: root) }
+        let receipt = try JSONDecoder().decode(Receipt.self, from: Data(contentsOf: root.appendingPathComponent(receiptName)))
+        let readBack = try KeychainStore().read(request.keyboardKey) == request.nonce.uuidString + "-keyboard"
+        let identity = receipt.nonce == request.nonce && receipt.bundle == "org.scholay.rimes.ios.keyboard"
+        return ["allPassed": identity && receipt.keyRead && receipt.keyWrite && readBack,
+                "appGroupRoundTrip": identity, "keyboardReadAppKey": receipt.keyRead,
+                "appReadKeyboardKey": readBack, "fullAccess": receipt.fullAccess,
+                "keyboardBundle": receipt.bundle, "environment": "signed physical app and keyboard extension"]
+    }
+}
+#endif
