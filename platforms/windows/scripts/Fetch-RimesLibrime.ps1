@@ -33,7 +33,7 @@ function Find-RimesSevenZip {
     if ($null -ne $command) {
         return $command.Source
     }
-    throw '7-Zip is required to extract the pinned librime MSVC archive. Install 7-Zip or add 7z.exe to PATH.'
+    return $null
 }
 
 if ([string]::IsNullOrWhiteSpace($LockPath)) {
@@ -91,9 +91,17 @@ if (Test-Path -LiteralPath $extractRoot) {
 }
 New-Item -ItemType Directory -Path $extractRoot -Force | Out-Null
 $sevenZip = Find-RimesSevenZip
-$extractOutput = @(& $sevenZip @('x', '-y', "-o$extractRoot", $archivePath) 2>&1)
+if ($sevenZip) {
+    $extractOutput = @(& $sevenZip @('x', '-y', "-o$extractRoot", $archivePath) 2>&1)
+} else {
+    # Windows' bundled libarchive tar can extract the checksum-verified 7z.
+    # This keeps local acceptance usable without a separate 7-Zip install.
+    $tar = Get-Command tar.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $tar) { throw 'Install 7-Zip or provide Windows tar.exe to extract librime.' }
+    $extractOutput = @(& $tar.Source @('-xf', $archivePath, '-C', $extractRoot) 2>&1)
+}
 if ($LASTEXITCODE -ne 0) {
-    throw "7-Zip extraction failed: $($extractOutput -join ' ')"
+    throw "Pinned librime extraction failed: $($extractOutput -join ' ')"
 }
 
 $dllRelative = [string]$artifact.dllRelativePath
