@@ -45,6 +45,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Test native shared-data staging
+        shell: pwsh
+        run: |
+          python -m unittest discover -s platforms/windows/tests -p test_native_data.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Run static checks, build, and CTest
         shell: pwsh
         run: |

@@ -13,18 +13,21 @@
 
 ## 代码边界
 
+2026-09-29 起按 [平台路线图](PLATFORM-ROADMAP.md) 开发：Windows 对标 macOS、Android 对标
+iOS，Linux 收敛到现有功能维护。构建与实机验收分别记录。
+
 | 范围 | 维护入口 | 验证责任 |
 |---|---|---|
 | macOS | `Sources/`、`Package.swift` | IMK 焦点/投递/保护态、原生 UI、升级安装 |
 | iOS | `platforms/ios/` | App 与键盘扩展、Full Access、设备与 App Store |
-| Android | `platforms/android/`（当前独立工作区） | 原生 IME、正式身份与签名、设备与迁移 |
 | 共享 Swift 逻辑 | `Shared/` | 共享单测 + macOS/iOS 受影响路径 |
 | Windows | `platforms/windows/native/` | TSF/Broker、x64/x86、真实 Windows 宿主 |
+| Android | `platforms/android/` | App/IME、InputConnection、JVM 测试、APK 与真机 |
 | Linux | `platforms/linux/` | Fcitx5、Buffer/Capsule、X11/Wayland 真实桌面 |
 | 共享词库/配置 | `rime-data/`、`chord-keymaps/`、`Catalog/` | 目录生成检查、数据闭包及受影响平台 |
 | 设计与宣传 | `DesignSystem/`、`platforms/ios/AppStore/promo-video/` | 单独提交；界面原型/宣传画面不冒充产品验收 |
 
-Windows/Linux 的 C++ 适配层不直接共享 Swift 实现；用行为规范、数据格式和测试样例对齐。
+Windows/Linux 的 C++ 与 Android 的 Java 适配层不直接共享 Swift 实现；用行为规范、数据格式和测试样例对齐。
 平台安全边界仍由各自宿主负责；macOS 的 `Delivery.insert`、用户词库隔离等约束不因整合改变。
 
 ## 版本与构建

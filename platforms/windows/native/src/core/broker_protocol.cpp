@@ -252,8 +252,11 @@ bool EncodeHelloPayload(std::uint32_t process_id,
     SetError(error, "payload output is null");
     return false;
   }
-  if (process_id == 0 || session_id == 0 || label.empty()) {
-    SetError(error, "hello identity fields must not be empty or zero");
+  // Windows Session 0 is valid for explicitly enabled automation. Endpoint
+  // policy and verified pipe identities decide whether it may connect; this
+  // OS identifier is distinct from a non-zero Rime input-session handle.
+  if (process_id == 0 || label.empty()) {
+    SetError(error, "hello process ID and label must not be zero or empty");
     return false;
   }
   if (!ValidateText(label, maximum_label_bytes, field_name, error)) {
@@ -292,8 +295,8 @@ bool DecodeHelloPayload(std::span<const std::byte> payload,
     SetError(error, "hello DTO has trailing bytes");
     return false;
   }
-  if (*process_id == 0 || *session_id == 0 || label->empty()) {
-    SetError(error, "hello identity fields must not be empty or zero");
+  if (*process_id == 0 || label->empty()) {
+    SetError(error, "hello process ID and label must not be zero or empty");
     return false;
   }
   return true;

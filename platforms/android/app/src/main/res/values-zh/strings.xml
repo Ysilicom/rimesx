@@ -1,0 +1,27 @@
+<resources>
+    <string name="app_name">RIMES 开发版</string>
+    <string name="english_keyboard">中文 / 英文</string>
+    <string name="privacy">输入留在本机。关闭键盘或切换输入框时清除 Buffer 草稿；密码框和私密输入框禁用 Buffer。</string>
+    <string name="try_typing">在此试打</string>
+    <string name="second_field">第二个输入框：测试切换目标</string>
+    <string name="password_field">密码框：Buffer 应保持关闭</string>
+    <string name="buffer_on">Buffer 开</string>
+    <string name="buffer_off">Buffer 关</string>
+    <string name="buffer_empty">先编写，再插入</string>
+    <string name="insert_next">插入</string>
+    <string name="insert_all">全部插入</string>
+    <string name="clear">清空</string>
+    <string name="backspace">删除</string>
+    <string name="space">空格</string>
+    <string name="enter">回车</string>
+    <string name="switch_keyboard">切换键盘</string>
+    <string name="buffer_limit">Buffer 已满，请先插入或清空。</string>
+    <string name="learning">本机词库学习</string>
+    <string name="learning_detail">选词可改善本机词库。关闭学习保留已有数据，私密字段始终不学习，不保存完整输入历史。</string>
+    <string name="private_field">私密输入框：不学习、禁用 Buffer</string>
+    <string name="engine_loading">中文准备中，仍可输入英文</string>
+    <string name="engine_failed">中文暂不可用，点重试；仍可输入英文</string>
+    <string name="delivery_pending">文字已保留，请腾出 Buffer 空间或重试插入</string>
+    <string name="retry">重试</string>
+</resources>
+

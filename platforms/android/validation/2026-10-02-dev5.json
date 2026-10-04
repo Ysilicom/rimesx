@@ -1,0 +1,660 @@
+{
+  "format_version": 1,
+  "date": "2026-10-02",
+  "version": "0.1.0-dev.5",
+  "versionCode": 5,
+  "package": "org.scholay.rimes.android.debug",
+  "min_sdk": 26,
+  "branch": "codex/android-chinese-input",
+  "status": "local_delivery_verified",
+  "application_source": "58f7395c0dfd603acf0d5ee3c8adee4c1177f7ae",
+  "artifact": {
+    "status": "verified",
+    "apk_name": "RIMES-Android-0.1.0-dev.5-58f7395.apk",
+    "sha256": "5dcdde5688200bd5cea520f0630ec1dc3169b61c4e01a643f01c216720139da6",
+    "size": 12981212,
+    "installed_apk_matches": true
+  },
+  "publication": {
+    "pushed": false,
+    "published": false,
+    "hosted_ci_run_claimed": false
+  },
+  "prior_reports": [
+    "2026-10-02.md",
+    "2026-10-02.json",
+    "2026-10-01.md"
+  ],
+  "evidence_directory": ".build/android-dev5-validation/",
+  "geometry": {
+    "ios_reference": "Read-only main-working-tree snapshot inspected 2026-10-02; not an iOS release or cross-platform pixel-diff assertion.",
+    "source_sha256": {
+      "platforms/ios/Support/StandardKeyboardGeometry.swift": "5f6ecd95877276cb70e990f9f5c97ec401b45e1ff0f2fdc1b45bb12bf8a01ebe",
+      "platforms/ios/Keyboard/KeyboardGeometry.swift": "2a0c4b9174893ec6e02df94b348a1eb65cfd0267f991f4c7d444caa17fd247e1",
+      "platforms/ios/Keyboard/KeyboardViewController.swift": "1e3a3bd8d90eade6f5342d95fcf1c65e20f1a3416696f9881b5aa95cecbe44cb",
+      "platforms/ios/Support/KeyboardTheme.swift": "7025a8b93c258770e26e8b913305ddb51d85cfd854d4707a38e7f62fa04cf25f",
+      "platforms/ios/Keyboard/CandidateStrip.swift": "552f570b6d153207be635a49b1df769f769a9ca82f49fe9ef073fd92795d926b",
+      "platforms/ios/Support/BufferPlugins.swift": "52317c3575e042b4991a53542c845928e147c2a7709892b7725c05516a8b1eaf"
+    },
+    "standard_surface_height_dp": {
+      "portrait": 206,
+      "landscape": 143
+    },
+    "column_gap_dp": {
+      "portrait": 6,
+      "landscape": 5
+    },
+    "row_gap_dp": {
+      "portrait": 10,
+      "landscape": 5
+    },
+    "buffer_height_dp": {
+      "portrait": 76,
+      "landscape": 60
+    },
+    "buffer_before_candidate": true,
+    "candidate_row_dp": 32,
+    "spelling_row_dp": 34,
+    "outer_padding_dp": 5,
+    "chord_split_gap_dp": 12,
+    "chord_max_grid_width_dp": 480,
+    "palettes": 18,
+    "cross_platform_pixel_diff_pass": false,
+    "screenshot_gallery": "gallery/index.html",
+    "android_screen_pixels": [
+      1220,
+      2656
+    ],
+    "android_density": 3.25,
+    "ios_reference_screen_pixels": [
+      1206,
+      2622
+    ],
+    "ios_reference_scale": 3,
+    "chord_split_space_drag_editing": false,
+    "return_cap_state_binding": true,
+    "idle_candidate_content": [
+      "翻译",
+      "快问",
+      "润色",
+      "作诗",
+      "画画"
+    ],
+    "plugin_chip_dp": [
+      68,
+      30
+    ],
+    "plugin_gap_dp": 6,
+    "plugin_source_output_rows_match_ios": true,
+    "plugin_execution": "deferred; explicit unavailable state; raw source not sent as result",
+    "native_gesture_retirement": true
+  },
+  "automated": {
+    "jvm": {
+      "status": "passed",
+      "tests": 29,
+      "failures": 0,
+      "errors": 0
+    },
+    "build": {
+      "status": "passed",
+      "log": "gradle-touch-retirement.log",
+      "apk_and_both_test_apks": true,
+      "logs": [
+        "gradle-final.log",
+        "gradle-palette-final.log",
+        "gradle-plugin-icons.log",
+        "gradle-touch-retirement.log",
+        "gradle-touch-fixtures.log",
+        "gradle-touch-app-final.log",
+        "gradle-touch-host-final.log"
+      ]
+    },
+    "lint": {
+      "app": {
+        "errors": 0,
+        "warnings": 12
+      },
+      "testhost": {
+        "errors": 0,
+        "warnings": 5
+      },
+      "new_warnings_suppressed": false
+    },
+    "resources": {
+      "status": "passed",
+      "hashed_files": 20,
+      "phone_compilation": false,
+      "phone_download": false,
+      "repository_mit_notice": "RIMES-MIT.txt",
+      "packaged_license_count": 13,
+      "icon_hashes": "25 original SVG + 25 exact converted vector bytes + complete license"
+    },
+    "chord_fixture": {
+      "mappings": 427,
+      "encoding_matches_frozen_ios_fixture": true,
+      "directional_slide_routes": 9
+    },
+    "x86_64_native": {
+      "status": "passed",
+      "shared_library_load": true,
+      "four_schemas": true,
+      "persistent_learning": true,
+      "private_learning_preservation": true,
+      "log": "x86-native.log"
+    },
+    "elf_alignment": {
+      "status": "passed",
+      "abis": [
+        "arm64-v8a",
+        "x86_64"
+      ],
+      "load_alignment_bytes": 16384
+    },
+    "final_apk_alignment": {
+      "status": "passed",
+      "page_alignment_bytes": 16384,
+      "log": "zipalign-touch-final.log"
+    },
+    "jni_rendering": {
+      "status": "passed",
+      "log": "jni-touch-final.log",
+      "chinese_non_bmp_nul_round_trip": true,
+      "utf16_caret": true,
+      "nine_key_normal_private": true,
+      "platform_editor_privacy": true,
+      "chord_surface_checks": 23,
+      "chord_readout_retirement": true,
+      "vector_icon_checks": 840,
+      "native_touch_checks": 18
+    },
+    "buffer_rendering": {
+      "status": "passed",
+      "draw_checks": 24,
+      "capacity_blocks": 16384,
+      "capacity_fixture": "Repeated synthetic single-character confirmed blocks",
+      "visible_chips_at_last_measured_viewport": 12,
+      "confirmed_text_measurements": 1,
+      "confirmed_remeasured_during_composition": false,
+      "last_viewport_glyph_pixels": 5022,
+      "composition_render_iterations": 1000,
+      "elapsed_ms": 441.069218,
+      "scope": "Main-thread render/measure and software bitmap draw on the phone; not hardware frame presentation or a repeated-run distribution."
+    }
+  },
+  "physical_device": {
+    "android": 16,
+    "api": 36,
+    "model": "25098PN5AC",
+    "abi": "arm64-v8a",
+    "page_size": 4096,
+    "navigation": "three_button",
+    "chord_contract": {
+      "status": "passed",
+      "assertions": 117,
+      "log": "chord-touch-final.log",
+      "real_multitouch_injection": true
+    },
+    "native_webview_contract": {
+      "status": "passed",
+      "assertions": 335,
+      "log": "input-contract-touch-final.log",
+      "oem_secure_password_case": "skipped"
+    },
+    "ui_benchmark": {
+      "status": "passed",
+      "assertions": 787,
+      "log": "optimized-ui-touch-final.log"
+    },
+    "latest_layout_contract": {
+      "status": "passed",
+      "dark_assertions": 395,
+      "light_large_assertions": 395,
+      "light_font_scale": 1.3,
+      "logs": [
+        "layout-touch-dark.log",
+        "layout-icons-light-large.log"
+      ],
+      "dark_source_commit": "58f7395c0dfd603acf0d5ee3c8adee4c1177f7ae",
+      "light_large_source_commit": "5953b96"
+    },
+    "soak": {
+      "status": "passed",
+      "duration_seconds": 1802,
+      "cycles": 602,
+      "assertions": 11445,
+      "log": "soak-touch-final.log",
+      "phone_shell_exit_code": 0,
+      "mixed_chords": true
+    },
+    "final_crash_log_check": {
+      "status": "passed",
+      "since_local": "2026-10-02 22:58:17.000",
+      "crash_buffer_events_since_start": 0,
+      "fatal_or_anr_markers_in_retained_main_system_interval": 0,
+      "crash_anr_exit_records_since_start": 0,
+      "rimes_pid_unchanged_across_soak": true,
+      "exit_records_since_start": {
+        "rimes": [],
+        "host": [
+          {
+            "timestamp": "2026-10-02 23:28:22.775",
+            "process": "com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0",
+            "reason": 13,
+            "reason_name": "OTHER KILLS BY SYSTEM"
+          },
+          {
+            "timestamp": "2026-10-02 23:28:22.765",
+            "process": "org.scholay.rimes.testhost",
+            "reason": 10,
+            "reason_name": "USER REQUESTED"
+          }
+        ]
+      },
+      "main_system_oldest_retained": "2026-10-02 23:16:34.051",
+      "main_system_log_is_partial_ring_buffer": true,
+      "crash_buffer_retains_records_before_start": true,
+      "note": "Full soak completed with the same RIMES process. Main/system ring buffers do not retain its whole interval; separate crash-buffer and ApplicationExitInfo readbacks supplement the retained log. The host finished instrumentation normally; its WebView isolated process was released by the system.",
+      "logs": [
+        "logcat-touch-final-interval.log",
+        "logcat-touch-post-restoration-crash-buffer.log",
+        "exit-info-touch-post-restoration-rimes.log",
+        "exit-info-touch-post-restoration-host.log",
+        "meminfo-touch-soak-before.txt",
+        "meminfo-touch-soak-after.txt"
+      ]
+    },
+    "restoration": {
+      "status": "passed",
+      "before_file": "device-before.json",
+      "after_file": "device-after.json",
+      "settings_equal": true,
+      "settings_count": 6,
+      "final_mutations_needed": [],
+      "original_default_ime_restored": true,
+      "sessions_closed": true,
+      "synthetic_setup_text_and_buffer_cleared": true,
+      "synthetic_search_query_cleared": true,
+      "existing_search_history_not_cleared": true
+    },
+    "chord_light_large_contract": {
+      "status": "passed",
+      "assertions": 117,
+      "log": "chord-icons-light-large.log",
+      "font_scale": 1.3,
+      "source_commit": "5953b96"
+    },
+    "plugin_contract": {
+      "status": "passed",
+      "assertions": 226,
+      "log": "plugins-touch-final.log",
+      "preserves_source": true,
+      "blocks_unexecuted_source_send": true,
+      "target_and_private_guards": true
+    },
+    "manual_setup": {
+      "status": "passed",
+      "application_source": "58f7395c0dfd603acf0d5ee3c8adee4c1177f7ae",
+      "setup_direct_input": "nihao → 你好, committed once; synthetic host text removed",
+      "setup_plugin_buffer": "Translation idle entry selects plugin; nihao → 你好 stays in lower Buffer source row; host empty; upper output explicitly unavailable; Send disabled",
+      "plugin_settings_return": "Opened plugin settings and returned to keyboard",
+      "orthogonal_first_presentation": "Hide then refocus: orthogonal grid, footer and idle shortcuts visibly aligned; restored QWERTY afterward",
+      "system_settings_search": "RIMES composing text ni hao replaced with 你好 by Space; idle plugin entries reappear",
+      "cleanup": "Synthetic Setup text/Buffer and Settings query cleared; existing Settings history preserved",
+      "screenshots": [
+        "setup-typing-touch-final.png",
+        "setup-plugin-touch-final.png",
+        "system-search-touch-final.png",
+        "setup-chord-first-show-touch-final.png"
+      ],
+      "input_method": "Existing RIMES IME; actual keyboard button taps, no helper text IME"
+    },
+    "ordinary_touch_contract": {
+      "status": "passed",
+      "assertions": 90,
+      "log": "ordinary-touch-final.log",
+      "stable_observation_ms": 600,
+      "actual_ime_window_hidden_wait": true,
+      "held_key_target_selection_hide_retirement": true
+    },
+    "interrupted_development_soaks": [
+      {
+        "source_commit": "5953b96",
+        "seconds_observed": 1694,
+        "cycles": 566,
+        "assertions": 10761,
+        "log": "soak-before-native-touch-retirement.log",
+        "reason": "Explicit host force-stop for ordinary native touch fix; not a soak pass."
+      }
+    ]
+  },
+  "benchmark": {
+    "baseline_version": "0.1.0-dev.4",
+    "optimized_version": "0.1.0-dev.5",
+    "unit": "ms",
+    "ui": {
+      "scope": "accessibility ACTION_CLICK request to actual host TextWatcher; includes IPC/scheduling; no touch hardware or frame presentation",
+      "warmup": 5,
+      "samples_per_metric": 60,
+      "metrics": {
+        "first_key_ms": {
+          "baseline": {
+            "samples": 60,
+            "mean": 14.921129383333334,
+            "p50": 14.573437,
+            "p95": 23.117344,
+            "max": 24.593854
+          },
+          "optimized": {
+            "samples": 60,
+            "mean": 14.177940966666666,
+            "p50": 13.735834,
+            "p95": 22.682656,
+            "max": 25.043698
+          },
+          "observed_p95_reduction_percent": 1.8803544213383587
+        },
+        "candidate_commit_ms": {
+          "baseline": {
+            "samples": 60,
+            "mean": 11.3386171,
+            "p50": 11.611407,
+            "p95": 15.55625,
+            "max": 16.515885
+          },
+          "optimized": {
+            "samples": 60,
+            "mean": 10.385454,
+            "p50": 10.372656,
+            "p95": 14.346355,
+            "max": 16.785053
+          },
+          "observed_p95_reduction_percent": 7.777549216552829
+        }
+      },
+      "interpretation": "Final APK one-run comparison; five dev.5 runs span first-key p95 18.436–24.039 ms and candidate p95 14.346–15.197 ms. No stable speedup or hardware touch-to-display claim; IPC, scheduling, caches and thermal state vary.",
+      "full_metrics_files": [
+        "baseline-ui.json",
+        "optimized-ui.json"
+      ],
+      "source_commit": "58f7395c0dfd603acf0d5ee3c8adee4c1177f7ae",
+      "apk_sha256": "5dcdde5688200bd5cea520f0630ec1dc3169b61c4e01a643f01c216720139da6",
+      "additional_development_runs": [
+        {
+          "stage": "before_return_cap_state_binding",
+          "first_key_p95_ms": 18.43599,
+          "candidate_commit_p95_ms": 14.69026,
+          "json": "optimized-ui-before-state-feedback.json"
+        },
+        {
+          "stage": "before_palette_cache",
+          "source_commit": "58527b9",
+          "first_key_p95_ms": 24.039323,
+          "candidate_commit_p95_ms": 14.89849,
+          "json": "optimized-ui-before-palette-cache.json"
+        },
+        {
+          "stage": "before_idle_plugins_and_vector_icons",
+          "source_commit": "f2311f4",
+          "first_key_p95_ms": 21.113542,
+          "candidate_commit_p95_ms": 14.5875,
+          "json": "optimized-ui-before-plugin-icons.json"
+        },
+        {
+          "stage": "before_native_touch_retirement",
+          "source_commit": "5953b96",
+          "first_key_p95_ms": 21.862761,
+          "candidate_commit_p95_ms": 15.197292,
+          "json": "optimized-ui-before-touch-retirement.json"
+        }
+      ]
+    },
+    "engine": {
+      "scope": "Real packaged JNI and process-wide serial EngineWorker. Private schemas. No main-thread rendering, touch dispatch, InputConnection, host text or learning-enabled latency.",
+      "learning_enabled": false,
+      "synthetic_data_only": true,
+      "native_scope": "Worker execution time including JNI immutable snapshot construction.",
+      "serial_scope": "Submission through worker execution and Future.get wakeup on instrumentation thread; not UI latency.",
+      "startup_samples_per_version": 1,
+      "first_pinyin_session_ms": {
+        "baseline": 17.088281,
+        "optimized": 6.57323
+      },
+      "startup_interpretation": "Existing offline-resource version in fresh target processes. ready_total is resource/library/runtime bootstrap; schema/dictionary loading is deferred to first session/schema. Not first-install extraction, keyboard readiness or UI latency.",
+      "profiles": [
+        {
+          "name": "pinyin",
+          "schema": "rimes_pinyin_private",
+          "input": "nihao",
+          "expected": "你好",
+          "warmup_phrases": 20,
+          "measured_phrases": 200,
+          "successful_commits": 200,
+          "key_native_snapshot_p95_ms": {
+            "baseline": 0.102969,
+            "optimized": 0.073386
+          },
+          "measured_keys": 1000,
+          "key_serial_round_trip_p95_ms": {
+            "baseline": 0.282969,
+            "optimized": 0.121979
+          },
+          "candidate_select_native_snapshot_p95_ms": {
+            "baseline": 0.036302,
+            "optimized": 0.021406
+          }
+        },
+        {
+          "name": "natural_code",
+          "schema": "rimes_ziranma_private",
+          "input": "nihk",
+          "expected": "你好",
+          "warmup_phrases": 20,
+          "measured_phrases": 200,
+          "successful_commits": 200,
+          "key_native_snapshot_p95_ms": {
+            "baseline": 0.321563,
+            "optimized": 0.234375
+          },
+          "measured_keys": 800,
+          "key_serial_round_trip_p95_ms": {
+            "baseline": 0.368281,
+            "optimized": 0.288907
+          },
+          "candidate_select_native_snapshot_p95_ms": {
+            "baseline": 0.028125,
+            "optimized": 0.022709
+          }
+        },
+        {
+          "name": "wubi",
+          "schema": "rimes_wubi_private",
+          "input": "wq",
+          "expected": "你",
+          "warmup_phrases": 20,
+          "measured_phrases": 200,
+          "successful_commits": 200,
+          "key_native_snapshot_p95_ms": {
+            "baseline": 0.07724,
+            "optimized": 0.126354
+          },
+          "measured_keys": 400,
+          "key_serial_round_trip_p95_ms": {
+            "baseline": 0.165312,
+            "optimized": 0.201875
+          },
+          "candidate_select_native_snapshot_p95_ms": {
+            "baseline": 0.024167,
+            "optimized": 0.035781
+          }
+        },
+        {
+          "name": "nine_key_pinyin",
+          "schema": "rimes_pinyin9_private",
+          "input": "64426",
+          "expected": "你好",
+          "warmup_phrases": 20,
+          "measured_phrases": 200,
+          "successful_commits": 200,
+          "key_native_snapshot_p95_ms": {
+            "baseline": 0.220416,
+            "optimized": 0.23401
+          },
+          "measured_keys": 1000,
+          "key_serial_round_trip_p95_ms": {
+            "baseline": 0.296614,
+            "optimized": 0.32875
+          },
+          "candidate_select_native_snapshot_p95_ms": {
+            "baseline": 0.049791,
+            "optimized": 0.053802
+          }
+        }
+      ],
+      "interpretation": "Native timings move in both directions; no uniform engine acceleration is claimed.",
+      "startup_ms": {
+        "resource_prepare_worker": {
+          "baseline": 58.974062,
+          "optimized": 33.339948
+        },
+        "library_load_and_construct_worker": {
+          "baseline": 7.172031,
+          "optimized": 3.05099
+        },
+        "native_initialize_worker": {
+          "baseline": 0.080156,
+          "optimized": 0.075833
+        },
+        "ready_total": {
+          "baseline": 69.229531,
+          "optimized": 37.124844
+        }
+      },
+      "existing_resource_version_directory": true,
+      "full_metrics_files": [
+        "baseline-engine.json",
+        "optimized-engine.json"
+      ],
+      "optimized_snapshot_source_commit": "6f4b9326a890ccaf6d2f13985d56445d2085e7ef",
+      "optimized_snapshot_apk_sha256": "1979a9d907201ed1b69ed9c1f863dd8017cbd6c111d641b2ab6639e8fda10c34",
+      "final_apk_rerun": false,
+      "source_interpretation": "Earlier dev.5 engine benchmark snapshot, before Return-state/palette/plugin/icon revisions. Both packaged ABI libraries are byte-identical through final 58f7395; EngineWorker, NativeRimeEngine and EngineBenchmark sources are unchanged. Same-engine reference, not a final-APK UI rerun."
+    }
+  },
+  "upgrade": {
+    "observed_preserved_file_hashes": 18,
+    "same_hash_entries_before_after": true,
+    "scope": "Quiesced install-r comparison on first dev.4 to dev.5 upgrade; later test actions intentionally update layout/schema/theme preferences and learning data."
+  },
+  "remaining_coverage": [
+    "Older Android and other manufacturers",
+    "Gesture navigation and screen-reader usability",
+    "Fonts above 1.3x",
+    "x86_64 emulator UI",
+    "Actual 16 KB runtime",
+    "Cross-platform screenshot pixel-diff acceptance",
+    "Full Buffer editing, custom layout imports, AI, translation, animated pets and general long-press/ordinary swipe gestures"
+  ],
+  "evidence_sha256": {
+    "gradle-touch-retirement.log": "0fe086398ef48c7a379b625c09c09d02ba97e0280d45af87e08a8c3ed688b817",
+    "gradle-touch-fixtures.log": "c0fafd26d687eda9db28ee9b1076703d0b07f2630c8e6c45bfc091c0292fe46e",
+    "gradle-touch-app-final.log": "bd46092d9f4f16e31de7d9e8ad43076e47e645e9e71dbef3c52879c2e03b00fc",
+    "gradle-touch-host-final.log": "286cc096e687e709920ec3e9d272bd911a6f2500b60c9b5916e4cfb16cc8c492",
+    "verify-engine-touch-final.log": "36d76a32e22d8e3432b79a405b819fe5c664f90b6a5924b3b5b2384cc54482f2",
+    "zipalign-touch-final.log": "2e584b608cb98fc61f7a2110539a635e2848bc2f3d379a9b1c3a05ada6f8440e",
+    "jni-touch-final.log": "2c3699a0236be4dad8df24b6d1f862653915240690cebf25615d46bafb03469e",
+    "ordinary-touch-final.log": "624d834a40c078f86ac6ec237b0528ec6d7d833ceef4ec046a198af190a8ceec",
+    "input-contract-touch-final.log": "c54c0159042e95e8db32f9256ce8b9f8d86efca23e5dfb605e9800c9ae930c9f",
+    "chord-touch-final.log": "e7bf6c49c0895e575bb9e298ddcc10752e32b96e605d6cb6d395662f1e66bfd1",
+    "plugins-touch-final.log": "4962929d0cc3a87b956549f8086adc46a7371bab73e031a64336da6c30961f18",
+    "layout-touch-dark.log": "69a590fac9335bee30c16561e3798cf176bbd5c4d71820aaf1b9091ef9b61adc",
+    "layout-icons-light-large.log": "69a590fac9335bee30c16561e3798cf176bbd5c4d71820aaf1b9091ef9b61adc",
+    "chord-icons-light-large.log": "e7bf6c49c0895e575bb9e298ddcc10752e32b96e605d6cb6d395662f1e66bfd1",
+    "x86-native.log": "015326a807b8d99ac5c1de8ae7b9efd93270915136f75902aee11a656754cf0e",
+    "jvm-final.json": "4c778bd343cf915b4431b3ba6ad44381bee2b251aad531a24b0b2e48e159093c",
+    "baseline-ui.json": "6a33820bfbc20f8ecb1574c9757a8957c13e2d3bd7decddd6d3df8092822c300",
+    "optimized-ui.json": "efc38db6994a61b60c832f5819f41ce2be59e99bc7249482e13c4d260d141bbc",
+    "baseline-engine.json": "2b3ccf926404894299df202f98fb88f3c255165547316411a43dc2c3f78b085d",
+    "optimized-engine.json": "0fd5392f2e19cf1e7e390ef6cf1d95366f5f3bde1766550eb8392315aeff314c",
+    "optimized-ui-before-state-feedback.json": "2e7717e52da70500362962b91814d2683e8513f7bcaca3129abd8ba5fa58dfac",
+    "optimized-ui-before-palette-cache.json": "702d96047fc681014bfcaafbc10e22f45fef910abaeddd55917e98c8e5068477",
+    "optimized-ui-before-plugin-icons.json": "7dcd272dfd9dc24149850830fef1da13a1acd557a2138ca54a79ad4538a46a91",
+    "optimized-ui-before-touch-retirement.json": "47f7bba8c1dec2a2da948de67a5400d2117bd9fc744c3532594b8840f3c4c965",
+    "upgrade-before.txt": "ad94b84d39021309ef745da80909bad56f2f0ceea66753a46b7c8937c030c6e1",
+    "upgrade-after.txt": "ad94b84d39021309ef745da80909bad56f2f0ceea66753a46b7c8937c030c6e1",
+    "touch-source-snapshot.json": "5d736102b301999280315505252f2b11001cc81bec0f37c53c97e32a781bcd13",
+    "gallery/screenshots.json": "57df740e12766d22d5b31a8a9372d8ee448e71c0c3e904c19541ab20297e9bb5",
+    "gallery/index.html": "4b75eac5e1e81cde3ccd70c2d24d8fde22944f94c61fa6cbbe2046dd8869ff9e",
+    "soak-touch-final.log": "4116c9036aa8290c8b49bcf51255dd84ffbaea474c2fb505f0a68dade19b2c39",
+    "soak-launch.json": "83be64abb04e570895fd31351996f53654febff86f4593f8e0114db99e12aba5",
+    "logcat-touch-final-interval.log": "8c76e98c11f9d9f81554c2e68b123aeebee50745c9e9e8ecbccb1e3f6463f631",
+    "logcat-touch-final-capacity.log": "526f5127883062a1dadd2a17b0bd38408e8c31022f46782368149f68aafefda2",
+    "logcat-touch-post-restoration-crash-buffer.log": "9ba824e27f29ebaf8a588ebb08941a598f97a610decf8766b99e6e8524212570",
+    "exit-info-touch-post-restoration-rimes.log": "14cd265db5340814c6fefcc10c0040b03b2d7d46f4afc6f393e1861e781b702c",
+    "exit-info-touch-post-restoration-host.log": "0a17483943c5cfd8d20abd22ccadef2f8e0f4b6d922318297fae71bca7fe6d7b",
+    "crash-check-touch-final.json": "eccf9aae01c2e27ac3caae6ef102cc0007aa06732d81f0dfab8c1f6f7d2aaa13",
+    "manual-touch-final.json": "ade2a3e4516b0eca7ce68e896a3184889113feb33a959d8dd6d5e02185fce903",
+    "restoration-touch-final.json": "8bba80ea4a960043fb8c1f15294eb407e24a9a572a30065c988dcd4e2f0de3de",
+    "device-before.json": "71866153908e1e1d88d5254879b4c913106c7a89a5292a27e58823ff18667adf",
+    "device-after.json": "71866153908e1e1d88d5254879b4c913106c7a89a5292a27e58823ff18667adf",
+    "meminfo-touch-soak-before.txt": "58a9afd02e224c9f024653291a809dea924969feec711b8a7b9f7ca1b808cb20",
+    "meminfo-touch-soak-after.txt": "9c90fa6f345b26860c25ebb8771a3f6b74575d5bce56101d9932d14bf65bca81",
+    "setup-typing-touch-final.png": "de983383a78aa8bae0b425e4825ed3058b945843634ca1bb18ffbd00197a16a7",
+    "setup-plugin-touch-final.png": "84b69940435e280b8cfda40701470fab1c456f310030dba665b8284db2cdcd99",
+    "system-search-touch-final.png": "c54cefcac3bbd62653ed72e383848db58e948ad5172f036f0ecd3474f4d67477",
+    "setup-chord-first-show-touch-final.png": "e491e4953af7676affc685ce559acd068b18a6431477f406b4d62b6ac7e20bf6",
+    "RIMES-Android-0.1.0-dev.5-58f7395.apk": "5dcdde5688200bd5cea520f0630ec1dc3169b61c4e01a643f01c216720139da6",
+    "RIMES-Android-0.1.0-dev.5-58f7395.apk.sha256": "6f2669ffc5e3066ae6bd3b7ac144894041cbc9e7de7e0bd0622410a477088b6f",
+    "gallery/ios/native-dot-buffer.png": "6aae4c6282b25c7767e29ef7a7bb7b22e459c860775a0fd41bc959438c87181a",
+    "gallery/ios/chord-insert.png": "540f25743a03d5b135040dce291a28f04147ca3c10c5cbd356b2da79ebb89176",
+    "gallery/ios/native-send-empty.png": "38f3b5e2c1c8c79c18fd8e87cad862c426160beb617703e84eb27fc9b2925570",
+    "gallery/ios/nine-insert.png": "695f034f3fb2db475aa1018ff06e888a6f466ac516453ec2838f96c860326f98",
+    "gallery/ios/qwerty-confirm.png": "5fe520b08747e6ff07b672a77078591ddbab737a90da7dfae6a7896e96eabef3",
+    "dark/layout-chord-split.png": "a64bfd2bed53ad1e4b8f7ec55c2c7bcab6550982aaf1a9ea196d521becafff8c",
+    "dark/layout-appearance.png": "463fe37d4d5677d4aaa33aee2f9f44a073a7bf867f78ed06a238fc03e1cf415a",
+    "dark/layout-emoji.png": "45d03db0919833f96288970601ae8a5413deff144a3e5ddd90200f4c0a5b77b4",
+    "dark/layout-landscape.png": "81aa604468950479fe7066d2e813d9044540a5abe1614503f42269d158d12a30",
+    "dark/layout-rhino.png": "ff9ce61ce84f6641273258ecf8538fb5ea3ec3890726005f312b482d0757621c",
+    "dark/layout-chord-buffer.png": "27cabd174ff23a9a8081750fd9113ad597b5e8a09f7f6ee8164c8881ca8ae66d",
+    "dark/layout-qwerty.png": "609710da12737bddb0acb94147827d424b0e27f5e5b1288f35f2bbe1c60d4e62",
+    "dark/layout-portrait-restored.png": "87e63206de501cd076c6c8f2bb194ad2f7687f0aeb91b91c0382203b37f4423e",
+    "dark/layout-nine-composition.png": "9a1c67eaf547e20baefc09a9c75647f561cd3cbd66c50f3204f09a9a68379695",
+    "dark/layout-spelling.png": "884a0f037f8a36e93571ba7617397c640281cb6ae51a7e1fe2f7f11316dc18e5",
+    "dark/layout-chord.png": "ee24a008ca74ec742323cc36328b0db140118b4873f8a2029199a3c962ad1738",
+    "dark/layout-candidates.png": "709f3af84b24e8b6803347e03776fa75d60bded594745705afe86bd99ba6fdfe",
+    "dark/layout-nine-landscape.png": "61e0d74e2f1e2be6a0da52614eed106979b6a3ff87c73abc555b2e0254f781fa",
+    "dark/layout-symbols.png": "12a4a90942bfdcf46e22bb38379bb7186cd9c88a684d47c137b0c08ec570700d",
+    "dark/layout-chord-landscape.png": "14b3dcabc0ae8554babb62717d8a5184d3e38ec8bd3c111f44e172d6c169238f",
+    "dark/layout-nine-buffer.png": "1c3d1ef44295f3e8cca8bb7287c7070a8f39266b5e8802a3954286beede3c2f6",
+    "dark/layout-chord-held.png": "4f21f171fbce72532db42e7760176c8806162b56e7475fde6d680067bcb6d417",
+    "dark/layout-numbers.png": "91a411004eddcaa8a68ba10d6325bba3f3b89cf9b1e55f7ff13cefad31dc6a90",
+    "light-large/layout-chord-split.png": "3769ccd082b889c2f698cd11f877f80325294ecbab30ba4811cdbd0a01a3a8fe",
+    "light-large/layout-appearance.png": "2259ffe186bb525fb03bb60cc6164903c09c86ec58e7a9fad40b19cd46bd0418",
+    "light-large/layout-emoji.png": "c85a74cdaace22efa1f97c32f4619774cbd57864c7fb81fa1806f050d41bfceb",
+    "light-large/layout-landscape.png": "99f30eadc8cf7d61fbbc63a1c975b6141d3f823a9244af2068073c9e88baa0fe",
+    "light-large/layout-rhino.png": "3ac7b3871e94fe024017fc60d4be2374ddc97d531dd4fb48578de9b3b3d6e3a5",
+    "light-large/layout-chord-buffer.png": "946386790069e42d8191649f3a9388c2002466b43eea9c6262806640458107e5",
+    "light-large/layout-qwerty.png": "6a12e02f2db9114fb7936cd14e3dd420db2721af4a821f79eb915ea1b2836fac",
+    "light-large/layout-portrait-restored.png": "b69311d44ff82c31dea51a72444fb03a6a28f79f337c0571f3b67702b081daa5",
+    "light-large/layout-nine-composition.png": "d857313b01882aee4e1277dd18e1593f5b420477c4ccf44c391c69a4d3c5a340",
+    "light-large/layout-spelling.png": "cc4026fb2011077c15d43f8e038b7cefe18672281de5bf2ebcf55f483b574b0f",
+    "light-large/layout-chord.png": "166e7764e18c5d07cbf8881a09f264f9f9efa6bfc1fcc0ba6c84f26dc4c8ea12",
+    "light-large/layout-candidates.png": "a9ed122c77651fd68f47255184667a3845338d12a413522d0afcec5116e74a28",
+    "light-large/layout-nine-landscape.png": "6bf0a6839683e2fdab4c23dae1bc3239288e1aade7e3d922af92328f01a602cd",
+    "light-large/layout-symbols.png": "e3ac7ffdd25b92d746564332be85b162f4524d66d1263044cedd87c3daee31b6",
+    "light-large/layout-chord-landscape.png": "7170f86079025f3a60d2f3956e2172500f72bed0e48108053c204b03eaa735cd",
+    "light-large/layout-nine-buffer.png": "04340c8ca6dd8485528e66d66ae5e68b59402b535c3120645cbacae2aa32f96b",
+    "light-large/layout-chord-held.png": "e117c4c602558f4b5a89c64536ae47af2117193f351b6f8754371d61a1bbda97",
+    "light-large/layout-numbers.png": "4eae15be9ca17031fd1c8fd4534eeffd8c3663ed1b6df731b627394283d0ae47"
+  },
+  "icons": {
+    "source": "https://github.com/lucide-icons/lucide",
+    "commit": "12691c45680f5d088bbdccf301f268e6cf904682",
+    "count": 25,
+    "kind": "pinned SVGs converted to native Android VectorDrawable; no runtime dependency",
+    "license_sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
+    "complete_packaged_license": "Lucide-LICENSE.txt",
+    "bitmap_checks": 840,
+    "sf_symbols_assets_used": false
+  }
+}

@@ -93,7 +93,7 @@ cd rimes
 | macOS | 输入法，以及 Buffer、Capsule、Mailbox | `./build_install.sh` |
 | iOS | 键盘与主 App（iOS 17+）：离线拼音、自然码、五笔、英文，以及 Buffer | 用 Xcode 打开 [`platforms/ios/RIMES.xcodeproj`](platforms/ios/README.md) |
 | Windows | 原生 TSF 输入法：预编辑、候选、上屏。还没有 Buffer、Capsule、Mailbox，也没有签名安装包 | 见 [`platforms/windows/native/README.md`](platforms/windows/native/README.md) |
-| Android | 开发中 | 源码尚未进入本仓库 |
+| Android | 原生输入法（InputConnection）与应用设置，开发 APK 见 Android 文档 | 见 [`platforms/android/README.md`](platforms/android/README.md) |
 | Linux | Fcitx5 输入法、Buffer、Capsule。还没有 Mailbox | 见 [`platforms/linux/ime/README.md`](platforms/linux/ime/README.md) |
 
 ## 文档
@@ -108,6 +108,8 @@ cd rimes
 | [platforms/ios/README.md](platforms/ios/README.md) | iOS 键盘与主 App |
 | [platforms/windows/native/README.md](platforms/windows/native/README.md) | Windows 原生 TSF 输入法 |
 | [platforms/linux/ime/README.md](platforms/linux/ime/README.md) | Linux Fcitx5 输入法、Buffer 与 Capsule |
+| [PLATFORM-ROADMAP.md](PLATFORM-ROADMAP.md) | Windows / Android 对齐路线与当前验收边界 |
+| [platforms/android/README.md](platforms/android/README.md) | Android 原生工程、开发 APK 与验收 |
 | [RELEASE.md](RELEASE.md) | 发布流程：渠道、一条命令发布、节奏与版本号规则 |
 | [RELEASE-REFERENCE.md](RELEASE-REFERENCE.md) | 发布技术参考：签名、安装器、应用内更新、CI |
 | [RELEASE-HISTORY.md](RELEASE-HISTORY.md) | 已关闭的发布通道、旧仓库迁移与改名记录 |
