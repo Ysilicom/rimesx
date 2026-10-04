@@ -1,10 +1,31 @@
 # 1.1.0 delivery acceptance — 2026-10-04
 
 The initial product packages were built from host `f9ec959d08b6dddd6b314a7d048a9456ab6aeea7`
-with official plugins pinned to `c64bc83`. macOS retains that runtime.
+with official plugins pinned to `c64bc83`. The local macOS preflight package uses that runtime;
+the formal CI package is tracked separately.
 iOS keyboard updates, the shared mobile settings hero, and Windows receipt
 recovery have replacement packages; their acceptance is recorded separately below. Platform build,
 installed behavior and public availability are separate.
+
+PR [#49](https://github.com/scholay/rimes/pull/49) merged at
+`3fa9e40c9cd3eb74ae9cfb44559ff14f0d5d3eff`. The required main CI and full macOS PR
+packaging/upgrade rehearsal passed. The canonical `v1.1.0` tag was created by
+`scripts/release.sh --yes stable` only after its dry-run gates passed.
+
+## Public host packages
+
+- [Windows 1.1.0](https://github.com/scholay/rimes/releases/tag/windows-v1.1.0)
+  was published on 2026-10-04. All five public assets were downloaded without
+  an account token and matched their staged bytes, GitHub digests and sizes.
+- [Android 1.1.0](https://github.com/scholay/rimes/releases/tag/android-v1.1.0)
+  was published on 2026-10-04 with production build code 12. All five public
+  assets were downloaded without an account token and matched their staged
+  bytes, GitHub digests and sizes.
+- Both tags resolve to the merge commit above. Their `BUILD-INFO.json` assets
+  identify the exact earlier runtime build commits and validation scope.
+- macOS follows the protected CI signing, immutable stage, same-package local
+  installation and publication sequence; the local preflight draft is not the
+  public release.
 
 ## Public official plugins
 
@@ -40,6 +61,12 @@ the email link opened the system email-app chooser. The keyboard runtime is unch
 - The maintainer signed in to App Store Connect. Build 35 was added to the existing RIMES Community group and submitted for external TestFlight review at 2026-10-04T08:37:22Z; UI and API both reported `WAITING_FOR_REVIEW`.
 - Automatic tester notification is enabled. The existing public invitation remains https://testflight.apple.com/join/Kdj9RB4q. Submission is not approval or public availability of 1.1.0; existing approved builds remain available meanwhile.
 - Follow-up: the maintainer reported weak/delayed haptics. Build 35 was removed from review on the same day; the UI now says `Ready to Submit`. Build 38 was installed with Release optimization. The maintainer confirmed clear slow-typing feedback, responsive fast typing and accepted iOS. Build 39 adds only the settings-home hero and build number; the accepted keyboard implementation is unchanged. The simulator home was visually checked and both brand lines read back. Release-optimized build 39 was installed on Higher's iPhone, with metadata confirming 1.1.0 / 39. Build 40 adds English brand copy, smaller single-line text and website/email links; it is installed with version 1.1.0 / 40. The website link opened in Safari and the bottom contact labels were read back. The exact build 40 App Store IPA passed signature, profile, version and privacy checks and uploaded successfully (delivery UUID `a01bd652-292d-4db3-bdc9-628fd1606b08`). Apple processing, external review and availability remain separate.
+
+Build 40 subsequently completed Apple processing and was submitted to the
+existing RIMES Community external group and RIMES Internal group. English and
+Simplified Chinese test notes were saved and read back. The UI and API confirmed
+`WAITING_FOR_BETA_REVIEW` on 2026-10-04, with automatic tester notification enabled.
+Existing approved builds remain available through the same public invitation.
 
 ## Remaining user-side observations
 

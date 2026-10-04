@@ -1,11 +1,11 @@
 # RIMES Android
 
-**1.1.0** is the next release of the native Java Android input method for daily Chinese input and
+**[1.1.0](https://github.com/scholay/rimes/releases/tag/android-v1.1.0)** is the current release of the native Java Android input method for daily Chinese input and
 local dictionary learning. Minimum Android 8.0 / API 26; development package
 `org.scholay.rimes.android.debug`; release identity `org.scholay.rimes.android`.
-The release candidate uses build code **12**, signed with the existing production key.
-Version 1.0.0 is already public; 1.1.0 remains in release preparation.
-See [release preparation](RELEASE.md) for signing and upgrade requirements.
+The public release uses build code **12**, signed with the existing production key.
+Its APK supports a data-preserving upgrade from the public 1.0.0 release.
+See the [release guide](RELEASE.md) for signing and upgrade requirements.
 Current evidence and remaining acceptance are in [VALIDATION.md](VALIDATION.md).
 
 ## Main app settings

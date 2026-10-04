@@ -1,6 +1,6 @@
 # RIMES Native Windows Foundation
 
-Next stable target: **1.0.0**. See [release preparation](RELEASE-1.0.0.md). Version resources are unified; historical previews and remaining acceptance are recorded separately.
+Current stable release: **[1.1.0](https://github.com/scholay/rimes/releases/tag/windows-v1.1.0)**. Download the EXE installer for a data-preserving upgrade. Version resources are unified; [acceptance evidence](validation/2026-10-04-1.1.0.md) distinguishes package checks, the actual upgrade and remaining daily-use coverage.
 
 This directory contains the native Windows implementation of RIMES. It is
 separate from the Weasel data preview in the parent directory.
@@ -22,8 +22,9 @@ The in-process TSF DLL stays small:
 
 TSF still must not load `librime` or do network I/O. Broker failure fail-opens.
 
-Final installation and host acceptance remain part of the
-[1.0.0 release preparation](RELEASE-1.0.0.md).
+Installation and host acceptance are recorded in the
+[1.1.0 delivery report](../../../validation/release-1.1.0/delivery.md).
+The [1.0.0 preparation checklist](RELEASE-1.0.0.md) remains historical context.
 
 ## Interaction (macOS-aligned)
 
@@ -153,5 +154,5 @@ alone does not prove Windows librime, TSF or the final installer works.
   `ITfDisplayAttributeProvider`. The registrar does not add a new TSF
   category, so some hosts may skip the dotted underline.
 - Capsule and Mailbox have no Windows frontend yet; Buffer and AI are available in this branch.
-- The 1.0.0 release may use an unsigned EXE installer. Windows security prompts may appear; signing is optional.
-- The EXE installer handles elevated dual-architecture registration; final new-install and upgrade acceptance is still required.
+- The 1.1.0 release uses an unsigned EXE installer. Windows security prompts may appear; signing is optional.
+- The EXE installer handles elevated dual-architecture registration. The actual upgrade was verified; fresh-install coverage and broader host acceptance remain separate follow-up checks.
