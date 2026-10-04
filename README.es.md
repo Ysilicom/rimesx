@@ -56,10 +56,16 @@ La tabla se genera desde [`Catalog/buffer-plugins.json`](Catalog/buffer-plugins.
 
 | Complemento | ID | Versión | Instalación predeterminada | Estado predeterminado |
 |---|---|---:|---|---|
-| Generación con IA | `builtin.ai-text` | 2.1 | Incluido con RIMES | Activado |
-| Traducción en vivo | `builtin.apple-translation` | 2.1 | Incluido con RIMES | Activado |
+| ChatGPT | `builtin.codex-cli` | 1.1 | Incluido con RIMES | Activado |
+| Claude | `builtin.claude-code-cli` | 1.1 | Incluido con RIMES | Activado |
+| AI API | `builtin.openai-compatible` | 1.0 | Incluido con RIMES | Activado |
+| Reference | `builtin.scholay` | 0.1 | Incluido con RIMES | Activado |
+| Polisher | `builtin.polisher` | 0.1 | Incluido con RIMES | Activado |
+| LaTeX | `builtin.latex` | 0.1 | Incluido con RIMES | Activado |
+| Traducción en vivo | `builtin.apple-translation` | 2.2 | Incluido con RIMES | Activado |
 | Entrada en flujo | `builtin.stream-input` | 1.4 | Incluido con RIMES | Activado |
 | Música electrónica | `builtin.music` | 0.2.3 | Incluido con RIMES | Activado |
+| Código Morse | `builtin.morse` | 0.1.0 | Incluido con RIMES | Activado |
 
 Todos los complementos de la tabla vienen con RIMES y quedan activados en una instalación nueva.
 
@@ -73,7 +79,7 @@ Todos los complementos de la tabla vienen con RIMES y quedan activados en una in
 
 ## Instalación
 
-macOS, iOS, Windows, Android y Linux ya están en desarrollo, con distinto grado de avance. Las direcciones de descarga de cada plataforma llegarán en breve. Hasta entonces, obtén el código y compílalo en tu equipo:
+macOS, iOS, Android y Windows se preparan para la versión estable **1.0.0**; Linux mantiene su versión actual. Ya está disponible la [invitación pública de TestFlight para iOS](https://testflight.apple.com/join/Kdj9RB4q), que actualmente ofrece **0.1.0 (32)**. Windows 1.0.0 se distribuirá mediante un instalador EXE sin firmar; las demás plataformas mantienen sus requisitos de firma. Las descargas estables llegarán tras la validación final. También puedes obtener el código y compilarlo en tu equipo:
 
 ```bash
 git clone https://github.com/scholay/rimes.git
@@ -141,4 +147,8 @@ Quien mantiene el proyecto en el centro es gerente de producto para usuarios fin
 
 ## Licencia y terceros
 
-El código propio de RIMES usa la [licencia MIT](LICENSE). Los esquemas Rime, los diccionarios y los datos de Lua/OpenCC incluidos conservan sus licencias GPL/LGPL/CC y sus atribuciones. El límite completo está en [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) y en `rime-data/licenses/`.
+El código propio de RIMES usa [Apache License 2.0](LICENSE). El alcance y las autorizaciones MIT anteriores se explican en [LICENSING.md](LICENSING.md). El mantenimiento principal está a cargo de [学术海](https://pm.scholay.com).
+
+La entrada de chino se basa en el [motor Rime (librime)](https://github.com/rime/librime). Véanse [NOTICE](NOTICE) para las atribuciones y [ATTRIBUTION.md](ATTRIBUTION.md) para ejemplos de reconocimiento voluntario. Estas recomendaciones no añaden condiciones a la licencia.
+
+Los componentes de terceros, esquemas, diccionarios y datos de Lua/OpenCC conservan sus propias licencias y atribuciones; véanse [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [LICENSES](LICENSES/) y `rime-data/licenses/`. Los plugins oficiales gratuitos se mantienen en [rimes-plugins](https://github.com/scholay/rimes-plugins).

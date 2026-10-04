@@ -19,6 +19,9 @@ struct RimeEngineOptions {
   std::filesystem::path user_data_dir;
   std::filesystem::path log_dir;
   bool full_maintenance_check = false;
+  // Deployment must not open a learned-word database merely for a smoke
+  // session: LevelDB otherwise rotates its journal and manifest on upgrade.
+  bool verify_input_session = true;
 };
 
 // Broker-only librime owner. This class must never be linked into RimesTsf.dll:
@@ -44,19 +47,19 @@ class RimeEngine final {
   // start_maintenance returning false means that no maintenance thread was
   // started, not necessarily an error. A started/in-progress thread is always
   // joined before this method returns.
-  bool RunMaintenance(bool full_check,
-                      std::string* error = nullptr) noexcept;
+  bool RunMaintenance(bool full_check, std::string* error = nullptr) noexcept;
 
   SessionId CreateSession(std::string* error = nullptr) noexcept;
-  bool DestroySession(SessionId session,
-                      std::string* error = nullptr) noexcept;
+  bool DestroySession(SessionId session, std::string* error = nullptr) noexcept;
+
+  bool Configure(SessionId session, const std::string& schema, bool ascii,
+                 bool traditional, bool ascii_punctuation,
+                 std::string* error = nullptr) noexcept;
 
   // Applies one key and atomically drains its commit/context into output. An
   // unhandled key yields an empty snapshot so callers can pass it through.
-  bool ProcessKey(SessionId session,
-                  std::int32_t keycode,
-                  std::int32_t modifiers,
-                  EngineSnapshot* output,
+  bool ProcessKey(SessionId session, std::int32_t keycode,
+                  std::int32_t modifiers, EngineSnapshot* output,
                   std::string* error = nullptr) noexcept;
 
  private:

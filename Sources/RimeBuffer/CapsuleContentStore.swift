@@ -9,6 +9,7 @@ enum CapsuleEntryKind: String, Codable, CaseIterable, Hashable {
     case image
     case pdf
     case video
+    case resource
 
     /// Kinds this build no longer offers. Their files stay on disk untouched;
     /// listing skips them so one retired record cannot hide every current one.
@@ -20,8 +21,9 @@ enum CapsuleEntryKind: String, Codable, CaseIterable, Hashable {
         case .skill: return "Skill"
         case .note: return "Note"
         case .image: return "Image"
-        case .pdf: return "PDF"
+        case .pdf: return "文献"
         case .video: return "视频"
+        case .resource: return "资源"
         }
     }
 
@@ -30,11 +32,12 @@ enum CapsuleEntryKind: String, Codable, CaseIterable, Hashable {
     var tabLabel: String {
         switch self {
         case .password: return "密码"
-        case .skill: return "技能"
+        case .skill: return "Skills"
         case .note: return "笔记"
-        case .image: return "图库"
-        case .pdf: return "PDF"
-        case .video: return "影集"
+        case .image: return "图片"
+        case .pdf: return "文献"
+        case .video: return "视频"
+        case .resource: return "资源"
         }
     }
 
@@ -42,14 +45,14 @@ enum CapsuleEntryKind: String, Codable, CaseIterable, Hashable {
         switch self {
         case .note:
             return true
-        case .password, .skill, .image, .pdf, .video:
+        case .password, .skill, .image, .pdf, .video, .resource:
             return false
         }
     }
 
     var storesLocalPath: Bool {
         switch self {
-        case .skill, .image, .pdf, .video:
+        case .skill, .image, .pdf, .video, .resource:
             return true
         case .password, .note:
             return false
@@ -57,20 +60,46 @@ enum CapsuleEntryKind: String, Codable, CaseIterable, Hashable {
     }
 }
 
+enum CapsuleNoteFormat: String, Codable, CaseIterable {
+    case other, bullet, richText = "rich-text"
+}
+
+enum CapsuleResourceType: String, Codable, CaseIterable {
+    case document, project, other
+}
+
 struct CapsuleContentWriteRequest: Codable, Equatable {
     let id: UUID?
     let type: CapsuleEntryKind
     let title: String
     let content: String
+    /// Optional one-line description shown on the card under the title.
+    let summaryText: String?
+    let reference: CapsuleReference?
+    let noteFormat: CapsuleNoteFormat?
+    let resourceType: CapsuleResourceType?
+    /// Versioned native RTFD payload. The Markdown body is its readable
+    /// Obsidian projection and is never silently imported over this data.
+    let richTextData: Data?
 
     init(id: UUID? = nil,
          type: CapsuleEntryKind,
          title: String,
-         content: String) {
+         content: String,
+         summaryText: String? = nil,
+         reference: CapsuleReference? = nil,
+         noteFormat: CapsuleNoteFormat? = nil,
+         resourceType: CapsuleResourceType? = nil,
+         richTextData: Data? = nil) {
         self.id = id
         self.type = type
         self.title = title
         self.content = content
+        self.summaryText = summaryText
+        self.reference = reference
+        self.noteFormat = noteFormat
+        self.resourceType = resourceType
+        self.richTextData = richTextData
     }
 }
 
@@ -85,6 +114,29 @@ struct CapsuleContentSummary: Equatable, Identifiable {
 struct CapsuleContentRecord: Equatable {
     let summary: CapsuleContentSummary
     let content: String
+    /// The written one-line summary, if any.
+    var summaryText: String? = nil
+    var reference: CapsuleReference? = nil
+    var noteFormat: CapsuleNoteFormat = .other
+    var resourceType: CapsuleResourceType = .other
+    var richTextData: Data? = nil
+    var projectionConflict = false
+    /// Header properties (for example added in Obsidian) shown as fields.
+    var headerFields: [CapsuleField] = []
+    /// Set when the file could not be read as a Capsule document. The record
+    /// stays listed, with the raw file as its body, until it is saved again.
+    var formatIssue: String? = nil
+
+    /// What the card shows under the title: the written summary, else the
+    /// first readable line.
+    var cardSummary: String {
+        if let summaryText { return summaryText }
+        if summary.type == .note,
+           let fallback = CapsuleEntryGrammar.fallbackSummary(body: content) {
+            return fallback
+        }
+        return snippet
+    }
 
     var snippet: String {
         switch summary.type {
@@ -93,7 +145,13 @@ struct CapsuleContentRecord: Equatable {
         case .video:
             return "Video · " + URL(fileURLWithPath: content).lastPathComponent
         case .pdf:
-            return "PDF · " + URL(fileURLWithPath: content).lastPathComponent
+            if let reference, !reference.isEmpty {
+                return [reference.authors, reference.year, reference.kind.title]
+                    .filter { !$0.isEmpty }.joined(separator: " · ")
+            }
+            return "待补书目信息 · " + URL(fileURLWithPath: content).lastPathComponent
+        case .resource:
+            return "本机资源 · " + URL(fileURLWithPath: content).lastPathComponent
         case .password, .skill, .note:
             break
         }
@@ -180,7 +238,7 @@ enum CapsuleContentStoreError: LocalizedError, Equatable {
 final class CapsuleContentStore {
     static let shared = CapsuleContentStore()
 
-    static let maximumDocumentBytes = 1 * 1_024 * 1_024
+    static let maximumDocumentBytes = 8 * 1_024 * 1_024
     static let maximumRecordCount = 20_000
     static let maximumTitleCharacters = 256
     static let maximumContentCharacters = 256 * 1_024
@@ -272,7 +330,11 @@ final class CapsuleContentStore {
             guard kind == nil || record.summary.type == kind else {
                 return false
             }
-            let searchable = (record.summary.title + "\n" + record.content)
+            let reference = record.reference.map {
+                [$0.authors, $0.year, $0.container, $0.publisher,
+                 $0.doi, $0.isbn].joined(separator: "\n")
+            } ?? ""
+            let searchable = (record.summary.title + "\n" + record.content + "\n" + reference)
                 .lowercased()
             return terms.allSatisfy(searchable.contains)
         }
@@ -363,9 +425,14 @@ final class CapsuleContentStore {
             guard fileManager.fileExists(atPath: url.path) else {
                 throw CapsuleContentStoreError.recordNotFound
             }
-            let record = try parseDocumentWithoutLock(url)
+            let record: CapsuleContentRecord
+            do {
+                record = try parseDocumentWithoutLock(url)
+            } catch CapsuleContentStoreError.malformedDocument {
+                return try degradedRecordWithoutLock(url)
+            }
             guard record.summary.id == id else {
-                throw CapsuleContentStoreError.malformedDocument(url.path)
+                return try degradedRecordWithoutLock(url)
             }
             return record
         }
@@ -382,7 +449,10 @@ final class CapsuleContentStore {
                 // Skill bodies are device-local absolute paths. Uploading them
                 // would disclose the Mac's directory layout while producing a
                 // record that cannot be resolved safely on another device.
-                guard record.summary.type != .skill, record.summary.type != .video else { return nil }
+                guard record.summary.type != .skill,
+                      record.summary.type != .resource,
+                      record.summary.type != .video,
+                      record.formatIssue == nil else { return nil }
                 let url = record.summary.fileURL
                 try requireSafeRegularFile(
                     url,
@@ -651,7 +721,15 @@ final class CapsuleContentStore {
             type: normalized.type,
             title: normalized.title,
             updatedAt: updatedAt,
-            content: normalized.content
+            content: normalized.content,
+            summaryText: normalized.summaryText,
+            reference: normalized.reference,
+            noteFormat: normalized.noteFormat,
+            resourceType: normalized.resourceType,
+            richTextData: normalized.richTextData,
+            preservedHeaderLines: requiresExistingID
+                ? preservedHeaderLinesWithoutLock(entryURL(id: id))
+                : []
         )
         let data = Data(document.utf8)
         guard data.count <= Self.maximumDocumentBytes else {
@@ -705,10 +783,13 @@ final class CapsuleContentStore {
                 record = try parseDocumentWithoutLock(url)
             } catch CapsuleContentStoreError.retiredRecord {
                 return nil
+            } catch CapsuleContentStoreError.malformedDocument {
+                // One unreadable file must never hide the rest, nor itself.
+                return try degradedRecordWithoutLock(url)
             }
             guard url.deletingPathExtension().lastPathComponent
                     == record.summary.id.uuidString.lowercased() else {
-                throw CapsuleContentStoreError.malformedDocument(url.path)
+                return try degradedRecordWithoutLock(url)
             }
             return record
         }
@@ -721,6 +802,37 @@ final class CapsuleContentStore {
             }
             return order == .orderedAscending
         }
+    }
+
+    /// A note named by a UUID that no longer parses: listed with its raw text
+    /// as the body so it can be read and tidied, never silently dropped.
+    private func degradedRecordWithoutLock(_ url: URL) throws -> CapsuleContentRecord {
+        guard let id = UUID(uuidString: url.deletingPathExtension().lastPathComponent) else {
+            throw CapsuleContentStoreError.malformedDocument(url.path)
+        }
+        try requireSafeRegularFile(url, maximumBytes: Self.maximumDocumentBytes)
+        let data: Data
+        do {
+            data = try Data(contentsOf: url, options: [.mappedIfSafe])
+        } catch {
+            throw CapsuleContentStoreError.fileOperation(error.localizedDescription)
+        }
+        let text = String(decoding: data, as: UTF8.self).replacingOccurrences(of: "\0", with: "")
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let titleLine = lines.first { $0.hasPrefix("title:") }
+            .flatMap { CapsuleFrontMatter.decodeScalar(String($0.dropFirst(6)).trimmingCharacters(in: .whitespaces)) }
+        let title = titleLine.flatMap { $0.isEmpty ? nil : String($0.prefix(Self.maximumTitleCharacters)) }
+            ?? "未命名笔记"
+        let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate ?? Date(timeIntervalSince1970: 0)
+        return CapsuleContentRecord(
+            summary: CapsuleContentSummary(
+                id: id, type: .note, title: title, updatedAt: modified, fileURL: url
+            ),
+            content: text.isEmpty ? " " : String(text.prefix(Self.maximumContentCharacters)),
+            summaryText: "格式待整理：打开编辑并保存即可修复",
+            formatIssue: "这条笔记的文件格式无法识别，下面是原文。编辑并保存会把它整理为标准格式。"
+        )
     }
 
     private func parseDocumentWithoutLock(_ url: URL) throws
@@ -759,39 +871,24 @@ final class CapsuleContentStore {
         ).map(String.init)
         guard lines.count >= 8,
               lines[0] == "---",
-              let end = lines.dropFirst().firstIndex(of: "---") else {
+              let end = lines.dropFirst().firstIndex(of: "---"),
+              let header = try? CapsuleFrontMatter.parse(lines[1..<end]) else {
             throw CapsuleContentStoreError.malformedDocument(url.path)
         }
-        var fields: [String: String] = [:]
-        for line in lines[1..<end] {
-            guard let colon = line.firstIndex(of: ":") else {
-                throw CapsuleContentStoreError.malformedDocument(url.path)
-            }
-            let key = String(line[..<colon])
-                .trimmingCharacters(in: .whitespaces)
-            let value = String(line[line.index(after: colon)...])
-                .trimmingCharacters(in: .whitespaces)
-            guard !key.isEmpty, fields[key] == nil else {
-                throw CapsuleContentStoreError.malformedDocument(url.path)
-            }
-            fields[key] = value
-        }
-        if let kindRaw = fields["capsule"],
+        if let kindRaw = header.scalar("capsule"),
            CapsuleEntryKind.retiredRawValues.contains(kindRaw) {
             throw CapsuleContentStoreError.retiredRecord
         }
-        guard fields["version"] == "1",
-              let kindRaw = fields["capsule"],
+        guard header.scalar("version") == "1",
+              let kindRaw = header.scalar("capsule"),
               let kind = CapsuleEntryKind(rawValue: kindRaw),
               kind != .password,
-              let idRaw = fields["id"],
-              let id = UUID(uuidString: try Self.decodeJSONScalar(idRaw)),
-              let titleRaw = fields["title"],
-              let title = try? Self.decodeJSONScalar(titleRaw),
+              let idRaw = header.scalar("id"),
+              let id = UUID(uuidString: idRaw),
+              let title = header.scalar("title"),
               !title.isEmpty,
               title.count <= Self.maximumTitleCharacters,
-              let updatedRaw = fields["updated_at"],
-              let updatedString = try? Self.decodeJSONScalar(updatedRaw),
+              let updatedString = header.scalar("updated_at"),
               let updatedAt = Self.parseDate(updatedString) else {
             throw CapsuleContentStoreError.malformedDocument(url.path)
         }
@@ -802,12 +899,37 @@ final class CapsuleContentStore {
         let content = bodyStart < lines.count
             ? lines[bodyStart...].joined(separator: "\n")
             : ""
+        let noteFormat = kind == .note
+            ? CapsuleNoteFormat(rawValue: header.scalar("capsule_note_format") ?? "") ?? .other
+            : .other
+        let richTextData: Data?
+        let projectionConflict: Bool
+        if noteFormat == .richText {
+            guard header.scalar("capsule_rich_version") == "1",
+                  let encoded = header.scalar("capsule_rich_asset"),
+                  let decoded = Data(base64Encoded: encoded),
+                  decoded.count <= Self.maximumDocumentBytes,
+                  header.scalar("capsule_rich_hash") == Self.sha256(decoded) else {
+                throw CapsuleContentStoreError.malformedDocument(url.path)
+            }
+            richTextData = decoded
+            projectionConflict = header.scalar("capsule_projection_hash")
+                != Self.sha256(Data(content.utf8))
+        } else {
+            richTextData = nil
+            projectionConflict = false
+        }
         let normalized = try Self.validate(
             CapsuleContentWriteRequest(
                 id: id,
                 type: kind,
                 title: title,
-                content: content
+                content: content,
+                noteFormat: kind == .note ? noteFormat : nil,
+                resourceType: kind == .resource
+                    ? CapsuleResourceType(rawValue: header.scalar("capsule_resource_type") ?? "") ?? .other
+                    : nil,
+                richTextData: richTextData
             )
         )
         return CapsuleContentRecord(
@@ -818,7 +940,16 @@ final class CapsuleContentStore {
                 updatedAt: updatedAt,
                 fileURL: url
             ),
-            content: normalized.content
+            content: normalized.content,
+            summaryText: CapsuleSummaryRules.normalized(header.scalar("summary")),
+            reference: kind == .pdf ? CapsuleReference(header: header) : nil,
+            noteFormat: noteFormat,
+            resourceType: kind == .resource
+                ? CapsuleResourceType(rawValue: header.scalar("capsule_resource_type") ?? "") ?? .other
+                : .other,
+            richTextData: richTextData,
+            projectionConflict: projectionConflict,
+            headerFields: kind == .note ? header.userFields : []
         )
     }
 
@@ -1017,6 +1148,16 @@ final class CapsuleContentStore {
                 )
             }
         }
+        if request.type == .resource {
+            let url = URL(fileURLWithPath: request.content).standardizedFileURL
+            let values = try? url.resourceValues(forKeys: [
+                .isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey,
+            ])
+            guard values?.isSymbolicLink != true,
+                  values?.isRegularFile == true || values?.isDirectory == true else {
+                throw CapsuleContentStoreError.invalidRequest("资源路径必须指向本机文件或目录")
+            }
+        }
         if request.type == .image {
             let allowed = Set([
                 "png", "jpg", "jpeg", "heic", "webp", "tif", "tiff",
@@ -1033,35 +1174,102 @@ final class CapsuleContentStore {
                 != "pdf" {
             throw CapsuleContentStoreError.invalidRequest("PDF 条目必须指向 .pdf 文件")
         }
+        if request.type == .note && request.noteFormat == .richText {
+            guard let data = request.richTextData,
+                  !data.isEmpty,
+                  data.count <= maximumDocumentBytes / 2 else {
+                throw CapsuleContentStoreError.invalidRequest(
+                    "富文本内容资产缺失或超过大小上限"
+                )
+            }
+        }
         return CapsuleContentWriteRequest(
             id: request.id,
             type: request.type,
             title: title,
-            content: request.content
+            content: request.content,
+            summaryText: request.type == .note
+                ? CapsuleSummaryRules.normalized(request.summaryText)
+                : nil,
+            reference: request.type == .pdf ? request.reference : nil,
+            noteFormat: request.type == .note ? request.noteFormat : nil,
+            resourceType: request.type == .resource ? request.resourceType : nil,
+            richTextData: request.type == .note && request.noteFormat == .richText
+                ? request.richTextData : nil
         )
+    }
+
+    /// Header keys RIMES does not own (Obsidian tags, user properties), read
+    /// from the file being replaced so a save never drops them.
+    private func preservedHeaderLinesWithoutLock(_ url: URL) -> [String] {
+        guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]),
+              let text = String(data: data, encoding: .utf8) else { return [] }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard lines.first == "---",
+              let end = lines.dropFirst().firstIndex(of: "---"),
+              let header = try? CapsuleFrontMatter.parse(lines[1..<end]) else { return [] }
+        return header.preservedLines
     }
 
     private static func markdownDocument(id: UUID,
                                          type: CapsuleEntryKind,
                                          title: String,
                                          updatedAt: Date,
-                                         content: String) -> String {
-        """
-        ---
-        capsule: \(type.rawValue)
-        version: 1
-        id: \(encodeJSONScalar(id.uuidString.lowercased()))
-        title: \(encodeJSONScalar(title))
-        updated_at: \(encodeJSONScalar(iso8601.string(from: updatedAt)))
-        ---
-
-        \(content)
-        """
+                                         content: String,
+                                         summaryText: String? = nil,
+                                         reference: CapsuleReference? = nil,
+                                         noteFormat: CapsuleNoteFormat? = nil,
+                                         resourceType: CapsuleResourceType? = nil,
+                                         richTextData: Data? = nil,
+                                         preservedHeaderLines: [String] = []) -> String {
+        var header = [
+            "---",
+            "capsule: \(type.rawValue)",
+            "version: 1",
+            "id: \(encodeJSONScalar(id.uuidString.lowercased()))",
+            "title: \(encodeJSONScalar(title))",
+            "updated_at: \(encodeJSONScalar(iso8601.string(from: updatedAt)))",
+        ]
+        if let summaryText {
+            header.append("summary: \(encodeJSONScalar(summaryText))")
+        }
+        if let reference {
+            header += reference.headerValues.map { "\($0.0): \(encodeJSONScalar($0.1))" }
+        }
+        if let noteFormat {
+            header.append("capsule_note_format: \(encodeJSONScalar(noteFormat.rawValue))")
+        }
+        if let resourceType {
+            header.append("capsule_resource_type: \(encodeJSONScalar(resourceType.rawValue))")
+        }
+        if noteFormat == .richText, let richTextData {
+            header.append("capsule_rich_version: 1")
+            header.append("capsule_rich_hash: \(encodeJSONScalar(sha256(richTextData)))")
+            header.append("capsule_projection_hash: \(encodeJSONScalar(sha256(Data(content.utf8))))")
+            header.append("capsule_rich_asset: \(encodeJSONScalar(richTextData.base64EncodedString()))")
+        }
+        header += preservedHeaderLines.filter { line in
+            !line.hasPrefix("capsule_note_format:")
+                && !line.hasPrefix("capsule_resource_type:")
+                && !line.hasPrefix("capsule_rich_version:")
+                && !line.hasPrefix("capsule_rich_hash:")
+                && !line.hasPrefix("capsule_projection_hash:")
+                && !line.hasPrefix("capsule_rich_asset:")
+                && (reference == nil || !CapsuleReference.headerKeys.contains {
+                    line.hasPrefix("\($0):")
+                })
+        }
+        header.append("---")
+        return header.joined(separator: "\n") + "\n\n" + content
     }
 
     private static func encodeJSONScalar(_ value: String) -> String {
         let data = try? JSONEncoder().encode(value)
         return data.flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+    }
+
+    private static func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private static func decodeJSONScalar(_ value: String) throws -> String {

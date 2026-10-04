@@ -1242,6 +1242,13 @@ final class RIMESController: IMKInputController {
     /// physical a-z as continuous full pinyin. Both FlyYao modes stage the
     /// effective alphabet while preserving their same-batch/cross-batch
     /// settlement policy.
+    /// Morse owns Space (and swallows other typing) while it is the selected
+    /// Buffer plug-in and Buffer is capturing this field.
+    private var morseInputModeSelected: Bool {
+        focusToken.map { BufferModel.shared.capturesInput(for: $0) } == true
+            && BufferPluginSelectionStore.shared.isSelected(MorseWorkspace.pluginKey)
+    }
+
     private var streamInputModeSelected: Bool {
         focusToken.map { BufferModel.shared.capturesInput(for: $0) } == true
             && BufferPluginSelectionStore.shared.isSelected(
@@ -3041,6 +3048,11 @@ final class RIMESController: IMKInputController {
                 break
             }
         }
+        if event.type == .keyUp,
+           MorseWorkspace.shared.consumeOwnedKeyUp(code: event.keyCode,
+                                                  timestamp: event.timestamp) {
+            return true
+        }
         guard adoptEventFocus(client: client,
                               eventTimestamp: event.timestamp,
                               eventType: event.type) else {
@@ -3212,6 +3224,14 @@ final class RIMESController: IMKInputController {
             case .passThrough:
                 break
             }
+        }
+        if event.type == .keyDown, morseInputModeSelected,
+           MorseWorkspace.shared.handleKey(
+            code: event.keyCode, isDown: true, isRepeat: event.isARepeat,
+            modifiers: event.modifierFlags, characters: event.characters,
+            timestamp: event.timestamp
+           ) {
+            return true
         }
         if event.type == .keyDown,
            isBufferDeliveryShortcut(event),
@@ -5518,10 +5538,13 @@ final class RIMESController: IMKInputController {
             // Pasteboard access happens only after every secure-input and exact
             // lease check above. Revalidate once more after AppKit returns the
             // value because pasteboard providers can be lazy.
-            guard let text = BufferClipboardTextRules.validated(
+            let image = ScholayAcademicWorkspace.latex.acceptsImagePaste
+                ? BufferImagePasteboard.read(.general) : nil
+            let text = image == nil ? BufferClipboardTextRules.validated(
                 NSPasteboard.general.string(forType: .string)
-            ) else {
-                IMELog.write("buffer paste consumed without accepted plain text")
+            ) : nil
+            guard image != nil || text != nil else {
+                IMELog.write("buffer paste consumed without accepted content")
                 return true
             }
             guard !IsSecureEventInputEnabled(),
@@ -5538,12 +5561,14 @@ final class RIMESController: IMKInputController {
                 IMELog.write("buffer paste rejected after pasteboard read")
                 return true
             }
-            if streamInputModeSelected {
+            if let image {
+                _ = BufferModel.shared.insertPastedImage(image)
+            } else if streamInputModeSelected, let text {
                 _ = StreamInputWorkspace.shared.insertPastedText(
                     text,
                     focusToken: lease.token
                 )
-            } else {
+            } else if let text {
                 _ = BufferModel.shared.insertPastedText(text)
             }
         case .copyGeneratedResult:

@@ -57,10 +57,16 @@ This table is generated from [`Catalog/buffer-plugins.json`](Catalog/buffer-plug
 
 | Plug-in | ID | Version | Default installation | Default state |
 |---|---|---:|---|---|
-| AI Generation | `builtin.ai-text` | 2.1 | Bundled with RIMES | Enabled |
-| Real-time Translation | `builtin.apple-translation` | 2.1 | Bundled with RIMES | Enabled |
+| ChatGPT | `builtin.codex-cli` | 1.1 | Bundled with RIMES | Enabled |
+| Claude | `builtin.claude-code-cli` | 1.1 | Bundled with RIMES | Enabled |
+| AI API | `builtin.openai-compatible` | 1.0 | Bundled with RIMES | Enabled |
+| Reference | `builtin.scholay` | 0.1 | Bundled with RIMES | Enabled |
+| Polisher | `builtin.polisher` | 0.1 | Bundled with RIMES | Enabled |
+| LaTeX | `builtin.latex` | 0.1 | Bundled with RIMES | Enabled |
+| Real-time Translation | `builtin.apple-translation` | 2.2 | Bundled with RIMES | Enabled |
 | Stream of Consciousness Input | `builtin.stream-input` | 1.4 | Bundled with RIMES | Enabled |
 | Electronic Music | `builtin.music` | 0.2.3 | Bundled with RIMES | Enabled |
+| Morse Code | `builtin.morse` | 0.1.0 | Bundled with RIMES | Enabled |
 
 Every plug-in in the table is bundled with RIMES and enabled on a clean first run.
 <!-- END PRESET BUFFER PLUGINS -->
@@ -75,7 +81,7 @@ Every plug-in in the table is bundled with RIMES and enabled on a clean first ru
 
 ## Install
 
-Work on macOS, iOS, Windows, Android, and Linux is underway, at different stages. Download links for each platform are coming. Until then, clone the source and build it locally:
+macOS, iOS, Android, and Windows are converging on **1.0.0** as their next stable release; Linux stays on its current track. The [public iOS TestFlight invitation](https://testflight.apple.com/join/Kdj9RB4q) is available, currently offering **0.1.0 (32)**. Windows 1.0.0 will use an unsigned EXE installer; the other platforms retain their signing requirements. Stable downloads will follow final acceptance. You can also clone the source and build locally:
 
 ```bash
 git clone https://github.com/scholay/rimes.git
@@ -143,4 +149,8 @@ The core maintainer is a consumer-product manager, not a programmer by training,
 
 ## License and third parties
 
-RIMES's own code is under the [MIT License](LICENSE). Bundled Rime schemes, dictionaries, and Lua/OpenCC data keep their own GPL/LGPL/CC licenses and credits. The full boundary is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and `rime-data/licenses/`.
+RIMES's own code is licensed under [Apache License 2.0](LICENSE), subject to the scope and historical MIT grants described in [LICENSING.md](LICENSING.md). The core maintainer is [学术海](https://pm.scholay.com).
+
+Chinese input uses the [Rime Input Method Engine (librime)](https://github.com/rime/librime). See [NOTICE](NOTICE) for attribution and [ATTRIBUTION.md](ATTRIBUTION.md) for optional display examples explaining the relationship between Rime, RIMES and downstream maintainers. These display suggestions add no license conditions.
+
+Third-party components, schemes, dictionaries and Lua/OpenCC data retain their own licenses and credits; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [LICENSES](LICENSES/) and `rime-data/licenses/`. Official free plugins are maintained in [rimes-plugins](https://github.com/scholay/rimes-plugins).

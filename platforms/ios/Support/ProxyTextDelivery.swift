@@ -9,6 +9,11 @@ import RimesCore
     private var markedProxy: (any UITextDocumentProxy)?
     private var writeDepth = 0
     var isWriting: Bool { writeDepth > 0 }
+    /// Uptime of this keyboard's latest write, so host changes it caused can be told
+    /// apart from text the system put there (dictation, paste).
+    private(set) var lastWriteTime: TimeInterval = -.infinity
+    /// Marks an actual change to the app's text (not a no-op cleanup).
+    private func wrote() { lastWriteTime = ProcessInfo.processInfo.systemUptime }
     var hasMarkedText: Bool { markedTarget != nil }
     init(controller: UIInputViewController, active: @escaping () -> Bool) {
         self.controller = controller; self.active = active
@@ -22,11 +27,14 @@ import RimesCore
         writeDepth += 1; defer { writeDepth -= 1 }
         guard !text.isEmpty, let proxy = proxy(for: target) else { return false }
         if markedTarget == target {
-            // Replace the entire composition explicitly; insertText can replace
-            // only the selected portion of marked text in some input views.
-            proxy.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))
+            // Clear the whole old composition before committing through insertText.
+            // A remote host can coalesce unmarkText with the next setMarkedText;
+            // putting a commit in the marked range lets a same-key continuation
+            // (for example top-up: commit "你好", preedit "n") replace that commit.
+            wrote(); proxy.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
             proxy.unmarkText(); forgetMarkedText()
-        } else { proxy.insertText(text) }
+        }
+        wrote(); proxy.insertText(text)
         return true
     }
     @discardableResult func updateMarkedText(_ text: String, target: UUID) -> Bool {
@@ -36,7 +44,7 @@ import RimesCore
         if text.isEmpty { discardMarkedText(); return true }
         guard markedTarget != target || markedText != text else { return true }
         markedTarget = target; markedText = text; markedProxy = proxy
-        proxy.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))
+        wrote(); proxy.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))
         return true
     }
     func discardMarkedText() {
@@ -44,7 +52,7 @@ import RimesCore
         guard let target = markedTarget else { return }
         guard let ownedProxy = proxy(for: target) else { abandonMarkedText(); return }
         forgetMarkedText()
-        ownedProxy.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
+        wrote(); ownedProxy.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
         ownedProxy.unmarkText()
     }
     /// Once the host changes selection/document, ownership is gone. Never erase
@@ -76,6 +84,7 @@ import RimesCore
     func moveCaret(by steps: Int, target: UUID) -> Bool {
         writeDepth += 1; defer { writeDepth -= 1 }
         guard steps != 0, markedTarget == nil, let proxy = proxy(for: target) else { return false }
+        wrote()
         for _ in 0..<abs(steps) {
             if steps < 0 {
                 guard let last = proxy.documentContextBeforeInput?.last else { break }
@@ -90,6 +99,6 @@ import RimesCore
     func deleteBackward(target: UUID) -> Bool {
         writeDepth += 1; defer { writeDepth -= 1 }
         guard let proxy = proxy(for: target) else { return false }
-        proxy.deleteBackward(); return true
+        wrote(); proxy.deleteBackward(); return true
     }
 }

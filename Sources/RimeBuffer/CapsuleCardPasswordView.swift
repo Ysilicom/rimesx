@@ -4,14 +4,26 @@ import Carbon.HIToolbox
 /// Explicit password copies carry the same privacy markers that the history
 /// recorder and archive importer reject. Never use the ordinary card writer.
 enum CapsulePasswordClipboard {
+    /// A copied secret is removed again after this long, unless something
+    /// else has been copied in the meantime.
+    static let clearDelay: TimeInterval = 60
+
     @discardableResult
-    static func write(_ secret: String, to pasteboard: NSPasteboard = .general) -> Bool {
+    static func write(_ secret: String,
+                      to pasteboard: NSPasteboard = .general,
+                      clearAfter delay: TimeInterval = clearDelay) -> Bool {
         let item = NSPasteboardItem()
         guard item.setString(secret, forType: .string),
               item.setData(Data(), forType: .init("org.nspasteboard.ConcealedType")),
               item.setData(Data(), forType: .init("org.nspasteboard.TransientType")) else { return false }
         pasteboard.clearContents()
-        return pasteboard.writeObjects([item])
+        guard pasteboard.writeObjects([item]) else { return false }
+        let written = pasteboard.changeCount
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            // Only our own write is cleared; a later copy by the user stays.
+            if pasteboard.changeCount == written { pasteboard.clearContents() }
+        }
+        return true
     }
 }
 

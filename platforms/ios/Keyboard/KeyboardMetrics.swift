@@ -7,6 +7,7 @@ import Darwin
     private var presentationMilliseconds: Double?
     private var samples = [Double]()
     private var peakBytes: UInt64 = 0
+    private var layoutSamples = [[String: Double]]()
     #endif
     func presented(since start: TimeInterval) {
         #if DEBUG
@@ -32,11 +33,23 @@ import Darwin
         if status == KERN_SUCCESS { peakBytes = max(peakBytes, info.phys_footprint) }
         #endif
     }
+    func laidOut(width: Double, height: Double, requestedHeight: Double,
+                 containerHeight: Double, topInset: Double) {
+        #if DEBUG
+        let sample = ["width": width, "height": height, "requestedHeight": requestedHeight,
+                      "containerHeight": containerHeight, "topInset": topInset]
+        guard sample.values.allSatisfy(\.isFinite), layoutSamples.last != sample else { return }
+        layoutSamples.append(sample)
+        if layoutSamples.count > 32 { layoutSamples.removeFirst(layoutSamples.count - 32) }
+        save()
+        #endif
+    }
     func save() {
         #if DEBUG
         let sorted = samples.sorted()
         var report: [String: Any] = ["build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") ?? "", "sampleCount": samples.count, "peakSampledPhysicalFootprintBytes": peakBytes, "measurement": "controller initialization to viewDidAppear; synchronous input processing; sampled footprint. Not OS launch latency or display-frame P95."]
         if let presentationMilliseconds { report["controllerPresentationMilliseconds"] = presentationMilliseconds }
+        report["layoutSamples"] = layoutSamples
         if !sorted.isEmpty { report["inputProcessingP95Milliseconds"] = sorted[min(sorted.count - 1, Int(ceil(Double(sorted.count) * 0.95)) - 1)] }
         let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

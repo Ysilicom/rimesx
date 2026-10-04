@@ -2,43 +2,6 @@ import Cocoa
 import Carbon.HIToolbox
 import QuartzCore
 
-/// The AI Generation output popup has one canonical production definition so
-/// runtime rendering and the AppKit smoke exercise the exact same menu items.
-enum AITextOutputPopupConfiguration {
-    static func populate(_ popup: NSPopUpButton) {
-        popup.removeAllItems()
-        for format in AITextContentFormat.allCases {
-            popup.addItem(withTitle: format.displayName)
-            popup.lastItem?.representedObject = format.rawValue
-        }
-    }
-
-    static func matchesCanonicalItems(_ popup: NSPopUpButton) -> Bool {
-        let actual = popup.itemArray.map { item in
-            (item.title, item.representedObject as? String)
-        }
-        let expected = AITextContentFormat.allCases.map {
-            ($0.displayName, Optional($0.rawValue))
-        }
-        guard actual.count == expected.count else { return false }
-        return zip(actual, expected).allSatisfy { lhs, rhs in
-            lhs.0 == rhs.0 && lhs.1 == rhs.1
-        }
-    }
-}
-
-/// Direct AppKit evidence used by `ai-text-mailbox-smoke`: the menu actually
-/// presented by the Buffer AI plugin contains formats only and no Mailbox item.
-func runAITextOutputPopupMenuProbe() -> Bool {
-    _ = NSApplication.shared
-    let popup = NSPopUpButton(frame: .zero, pullsDown: false)
-    AITextOutputPopupConfiguration.populate(popup)
-    return AITextOutputPopupConfiguration.matchesCanonicalItems(popup)
-        && popup.itemArray.map(\.title) == ["Plain", "Markdown", "JSON"]
-        && popup.itemArray.compactMap { $0.representedObject as? String }
-            == ["plain", "markdown", "json"]
-}
-
 enum BufferCandidateRoutingRules {
     static func shouldFollowBufferCaret(
         workbenchVisible: Bool,
@@ -112,7 +75,7 @@ struct BufferRailActionOverlaySmokeResult {
     let fadeAreaPassesThrough: Bool
     let interactiveSurfaceVisibleAtIdle: Bool
     let interactiveAccessibilityLabelsAreReadable: Bool
-    let functionMenuOwnsOnlyPluginIcon: Bool
+    let functionMenuAndSelectorHavePluginIcons: Bool
     let targetApplicationIconIsReal: Bool
     let targetApplicationIndicatorIsPassive: Bool
     let targetApplicationIconPrecedesClose: Bool
@@ -130,7 +93,7 @@ struct BufferRailActionOverlaySmokeResult {
             && fadeAreaPassesThrough
             && interactiveSurfaceVisibleAtIdle
             && interactiveAccessibilityLabelsAreReadable
-            && functionMenuOwnsOnlyPluginIcon
+            && functionMenuAndSelectorHavePluginIcons
             && targetApplicationIconIsReal
             && targetApplicationIndicatorIsPassive
             && targetApplicationIconPrecedesClose
@@ -170,7 +133,10 @@ enum BufferDerivedPresentationRules {
         if pluginKey == RemarkableWorkspace.pluginKey {
             return .standardBufferImport
         }
-        if pluginKey == AITextBuiltInPluginID.key
+        if AITextBuiltInPluginID.isChannelPlugin(pluginKey)
+            || pluginKey == ScholayWorkspace.pluginKey
+            || pluginKey == ScholayAcademicWorkspace.polisher.workspacePluginKey
+            || pluginKey == ScholayAcademicWorkspace.latex.workspacePluginKey
             || pluginKey == MarineChromeWorkspace.pluginKey {
             return .derived(.singleExchange)
         }
@@ -216,7 +182,8 @@ enum BufferDerivedPresentationRules {
             )
         }
 
-        let hasSource = snapshot.showsSourceRail && !snapshot.sourceText.isEmpty
+        let hasSource = snapshot.showsSourceRail
+            && (!snapshot.sourceText.isEmpty || snapshot.sourceRailPinned)
         let hasOutput = !snapshot.outputBlocks.isEmpty
         let hasExplicitMessage = snapshot.message?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -245,6 +212,11 @@ enum BufferDerivedPresentationRules {
             return style == .singleExchange ? .singleDerived : .derived(targetRows: 1)
         }
         let visibility = visibleRails(style: style, snapshot: snapshot)
+        if visibility.showsTarget,
+           snapshot.outputRowsAreIndependent,
+           snapshot.outputRows.count == 2 {
+            return .derived(targetRows: 2)
+        }
         return visibility.showsSource && visibility.showsTarget
             ? .derived(targetRows: 1)
             : .singleDerived
@@ -2081,14 +2053,21 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         frame: .zero,
         pullsDown: false
     )
-    private let aiConnectorPopup = FirstMousePopUpButton(frame: .zero, pullsDown: false)
     private let aiModelPopup = FirstMousePopUpButton(frame: .zero, pullsDown: false)
-    private let aiModePopup = FirstMousePopUpButton(frame: .zero, pullsDown: false)
-    private let aiOutputPopup = FirstMousePopUpButton(frame: .zero, pullsDown: false)
+    private let aiEffortPopup = FirstMousePopUpButton(frame: .zero, pullsDown: false)
+    private let aiSkillPopup = FirstMousePopUpButton(frame: .zero, pullsDown: false)
+    private let scholayProviderPopup = FirstMousePopUpButton(frame: .zero, pullsDown: false)
+    private let scholayStylePopup = FirstMousePopUpButton(frame: .zero, pullsDown: false)
+    private let academicProviderPopup = FirstMousePopUpButton(frame: .zero, pullsDown: false)
+    private let latexModePopup = FirstMousePopUpButton(frame: .zero, pullsDown: false)
     private let copyResultButton = FirstMouseButton(title: "", target: nil, action: nil)
+    /// Toolbar switch for translation read-aloud. While on, clicking a
+    /// translated block or sending it reads that one block.
+    private let translationSpeechToggle = FirstMouseButton(title: "", target: nil, action: nil)
+    /// Morse draws its own upper rail: mapping and combine slots, sweep line.
+    private lazy var morseInputBar = MorseInputBarView()
     private let targetApplicationIndicator = BufferTargetApplicationIndicatorView()
     private let sendButton = FirstMouseButton(title: "", target: nil, action: nil)
-    private let sendButtonProgressIndicator = NSProgressIndicator()
     private let exchangeEditButton = FirstMouseButton(title: "", target: nil, action: nil)
     private let autoSendButton = FirstMouseButton(title: "", target: nil, action: nil)
     /// A second, independent setting rather than a row inside the cycle: it
@@ -2158,6 +2137,8 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
     private var contextualStatusViews: [String: BufferWorkbenchStatusIndicatorView] = [:]
     private var renderingTranslationControls = false
     private var renderingAIControls = false
+    private var renderingScholayControls = false
+    private var renderingAcademicKind: ScholayAcademicKind?
     private var renderingBuiltInActionControls = false
     private var renderingOptionPickerControls = false
     private var renderedBuiltInActionHasOptions: Bool?
@@ -2353,14 +2334,36 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
             self.panel.contentView?.layoutSubtreeIfNeeded()
         }
         layoutMode = initialLayoutMode
+        bufferRail.onDerivedTargetSpeak = { [weak self] blockID in
+            // Read the block's current text, not whatever the chip captured.
+            guard let text = AppleTranslationWorkspace.shared.outputBlocks
+                .first(where: { $0.id == blockID })?.text else { return }
+            self?.speakTranslationBlock(text)
+        }
+        AppleTranslationWorkspace.shared.deliveredTextHandler = { [weak self] text in
+            self?.speakTranslationBlock(text)
+        }
         bufferRail.onDerivedTargetSelection = { [weak self] blockID in
             self?.selectDerivedTarget(blockID: blockID)
+        }
+        bufferRail.onDerivedTargetCopy = { [weak self] blockID in
+            _ = self?.copyScholaySection(blockID: blockID)
+        }
+        bufferRail.onDerivedTargetOpenMailbox = { threadID in
+            MailboxWindowController.shared.show(selecting: threadID)
         }
         bufferRail.onDerivedTargetStep = { [weak self] delta in
             self?.moveDerivedTargetSelection(delta: delta)
         }
         bufferRail.onCaptureRequested = { [weak self] insertionIndex in
             self?.activateLogicalInput(at: insertionIndex)
+        }
+        bufferRail.onImageAttachmentRemove = { [weak self] id in
+            guard let self, self.isVisible, !self.hiddenForSession,
+                  !self.sessionProtectionActive,
+                  !IsSecureEventInputEnabled() else { return }
+            _ = BufferModel.shared.removeBlock(id: id)
+            self.refresh()
         }
         bufferRail.onComposingFieldCommit = { [weak self] text in
             self?.appendComposedText(text)
@@ -2648,6 +2651,7 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
     /// The optional external-app privacy purge clears staged plaintext and all
     /// plugin state before a different application can become the target.
     func discardForPrivacyTransition() {
+        BufferSpeechReader.shared.stop()
         deactivateMusicSurface()
         applyTargetAssociationPresentation(state: .unavailable, appName: nil)
         clearInlineComposition()
@@ -2771,6 +2775,33 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         return true
     }
 
+    /// The two Scholay result boxes copy independently and stay visible so
+    /// the user can copy the other box next. Their shared delivery block is
+    /// still revalidated before either clipboard write.
+    @discardableResult
+    private func copyScholaySection(blockID: UUID) -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard canCopyGeneratedResult,
+              let workspace = DerivedBufferWorkspaceRouter.selectedWorkspace
+                as? ScholayWorkspace,
+              let text = workspace.copyableSectionText(
+                for: blockID,
+                protected: sessionProtectionActive
+                    || hiddenForSession
+                    || IsSecureEventInputEnabled()
+              ),
+              !sessionProtectionActive,
+              !hiddenForSession,
+              !IsSecureEventInputEnabled(),
+              BufferTextPasteboardWriter.write(text, to: NSPasteboard.general)
+        else {
+            NSSound.beep()
+            return false
+        }
+        IMELog.write("buffer Scholay section copied bytes=\(text.utf8.count)")
+        return true
+    }
+
     /// External input methods use Buffer as a clipboard-backed workbench. The
     /// copy path never manufactures a focus token or writes to an IMK client.
     @discardableResult
@@ -2854,6 +2885,22 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
               !IsSecureEventInputEnabled() else { return false }
         let pasteboard = NSPasteboard.general
         let expectedChangeCount = pasteboard.changeCount
+        if ScholayAcademicWorkspace.latex.acceptsImagePaste,
+           let image = BufferImagePasteboard.read(pasteboard) {
+            guard pasteboard.changeCount == expectedChangeCount,
+                  !sessionProtectionActive,
+                  !IsSecureEventInputEnabled() else { return false }
+            if !RimeInputSourceAuthority.currentSourceIsOwn() {
+                BufferModel.shared.routeDirectPreservingContent(
+                    reason: "image import under external input source"
+                )
+            }
+            guard BufferModel.shared.insertPastedImage(image) != nil else {
+                return false
+            }
+            refresh()
+            return true
+        }
         guard let text = BufferDetachedClipboardRules.acceptedText(
             pasteboard.string(forType: .string)
         ), pasteboard.changeCount == expectedChangeCount,
@@ -3061,7 +3108,6 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
                 appName: targetAssociationPreviewAppName,
                 appIcon: previewApplicationIcon
             )
-            setSendButtonGenerating(false)
             setSendButtonSymbol("paperplane.fill")
             sendButton.isEnabled = true
             sendButton.toolTip = "发送下一块（\(deliveryShortcutTitle)）"
@@ -3188,8 +3234,8 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
                 && label != "text.cursor"
                 && label != "xmark"
         }
-        let functionMenuOwnsOnlyPluginIcon = functionMenuButton.image != nil
-            && pluginSelector.itemArray.allSatisfy { $0.image == nil }
+        let functionMenuAndSelectorHavePluginIcons = functionMenuButton.image != nil
+            && pluginSelector.itemArray.allSatisfy { $0.image != nil }
 
         let previewApplicationURL = NSWorkspace.shared.urlForApplication(
             withBundleIdentifier: "com.apple.Safari"
@@ -3265,7 +3311,8 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
             interactiveSurfaceVisibleAtIdle: interactiveSurfaceVisibleAtIdle,
             interactiveAccessibilityLabelsAreReadable:
                 interactiveAccessibilityLabelsAreReadable,
-            functionMenuOwnsOnlyPluginIcon: functionMenuOwnsOnlyPluginIcon,
+            functionMenuAndSelectorHavePluginIcons:
+                functionMenuAndSelectorHavePluginIcons,
             targetApplicationIconIsReal: targetApplicationIconIsReal,
             targetApplicationIndicatorIsPassive:
                 targetApplicationIndicatorIsPassive,
@@ -3717,7 +3764,9 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         clipboardImportButton.isEnabled = !contentProtected
         clipboardImportButton.toolTip = contentProtected
             ? "受保护状态下不能读取剪贴板"
-            : "从系统剪贴板导入文字"
+            : (ScholayAcademicWorkspace.latex.acceptsImagePaste
+                ? "从剪贴板导入公式图片或文字"
+                : "从系统剪贴板导入文字")
         // Protect every stable derived singleton before resolving presentation
         // state. A secure refresh must not ask any source for a text snapshot.
         DerivedBufferWorkspaceRouter.setProtectedOnAll(contentProtected)
@@ -3790,6 +3839,11 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
             contentProtected: contentProtected,
             detachedClipboardMode: !rimeOwnsInput
         )
+        refreshTranslationSpeech(contentProtected: contentProtected)
+        let morseShown = !contentProtected
+            && DerivedBufferWorkspaceRouter.selectedWorkspace === MorseWorkspace.shared
+        bufferRail.sourceReplacementView = morseShown ? morseInputBar : nil
+        if morseShown { morseInputBar.refresh() }
         _ = bufferRail.refresh(
             preedit: inlineComposition?.text ?? "",
             preeditCursorPosUTF8: inlineComposition?.cursorPosUTF8 ?? 0,
@@ -4167,6 +4221,59 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
             || renderedTargetAssociationState == .boxUnidentified
     }
 
+    /// Keeps read-aloud inside what is on screen: protection hides the text
+    /// and another plug-in no longer shows it, so neither may keep it being
+    /// read. Closing Buffer does not stop it, so a block sent just before an
+    /// automatic close is still heard. This is already a refresh, so it must
+    /// not notify itself.
+    private func refreshTranslationSpeech(contentProtected: Bool) {
+        let reader = BufferSpeechReader.shared
+        let translationShown = DerivedBufferWorkspaceRouter.selectedWorkspace
+            === AppleTranslationWorkspace.shared
+        if reader.isSpeaking, contentProtected || !translationShown {
+            reader.stop(notify: false)
+        }
+        bufferRail.speaksTranslationBlocks = !contentProtected
+            && translationShown
+            && BufferSpeechPreferences.shared.isEnabled
+        refreshTranslationSpeechToggle()
+    }
+
+    private func refreshTranslationSpeechToggle() {
+        let enabled = BufferSpeechPreferences.shared.isEnabled
+        translationSpeechToggle.image = RimeUI.symbol(
+            enabled ? "speaker.wave.2.fill" : "speaker.slash",
+            pointSize: 10,
+            weight: .semibold
+        )
+        translationSpeechToggle.image?.isTemplate = true
+        let label = enabled
+            ? "朗读已开启：点按译文块或发送时朗读该块；点按关闭"
+            : "朗读已关闭；点按开启"
+        translationSpeechToggle.toolTip = label
+        translationSpeechToggle.setAccessibilityLabel("朗读译文")
+        translationSpeechToggle.setAccessibilityValue(enabled ? "开" : "关")
+        translationSpeechToggle.contentTintColor = !translationSpeechToggle.isEnabled
+            ? RimeUI.textMuted
+            : enabled
+                ? (RimeUI.isRasta ? RimeUI.brandGreen : RimeUI.accentBlue)
+                : RimeUI.textSecondary
+        translationSpeechToggle.refreshInteractionAppearance()
+    }
+
+    /// Reads one translated block: the one clicked or the one just sent. A
+    /// newer block always replaces the one being read.
+    private func speakTranslationBlock(_ text: String) {
+        guard BufferSpeechPreferences.shared.isEnabled,
+              !sessionProtectionActive,
+              !IsSecureEventInputEnabled() else { return }
+        let outcome = BufferSpeechReader.shared.speak(
+            text,
+            languageID: AppleTranslationWorkspace.shared.targetLanguageID
+        )
+        if outcome == .noVoice { NSSound.beep() }
+    }
+
     private func refreshGeneratedResultCopy(contentProtected: Bool,
                                             detachedClipboardMode: Bool) {
         // Preserve the secure-refresh rule: never ask a workspace for a
@@ -4209,7 +4316,6 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
             pointSize: 12,
             weight: .semibold
         )
-        functionMenuButton.image?.isTemplate = true
         functionMenuButton.isEnabled = !contentProtected
         functionMenuButton.toolTip = contentProtected
             ? "受保护状态下不能切换 Buffer 功能"
@@ -4373,18 +4479,6 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
             "发送下一块（\(deliveryShortcutTitle)）",
             #selector(sendTapped)
         )
-        sendButtonProgressIndicator.style = .spinning
-        sendButtonProgressIndicator.controlSize = .small
-        sendButtonProgressIndicator.isDisplayedWhenStopped = false
-        sendButtonProgressIndicator.isHidden = true
-        sendButtonProgressIndicator.translatesAutoresizingMaskIntoConstraints = false
-        sendButton.addSubview(sendButtonProgressIndicator)
-        NSLayoutConstraint.activate([
-            sendButtonProgressIndicator.centerXAnchor.constraint(equalTo: sendButton.centerXAnchor),
-            sendButtonProgressIndicator.centerYAnchor.constraint(equalTo: sendButton.centerYAnchor),
-            sendButtonProgressIndicator.widthAnchor.constraint(equalToConstant: 12),
-            sendButtonProgressIndicator.heightAnchor.constraint(equalToConstant: 12),
-        ])
         configureIconButton(
             clipboardImportButton,
             "arrow.down.doc",
@@ -4490,11 +4584,12 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
             for: .horizontal
         )
 
+        // CLI channel plug-ins allow model and effort selection here. The API
+        // channel continues to show its Provider model as a read-only label.
         let aiPopupWidths: [(FirstMousePopUpButton, CGFloat)] = [
-            (aiConnectorPopup, 98),
-            (aiModelPopup, 88),
-            (aiModePopup, 62),
-            (aiOutputPopup, 82),
+            (aiModelPopup, 132),
+            (aiEffortPopup, 88),
+            (aiSkillPopup, 118),
         ]
         for (popup, width) in aiPopupWidths {
             popup.controlSize = .mini
@@ -4505,17 +4600,42 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
             popup.setContentCompressionResistancePriority(.required,
                                                           for: .horizontal)
         }
-        aiConnectorPopup.target = self
-        aiConnectorPopup.action = #selector(aiConnectorChanged)
-        aiConnectorPopup.toolTip = "选择实际处理请求的 AI 连接器"
-        aiModelPopup.isEnabled = false
-        aiModelPopup.toolTip = "CLI 使用已验证的默认模型；OpenAI 使用连接器设置中的模型"
-        aiModePopup.target = self
-        aiModePopup.action = #selector(aiModeChanged)
-        aiModePopup.toolTip = "选择本次处理方式"
-        aiOutputPopup.target = self
-        aiOutputPopup.action = #selector(aiOutputChanged)
-        aiOutputPopup.toolTip = "选择原地生成的内容格式"
+        aiModelPopup.target = self
+        aiModelPopup.action = #selector(aiModelChanged)
+        aiModelPopup.setAccessibilityLabel("AI 模型")
+        aiEffortPopup.target = self
+        aiEffortPopup.action = #selector(aiEffortChanged)
+        aiEffortPopup.setAccessibilityLabel("推理深度")
+        aiSkillPopup.target = self
+        aiSkillPopup.action = #selector(aiSkillChanged)
+        aiSkillPopup.setAccessibilityLabel("AI 技能")
+
+        for (popup, width) in [
+            (scholayProviderPopup, CGFloat(112)),
+            (scholayStylePopup, CGFloat(110)),
+            (academicProviderPopup, CGFloat(112)),
+            (latexModePopup, CGFloat(138)),
+        ] {
+            popup.controlSize = .mini
+            popup.font = .systemFont(ofSize: 10)
+            popup.translatesAutoresizingMaskIntoConstraints = false
+            popup.widthAnchor.constraint(equalToConstant: width).isActive = true
+            popup.setContentHuggingPriority(.required, for: .horizontal)
+            popup.setContentCompressionResistancePriority(.required,
+                                                          for: .horizontal)
+        }
+        scholayProviderPopup.target = self
+        scholayProviderPopup.action = #selector(scholayProviderChanged)
+        scholayProviderPopup.setAccessibilityLabel("Reference 生成服务")
+        scholayStylePopup.target = self
+        scholayStylePopup.action = #selector(scholayStyleChanged)
+        scholayStylePopup.setAccessibilityLabel("Reference 引用格式")
+        academicProviderPopup.target = self
+        academicProviderPopup.action = #selector(academicProviderChanged)
+        academicProviderPopup.setAccessibilityLabel("学术插件生成服务")
+        latexModePopup.target = self
+        latexModePopup.action = #selector(latexModeChanged)
+        latexModePopup.setAccessibilityLabel("LaTeX 输入方式")
 
         builtInActionOptionPopup.controlSize = .mini
         builtInActionOptionPopup.font = .systemFont(ofSize: 10)
@@ -4546,6 +4666,15 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         translationSwapButton.translatesAutoresizingMaskIntoConstraints = false
         translationSwapButton.widthAnchor.constraint(equalToConstant: 18).isActive = true
         translationSwapButton.heightAnchor.constraint(equalToConstant: 18).isActive = true
+        translationSpeechToggle.imagePosition = .imageOnly
+        translationSpeechToggle.isBordered = false
+        translationSpeechToggle.focusRingType = .none
+        translationSpeechToggle.target = self
+        translationSpeechToggle.action = #selector(translationSpeechToggleTapped)
+        translationSpeechToggle.translatesAutoresizingMaskIntoConstraints = false
+        translationSpeechToggle.widthAnchor.constraint(equalToConstant: 20).isActive = true
+        translationSpeechToggle.heightAnchor.constraint(equalToConstant: 18).isActive = true
+        translationSpeechToggle.setAccessibilityRole(.checkBox)
 
         builtInActionButton.target = self
         builtInActionButton.action = #selector(builtInActionTapped)
@@ -4868,6 +4997,7 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         railActionCluster.applyAppearance()
         translationSwapButton.contentTintColor = RimeUI.textSecondary
         translationSwapButton.refreshInteractionAppearance()
+        refreshTranslationSpeechToggle()
         pluginActionButtons.values.forEach {
             $0.contentTintColor = $0.isEnabled ? RimeUI.accentBlue : RimeUI.textSecondary
             $0.refreshInteractionAppearance()
@@ -4881,10 +5011,12 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         derivedOptionPickerPopup.refreshInteractionAppearance()
         translationSourcePopup.refreshInteractionAppearance()
         translationTargetPopup.refreshInteractionAppearance()
-        aiConnectorPopup.refreshInteractionAppearance()
         aiModelPopup.refreshInteractionAppearance()
-        aiModePopup.refreshInteractionAppearance()
-        aiOutputPopup.refreshInteractionAppearance()
+        aiEffortPopup.refreshInteractionAppearance()
+        scholayProviderPopup.refreshInteractionAppearance()
+        scholayStylePopup.refreshInteractionAppearance()
+        academicProviderPopup.refreshInteractionAppearance()
+        latexModePopup.refreshInteractionAppearance()
         contextualStatusViews.values.forEach { $0.applyAppearance() }
     }
 
@@ -4897,11 +5029,12 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         builtInActionOptionPopup.setPreviewPointerState(nil)
         translationSourcePopup.setPreviewPointerState(nil)
         translationTargetPopup.setPreviewPointerState(nil)
-        aiConnectorPopup.setPreviewPointerState(nil)
         aiModelPopup.setPreviewPointerState(nil)
-        aiModePopup.setPreviewPointerState(nil)
-        aiOutputPopup.setPreviewPointerState(nil)
+        aiEffortPopup.setPreviewPointerState(nil)
+        scholayProviderPopup.setPreviewPointerState(nil)
+        scholayStylePopup.setPreviewPointerState(nil)
         translationSwapButton.setPreviewPointerState(nil)
+        translationSpeechToggle.setPreviewPointerState(nil)
         builtInActionButton.setPreviewPointerState(nil)
         pluginActionButtons.values.forEach { $0.setPreviewPointerState(nil) }
 
@@ -4941,7 +5074,6 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         sendButton.title = ""
         sendButtonUsesAccent = false
         guard let controls else {
-            setSendButtonGenerating(false)
             if detachedClipboardMode {
                 setSendButtonSymbol("paperplane.fill")
                 sendButton.isEnabled = false
@@ -4960,15 +5092,13 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
 
         switch controls.primaryAction {
         case .disabled:
-            setSendButtonGenerating(false)
             setSendButtonSymbol("sparkles")
             sendButton.isEnabled = false
             sendButton.toolTip = contentProtected
                 ? "安全输入已开启，AI 已暂停"
                 : controls.generationStatusText
-            sendButton.setAccessibilityLabel("AI 生成不可用")
+            sendButton.setAccessibilityLabel("AI 处理不可用")
         case .requestGeneration:
-            setSendButtonGenerating(false)
             setSendButtonSymbol("sparkles")
             sendButton.isEnabled = !contentProtected
                 && controls.canGenerate
@@ -4978,16 +5108,14 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
                 : (availability.blocksManualGenerationRequest
                     ? availability.label
                     : controls.generationStatusText)
-            sendButton.setAccessibilityLabel("请求 AI 生成")
+            sendButton.setAccessibilityLabel("开始 AI 处理")
             sendButtonUsesAccent = true
         case .generating:
-            sendButton.image = nil
+            setSendButtonSymbol("paperplane.fill")
             sendButton.isEnabled = false
             sendButton.toolTip = controls.generationStatusText
             sendButton.setAccessibilityLabel("AI 正在生成")
-            setSendButtonGenerating(true)
         case .deliver:
-            setSendButtonGenerating(false)
             setSendButtonSymbol("paperplane.fill")
             sendButton.isEnabled = !detachedClipboardMode
                 && !contentProtected
@@ -5001,18 +5129,6 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
                 detachedClipboardMode ? "发送不可用" : "发送下一块 AI 内容"
             )
             sendButtonUsesAccent = true
-        }
-    }
-
-    private func setSendButtonGenerating(_ generating: Bool) {
-        if generating {
-            guard sendButtonProgressIndicator.isHidden else { return }
-            sendButtonProgressIndicator.isHidden = false
-            sendButtonProgressIndicator.startAnimation(nil)
-        } else {
-            guard !sendButtonProgressIndicator.isHidden else { return }
-            sendButtonProgressIndicator.stopAnimation(nil)
-            sendButtonProgressIndicator.isHidden = true
         }
     }
 
@@ -5041,7 +5157,11 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
             return
         }
         if let workspace = DerivedBufferWorkspaceRouter.selectedWorkspace {
-            if let controls = workspace as? any DerivedOptionPickerControls {
+            if let scholay = workspace as? ScholayWorkspace {
+                refreshScholayControls(scholay)
+            } else if let academic = workspace as? ScholayAcademicWorkspace {
+                refreshAcademicControls(academic)
+            } else if let controls = workspace as? any DerivedOptionPickerControls {
                 refreshDerivedOptionPickerControls(
                     workspace: workspace,
                     controls: controls
@@ -5061,6 +5181,8 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         }
         if renderingTranslationControls
             || renderingAIControls
+            || renderingScholayControls
+            || renderingAcademicKind != nil
             || renderingBuiltInActionControls
             || renderingOptionPickerControls {
             resetDerivedControlRendering()
@@ -5233,6 +5355,7 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
             pluginButtonRow.addArrangedSubview(translationSourcePopup)
             pluginButtonRow.addArrangedSubview(translationSwapButton)
             pluginButtonRow.addArrangedSubview(translationTargetPopup)
+            pluginButtonRow.addArrangedSubview(translationSpeechToggle)
         }
 
         if renderedTranslationLanguages != controls.languageOptions {
@@ -5254,6 +5377,8 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         translationSourcePopup.isEnabled = controlsEnabled
         translationTargetPopup.isEnabled = controlsEnabled
         translationSwapButton.isEnabled = controlsEnabled && controls.canSwapLanguages
+        translationSpeechToggle.isEnabled = controlsEnabled
+        refreshTranslationSpeechToggle()
     }
 
     private func refreshDerivedOptionPickerControls(
@@ -5313,61 +5438,349 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
                 pluginButtonRow.removeArrangedSubview($0)
                 $0.removeFromSuperview()
             }
-            pluginButtonRow.addArrangedSubview(aiConnectorPopup)
             pluginButtonRow.addArrangedSubview(aiModelPopup)
-            pluginButtonRow.addArrangedSubview(aiModePopup)
-            pluginButtonRow.addArrangedSubview(aiOutputPopup)
         }
-        refreshAIControlSelections()
+        refreshAIModelControls(kind: (workspace as? AITextPluginWorkspace)?.kind)
     }
 
-    private func refreshAIControlSelections() {
-        if aiConnectorPopup.numberOfItems != AITextProviderKind.allCases.count {
-            aiConnectorPopup.removeAllItems()
-            for kind in AITextProviderKind.allCases {
-                aiConnectorPopup.addItem(withTitle: compactAIConnectorTitle(kind))
-                aiConnectorPopup.lastItem?.representedObject = kind.rawValue
+    private func refreshScholayControls(_ workspace: ScholayWorkspace) {
+        pluginSelector.toolTip = "当前插件：Reference · Scholay（\(pluginSwitchShortcutTitle) 切换）"
+        pluginLoadingIndicator.isHidden = true
+        pluginLoadingIndicator.stopAnimation(nil)
+        if !renderingScholayControls {
+            resetDerivedControlRendering()
+            renderingScholayControls = true
+            pluginButtonRow.addArrangedSubview(scholayProviderPopup)
+            pluginButtonRow.addArrangedSubview(scholayStylePopup)
+        }
+        setAIChoices(
+            AITextProviderKind.allCases.map {
+                PluginConfigurationChoice(value: $0.rawValue,
+                                          title: $0.displayName)
+            },
+            selected: workspace.providerKind.rawValue,
+            in: scholayProviderPopup
+        )
+        for kind in AITextProviderKind.allCases {
+            guard let item = scholayProviderPopup.itemArray.first(where: {
+                $0.representedObject as? String == kind.rawValue
+            }) else { continue }
+            let symbolName: String
+            switch kind {
+            case .codexCLI: symbolName = PluginVisualIdentity.chatGPTSymbolName
+            case .claudeCodeCLI: symbolName = PluginVisualIdentity.claudeSymbolName
+            case .openAICompatible: symbolName = "network"
+            }
+            if item.image == nil {
+                item.image = PluginVisualIdentity.image(
+                    symbolName: symbolName,
+                    accessibilityDescription: kind.displayName,
+                    pointSize: 12
+                )
             }
         }
-        let connectorKind = AITextConnectorSelectionStore.shared.selectedKind
-        selectPopupExactly(aiConnectorPopup,
-                           representedValue: connectorKind.rawValue)
-
-        let modelID = try? AITextGenerationPreferenceStore.shared
-            .requestSelection(connectorKind: connectorKind)
-            .modelID
-        aiModelPopup.removeAllItems()
-        aiModelPopup.addItem(withTitle: modelID ?? "默认模型")
-        aiModelPopup.lastItem?.representedObject = modelID
-        aiModelPopup.isEnabled = false
-
-        if aiModePopup.numberOfItems != AITextGenerationMode.allCases.count {
-            aiModePopup.removeAllItems()
-            for mode in AITextGenerationMode.allCases {
-                aiModePopup.addItem(withTitle: mode.displayName)
-                aiModePopup.lastItem?.representedObject = mode.rawValue
-            }
-        }
-        selectPopupExactly(
-            aiModePopup,
-            representedValue: AITextGenerationPreferenceStore.shared.mode.rawValue
+        setAIChoices(
+            ScholayCitationStyle.allCases.map {
+                PluginConfigurationChoice(value: $0.rawValue, title: $0.title)
+            },
+            selected: workspace.citationStyle.rawValue,
+            in: scholayStylePopup
         )
-
-        if !AITextOutputPopupConfiguration.matchesCanonicalItems(aiOutputPopup) {
-            AITextOutputPopupConfiguration.populate(aiOutputPopup)
-        }
-        selectPopupExactly(
-            aiOutputPopup,
-            representedValue: AITextGenerationPreferenceStore.shared.format.rawValue
-        )
+        let enabled = !lastSecureInputState && !sessionProtectionActive
+        scholayProviderPopup.isEnabled = enabled
+        scholayStylePopup.isEnabled = enabled
+        scholayProviderPopup.toolTip = "选择生成服务；检索始终使用 Minicod"
+        scholayStylePopup.toolTip = "按可得元数据生成简式引用；Chicago 为作者年份制。投稿前请核对完整格式，仅影响新请求"
     }
 
-    private func compactAIConnectorTitle(_ kind: AITextProviderKind) -> String {
-        switch kind {
-        case .codexCLI: return "Codex CLI"
-        case .claudeCodeCLI: return "Claude Code"
-        case .openAICompatible: return "OpenAI API"
+    private func refreshAcademicControls(_ workspace: ScholayAcademicWorkspace) {
+        pluginSelector.toolTip = "当前插件：\(workspace.workbenchDisplayName) · Scholay（\(pluginSwitchShortcutTitle) 切换）"
+        pluginLoadingIndicator.isHidden = true
+        pluginLoadingIndicator.stopAnimation(nil)
+        if renderingAcademicKind != workspace.kind {
+            resetDerivedControlRendering()
+            renderingAcademicKind = workspace.kind
+            pluginButtonRow.addArrangedSubview(academicProviderPopup)
+            if workspace.kind == .latex {
+                pluginButtonRow.addArrangedSubview(latexModePopup)
+            }
         }
+        setAIChoices(
+            AITextProviderKind.allCases.map {
+                PluginConfigurationChoice(value: $0.rawValue,
+                                          title: $0.displayName)
+            }, selected: workspace.providerKind.rawValue,
+            in: academicProviderPopup
+        )
+        if workspace.kind == .latex {
+            setAIChoices(
+                ScholayLatexMode.allCases.map {
+                    PluginConfigurationChoice(value: $0.rawValue,
+                                              title: $0.title)
+                }, selected: workspace.latexMode.rawValue,
+                in: latexModePopup
+            )
+        }
+        let enabled = !lastSecureInputState && !sessionProtectionActive
+        academicProviderPopup.isEnabled = enabled
+        latexModePopup.isEnabled = enabled
+        academicProviderPopup.toolTip = "选择 AI 连接器"
+        latexModePopup.toolTip = "选择公式的输入方式；PNG 模式可粘贴图片"
+    }
+
+    private func refreshAIModelControls(kind: AITextProviderKind?) {
+        if kind == .codexCLI {
+            if aiSkillPopup.superview == nil {
+                pluginButtonRow.addArrangedSubview(aiSkillPopup)
+            }
+            setAIChoices(
+                [PluginConfigurationChoice(value: "text", title: "文字"),
+                 PluginConfigurationChoice(value: AITextSkillKind.imagegen.rawValue,
+                                           title: AITextSkillKind.imagegen.title)],
+                selected: AITextSkillSelectionStore.shared.selected(for: .codexCLI)?
+                    .rawValue ?? "text",
+                in: aiSkillPopup
+            )
+            aiSkillPopup.isEnabled = !lastSecureInputState && !sessionProtectionActive
+            aiSkillPopup.toolTip = "选择文字或 imagegen；图片完成后保存在 Mailbox"
+        } else if aiSkillPopup.superview != nil {
+            pluginButtonRow.removeArrangedSubview(aiSkillPopup)
+            aiSkillPopup.removeFromSuperview()
+        }
+        guard let kind, kind != .openAICompatible else {
+            if aiEffortPopup.superview != nil {
+                pluginButtonRow.removeArrangedSubview(aiEffortPopup)
+                aiEffortPopup.removeFromSuperview()
+            }
+            let modelID = kind.flatMap {
+                try? AITextGenerationPreferenceStore.shared
+                    .channelSelection(connectorKind: $0).modelID
+            }
+            setAIChoices(
+                [PluginConfigurationChoice(value: "default",
+                                           title: modelID ?? "默认模型")],
+                selected: "default", in: aiModelPopup
+            )
+            aiModelPopup.isEnabled = false
+            aiModelPopup.toolTip = "AI API 的模型在“连接器”中选择"
+            return
+        }
+        if aiEffortPopup.superview == nil {
+            pluginButtonRow.addArrangedSubview(aiEffortPopup)
+        }
+        do {
+            let model = try PluginConfigurationCatalog.makeAIChannelModel(
+                kind: kind
+            )
+            let snapshot = try model.load()
+            let fields = model.schema.fields
+            guard let modelField = fields.first(where: {
+                $0.id == AIChannelPluginConfigurationFieldID.model
+            }), case let .choice(modelChoices) = modelField.kind,
+                let effortField = fields.first(where: {
+                    $0.id == AIChannelPluginConfigurationFieldID.effort
+                }), case let .choice(effortChoices) = effortField.kind else {
+                throw PluginConfigurationError.invalidSchema("AI 模型选项不可用")
+            }
+            setAIChoices(
+                modelChoices,
+                selected: snapshot.string(AIChannelPluginConfigurationFieldID.model)
+                    ?? (kind == .codexCLI ? "gpt-6-sol" : "claude-opus-5-5"),
+                in: aiModelPopup
+            )
+            setAIChoices(
+                effortChoices,
+                selected: snapshot.string(AIChannelPluginConfigurationFieldID.effort)
+                    ?? "medium",
+                in: aiEffortPopup
+            )
+            let enabled = !lastSecureInputState && !sessionProtectionActive
+            aiModelPopup.isEnabled = enabled
+            aiEffortPopup.isEnabled = enabled
+            aiModelPopup.toolTip = "选择 \(kind.displayName) 的模型；仅影响新请求"
+            aiEffortPopup.toolTip = "选择推理深度；仅影响新请求"
+        } catch {
+            setAIChoices(
+                [PluginConfigurationChoice(value: "unavailable", title: "模型不可用")],
+                selected: "unavailable", in: aiModelPopup
+            )
+            setAIChoices(
+                [PluginConfigurationChoice(value: "unavailable", title: "深度不可用")],
+                selected: "unavailable", in: aiEffortPopup
+            )
+            aiModelPopup.isEnabled = false
+            aiEffortPopup.isEnabled = false
+            aiModelPopup.toolTip = "无法读取插件配置"
+            aiEffortPopup.toolTip = "无法读取插件配置"
+        }
+    }
+
+    private func setAIChoices(
+        _ choices: [PluginConfigurationChoice],
+        selected: String,
+        in popup: NSPopUpButton
+    ) {
+        let current = popup.itemArray.map {
+            PluginConfigurationChoice(
+                value: $0.representedObject as? String ?? "",
+                title: $0.title
+            )
+        }
+        if current != choices {
+            popup.removeAllItems()
+            for choice in choices {
+                popup.addItem(withTitle: choice.title)
+                popup.lastItem?.representedObject = choice.value
+            }
+        }
+        selectPopupExactly(popup, representedValue: selected)
+    }
+
+    /// Read-only AppKit check for the exact controls users see in the toolbar.
+    func aiChannelControlsAreSelectableForSmoke(
+        outputPath: String? = nil
+    ) -> Bool {
+        guard !IsSecureEventInputEnabled(), !sessionProtectionActive else {
+            return false
+        }
+        if aiModelPopup.superview == nil {
+            pluginButtonRow.addArrangedSubview(aiModelPopup)
+        }
+        pluginButtonRow.isHidden = false
+        for kind in [AITextProviderKind.codexCLI, .claudeCodeCLI] {
+            refreshAIModelControls(kind: kind)
+            guard aiModelPopup.isEnabled,
+                  aiModelPopup.numberOfItems > 1,
+                  aiModelPopup.selectedItem != nil,
+                  !aiModelPopup.itemArray.contains(where: {
+                      $0.representedObject as? String == "default"
+                  }),
+                  aiEffortPopup.isEnabled,
+                  aiEffortPopup.numberOfItems > 1,
+                  aiEffortPopup.selectedItem != nil,
+                  !aiEffortPopup.itemArray.contains(where: {
+                      $0.representedObject as? String == "default"
+                  }),
+                  aiEffortPopup.superview != nil,
+                  (kind != .codexCLI || (
+                    aiSkillPopup.superview === pluginButtonRow
+                    && aiSkillPopup.numberOfItems == 2
+                    && aiSkillPopup.isEnabled
+                  )) else { return false }
+        }
+        refreshAIModelControls(kind: .codexCLI)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        if let outputPath,
+           !renderCurrentContent(to: outputPath, scale: 2) {
+            return false
+        }
+        refreshAIModelControls(kind: .openAICompatible)
+        return !aiModelPopup.isEnabled
+            && aiEffortPopup.superview == nil
+            && aiSkillPopup.superview == nil
+    }
+
+    func imageResultMailboxButtonForSmoke(outputPath: String) -> Bool {
+        guard !IsSecureEventInputEnabled(), !sessionProtectionActive else {
+            return false
+        }
+        guard let workspace = AITextPluginRuntimeRegistry.shared.workspace(
+            for: .codexCLI
+        ) else { return false }
+        refreshManualGenerationControls(workspace: workspace,
+                                        controls: workspace)
+        pluginSelector.selectItem(withTitle: "ChatGPT")
+        selectPopupExactly(aiSkillPopup,
+                           representedValue: AITextSkillKind.imagegen.rawValue)
+        pluginButtonRow.isHidden = false
+        let threadID = UUID()
+        let block = TranslationOutputBlock(
+            id: threadID, text: "图片已生成，点击右侧按钮到 Mailbox 查看。"
+        )
+        let snapshot = TranslationRailSnapshot(
+            sourceText: "画一颗红色的星星",
+            outputBlocks: [block],
+            outputRows: [TranslationOutputRow(
+                key: 0, blocks: [block], title: "生成结果",
+                action: .openMailbox(threadID)
+            )],
+            outputRowsAreIndependent: true,
+            phase: .ready,
+            targetRole: "图"
+        )
+        let original = bufferRail.onDerivedTargetOpenMailbox
+        var opened: UUID?
+        bufferRail.onDerivedTargetOpenMailbox = { opened = $0 }
+        defer { bufferRail.onDerivedTargetOpenMailbox = original }
+        syncLayoutMode(BufferDerivedPresentationRules.layoutMode(
+            style: .singleExchange, snapshot: snapshot
+        ))
+        guard bufferRail.renderTranslationForPreview(
+            snapshot, presentationStyle: .singleExchange
+        ) else { return false }
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let visible = aiSkillPopup.superview === pluginButtonRow
+            && bufferRail.renderedTranslationTargetRowCount == 1
+            && bufferRail.renderedIndependentCopyButtonCount == 1
+            && renderCurrentContent(to: outputPath, scale: 2)
+        return visible
+            && bufferRail.triggerIndependentCopyForSmoke(rowKey: 0)
+            && opened == threadID
+    }
+
+    /// Render the Scholay toolbar and two independently copyable result boxes
+    /// without a credential or network request.
+    func scholayControlsAndResultForSmoke(outputPath: String) -> Bool {
+        guard !IsSecureEventInputEnabled(), !sessionProtectionActive else {
+            return false
+        }
+        refreshScholayControls(ScholayWorkspace.shared)
+        pluginButtonRow.isHidden = false
+        pluginSelector.selectItem(withTitle: "Scholay")
+        let body = TranslationOutputBlock(
+            id: UUID(), text: "睡眠不足可能损害记忆巩固[1]。"
+        )
+        let references = TranslationOutputBlock(
+            id: UUID(),
+            text: "参考文献：[1] Smith J. Sleep and memory. Journal of Sleep Research, 2022."
+        )
+        let originalCopy = bufferRail.onDerivedTargetCopy
+        var copiedIDs: [UUID] = []
+        bufferRail.onDerivedTargetCopy = { copiedIDs.append($0) }
+        defer { bufferRail.onDerivedTargetCopy = originalCopy }
+        let result = TranslationRailSnapshot(
+            sourceText: "睡眠不足会影响记忆",
+            sourceSelected: false,
+            outputBlocks: [body, references],
+            outputRows: [
+                TranslationOutputRow(key: 0, blocks: [body], title: "正文"),
+                TranslationOutputRow(key: 1, blocks: [references], title: "文献"),
+            ],
+            outputRowsAreIndependent: true,
+            phase: .ready,
+            targetRole: "证"
+        )
+        syncLayoutMode(BufferDerivedPresentationRules.layoutMode(
+            style: .singleExchange, snapshot: result
+        ))
+        guard bufferRail.renderTranslationForPreview(
+            result, presentationStyle: .singleExchange
+        ) else { return false }
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let rendered = scholayProviderPopup.superview === pluginButtonRow
+            && scholayStylePopup.superview === pluginButtonRow
+            && scholayProviderPopup.numberOfItems == AITextProviderKind.allCases.count
+            && scholayStylePopup.numberOfItems == ScholayCitationStyle.allCases.count
+            && abs(panel.frame.height - BufferWindowGeometry.height(
+                expanded: true, mode: .derived(targetRows: 2)
+            )) <= 0.5
+            && bufferRail.renderedTranslationTargetRowCount == 2
+            && bufferRail.renderedIndependentCopyButtonCount == 2
+            && renderCurrentContent(to: outputPath, scale: 2)
+        return rendered
+            && bufferRail.triggerIndependentCopyForSmoke(rowKey: 0)
+            && bufferRail.triggerIndependentCopyForSmoke(rowKey: 1)
+            && copiedIDs == [body.id, references.id]
     }
 
     private func refreshDerivedWorkspaceWithoutControls(
@@ -5382,6 +5795,8 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
     private func resetDerivedControlRendering() {
         renderingTranslationControls = false
         renderingAIControls = false
+        renderingScholayControls = false
+        renderingAcademicKind = nil
         renderingBuiltInActionControls = false
         renderingOptionPickerControls = false
         renderedBuiltInActionHasOptions = nil
@@ -6123,6 +6538,13 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
             self?.refresh()
         })
         observers.append(center.addObserver(
+            forName: .bufferSpeechDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refresh()
+        })
+        observers.append(center.addObserver(
             forName: .builtInBufferActionWorkspaceDidChange,
             object: nil,
             queue: .main
@@ -6135,9 +6557,11 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard notification.userInfo?[
+            guard let pluginID = notification.userInfo?[
                 PluginConfigurationNotificationKey.pluginID
-            ] as? String == BuiltInPluginID.remarkable else {
+            ] as? String,
+            [BuiltInPluginID.remarkable, BuiltInPluginID.codexCLI,
+             BuiltInPluginID.claudeCodeCLI].contains(pluginID) else {
                 return
             }
             self?.refresh()
@@ -6923,6 +7347,11 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         for entry in BufferPluginMenuCatalog.entries(from: plugins) {
             pluginSelector.addItem(withTitle: entry.title)
             pluginSelector.lastItem?.representedObject = BufferPluginMenuIdentity(entry.key)
+            pluginSelector.lastItem?.image = PluginVisualIdentity.image(
+                symbolName: entry.symbolName,
+                accessibilityDescription: entry.title,
+                pointSize: 12
+            )
             pluginSelector.lastItem?.toolTip = entry.key == nil
                 ? "使用默认缓冲，不加载插件"
                 : "切换到 \(entry.title)"
@@ -6958,38 +7387,6 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
             IMELog.write("workbench plugin switch failed")
         }
         schedulePluginSelectorRefresh()
-    }
-
-    @objc private func aiConnectorChanged() {
-        guard let raw = aiConnectorPopup.selectedItem?.representedObject as? String,
-              let kind = AITextProviderKind(rawValue: raw) else {
-            refresh()
-            return
-        }
-        _ = AITextConnectorRegistry.shared.select(kind)
-        refresh()
-        RIMESController.refreshActiveUI()
-    }
-
-    @objc private func aiModeChanged() {
-        guard let raw = aiModePopup.selectedItem?.representedObject as? String,
-              let mode = AITextGenerationMode(rawValue: raw) else {
-            refresh()
-            return
-        }
-        AITextGenerationPreferenceStore.shared.mode = mode
-    }
-
-    @objc private func aiOutputChanged() {
-        guard let raw = aiOutputPopup.selectedItem?.representedObject as? String,
-              let format = AITextContentFormat(rawValue: raw) else {
-            refresh()
-            return
-        }
-        AITextGenerationPreferenceStore.shared.set(
-            destination: .inline,
-            format: format
-        )
     }
 
     @objc private func sendTapped() {
@@ -7065,6 +7462,12 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    @objc private func translationSpeechToggleTapped() {
+        let preferences = BufferSpeechPreferences.shared
+        preferences.isEnabled.toggle()
+        if !preferences.isEnabled { BufferSpeechReader.shared.stop() }
+    }
+
     @objc private func importClipboardTapped() {
         _ = importClipboardText()
     }
@@ -7078,7 +7481,7 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         }
         if let workspace = DerivedBufferWorkspaceRouter.selectedWorkspace
                 as? AITextPluginWorkspace,
-           workspace.pluginKey == AITextBuiltInPluginID.key {
+           AITextBuiltInPluginID.isChannelPlugin(workspace.pluginKey) {
             // `reset()` invalidates the generated delivery lease and clears
             // only result state. BufferModel remains the retained source.
             workspace.reset()
@@ -7087,6 +7490,9 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
                   workspace.workspacePluginKey == MarineChromeWorkspace.pluginKey {
             // Marine's refresh operation is a source-preserving reset. The
             // user has explicitly chosen to abandon this result and edit.
+            _ = workspace.requestRefresh()
+        } else if let workspace = DerivedBufferWorkspaceRouter.selectedWorkspace
+                    as? ScholayWorkspace {
             _ = workspace.requestRefresh()
         } else {
             return
@@ -7135,6 +7541,100 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
             return
         }
         controls.setSourceLanguage(value)
+    }
+
+    @objc private func aiModelChanged() {
+        saveAIChoice(
+            fieldID: AIChannelPluginConfigurationFieldID.model,
+            popup: aiModelPopup
+        )
+    }
+
+    @objc private func aiEffortChanged() {
+        saveAIChoice(
+            fieldID: AIChannelPluginConfigurationFieldID.effort,
+            popup: aiEffortPopup
+        )
+    }
+
+    @objc private func aiSkillChanged() {
+        guard !sessionProtectionActive, !IsSecureEventInputEnabled(),
+              let workspace = DerivedBufferWorkspaceRouter.selectedWorkspace
+                as? AITextPluginWorkspace,
+              workspace.kind == .codexCLI,
+              let raw = aiSkillPopup.selectedItem?.representedObject as? String else {
+            return
+        }
+        AITextSkillSelectionStore.shared.select(
+            raw == "text" ? nil : AITextSkillKind(rawValue: raw),
+            for: .codexCLI
+        )
+        refresh()
+    }
+
+    @objc private func scholayProviderChanged() {
+        guard !sessionProtectionActive, !IsSecureEventInputEnabled(),
+              DerivedBufferWorkspaceRouter.selectedWorkspace is ScholayWorkspace,
+              let value = scholayProviderPopup.selectedItem?
+                .representedObject as? String,
+              let kind = AITextProviderKind(rawValue: value) else { return }
+        ScholayToolbarPreferences.shared.selectProvider(kind)
+        refresh()
+    }
+
+    @objc private func academicProviderChanged() {
+        guard !sessionProtectionActive, !IsSecureEventInputEnabled(),
+              let workspace = DerivedBufferWorkspaceRouter.selectedWorkspace
+                as? ScholayAcademicWorkspace,
+              let raw = academicProviderPopup.selectedItem?
+                .representedObject as? String,
+              let provider = AITextProviderKind(rawValue: raw) else { return }
+        ScholayAcademicOptions.shared.selectProvider(provider,
+                                                     for: workspace.kind)
+        refresh()
+    }
+
+    @objc private func latexModeChanged() {
+        guard !sessionProtectionActive, !IsSecureEventInputEnabled(),
+              DerivedBufferWorkspaceRouter.selectedWorkspace
+                as? ScholayAcademicWorkspace === ScholayAcademicWorkspace.latex,
+              let raw = latexModePopup.selectedItem?
+                .representedObject as? String,
+              let mode = ScholayLatexMode(rawValue: raw) else { return }
+        ScholayAcademicOptions.shared.selectLatexMode(mode)
+        refresh()
+    }
+
+    @objc private func scholayStyleChanged() {
+        guard !sessionProtectionActive, !IsSecureEventInputEnabled(),
+              DerivedBufferWorkspaceRouter.selectedWorkspace is ScholayWorkspace,
+              let value = scholayStylePopup.selectedItem?
+                .representedObject as? String,
+              let style = ScholayCitationStyle(rawValue: value) else { return }
+        ScholayToolbarPreferences.shared.selectStyle(style)
+        refresh()
+    }
+
+    private func saveAIChoice(fieldID: String, popup: NSPopUpButton) {
+        guard !sessionProtectionActive,
+              !IsSecureEventInputEnabled(),
+              let kind = AITextPluginRuntimeRegistry.shared.selectedWorkspace?.kind,
+              kind == .codexCLI || kind == .claudeCodeCLI,
+              let value = popup.selectedItem?.representedObject as? String else {
+            refresh()
+            return
+        }
+        do {
+            let model = try PluginConfigurationCatalog.makeAIChannelModel(
+                kind: kind
+            )
+            var snapshot = try model.load()
+            snapshot[fieldID] = .string(value)
+            try model.save(snapshot)
+        } catch {
+            NSSound.beep()
+        }
+        refresh()
     }
 
     @objc private func derivedOptionPickerChanged() {

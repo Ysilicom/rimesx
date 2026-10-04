@@ -20,6 +20,7 @@ import {
 import {
   BufferSurface,
   type BufferExternalSource,
+  type BufferAIConnector,
   type BufferPluginConfiguration,
 } from "./surfaces/BufferSurface";
 import { CandidateSurface } from "./surfaces/CandidateSurface";
@@ -71,6 +72,7 @@ export function App() {
   const [settingsRouteID, setSettingsRouteID] = useState<SettingsRouteID>("core.appearance");
   const [plugins, setPlugins] = useState<PluginRecord[]>(copyPluginFixtures);
   const [pluginConfigurations, setPluginConfigurations] = useState<PluginConfigurationMap>({});
+  const [bufferAIConnector, setBufferAIConnector] = useState<BufferAIConnector>("codex");
   const [zoom, setZoom] = useState<"75" | "90" | "100">("90");
   const [showInspector, setShowInspector] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
@@ -90,7 +92,6 @@ export function App() {
     ))
     .map((plugin) => plugin.id), [plugins]);
   const translationConfiguration = pluginConfigurations["builtin.apple-translation"] ?? {};
-  const aiConfiguration = pluginConfigurations["builtin.ai-text"] ?? {};
   const streamConfiguration = pluginConfigurations["builtin.stream-input"] ?? {};
   const bufferSourceLanguage = typeof translationConfiguration.sourceLanguage === "string"
     ? translationConfiguration.sourceLanguage
@@ -102,11 +103,6 @@ export function App() {
   const translateContinuously = typeof translationConfiguration.translateContinuously === "boolean"
     ? translationConfiguration.translateContinuously
     : true;
-  const translationProvider = translationConfiguration.provider === "ai" ? "ai" : "apple";
-  const bufferAIConnector = aiConfiguration.connector === "claude"
-    || aiConfiguration.connector === "openai"
-    ? aiConfiguration.connector
-    : "codex";
   const streamCandidateCount = typeof streamConfiguration.candidateCount === "number"
     && Number.isFinite(streamConfiguration.candidateCount)
     ? Math.min(5, Math.max(1, Math.trunc(streamConfiguration.candidateCount)))
@@ -192,22 +188,23 @@ export function App() {
   }, []);
 
   const updateBufferPluginConfiguration = useCallback((configuration: BufferPluginConfiguration) => {
-    const pluginID = configuration.mode === "ai"
-      ? "builtin.ai-text"
-      : configuration.mode === "translation"
-        ? "builtin.apple-translation"
-        : "builtin.stream-input";
+    // AI task plug-ins have a fixed backend and task: choosing one only
+    // changes which plug-in the Buffer runs, not any plug-in configuration.
+    if (configuration.mode === "ai") {
+      setBufferAIConnector(configuration.connector);
+      return;
+    }
+    const pluginID = configuration.mode === "translation"
+      ? "builtin.apple-translation"
+      : "builtin.stream-input";
     setPluginConfigurations((current) => ({
       ...current,
       [pluginID]: {
         ...current[pluginID],
-        ...(configuration.mode === "ai"
-          ? { connector: configuration.connector }
-          : configuration.mode === "translation"
+        ...(configuration.mode === "translation"
             ? {
               sourceLanguage: configuration.sourceLanguage,
               targetLanguage: configuration.targetLanguage,
-              provider: configuration.provider,
               translateContinuously: configuration.translateContinuously,
             }
             : {
@@ -217,6 +214,22 @@ export function App() {
       },
     }));
     setNotice(`${initialPlugins.find((plugin) => plugin.id === pluginID)?.name ?? "插件"}配置已同步`);
+  }, []);
+
+  const updateBufferAIInference = useCallback((
+    connector: BufferAIConnector,
+    configuration: { model: string; effort: string },
+  ) => {
+    const pluginID = {
+      codex: "builtin.codex-cli",
+      claude: "builtin.claude-code-cli",
+      openai: "builtin.openai-compatible",
+    }[connector];
+    setPluginConfigurations((current) => ({
+      ...current,
+      [pluginID]: { ...current[pluginID], ...configuration },
+    }));
+    setNotice(`${initialPlugins.find((plugin) => plugin.id === pluginID)?.name ?? "AI"} 模型配置已同步`);
   }, []);
 
   const acceptInboxItem = useCallback((item: InboxItem) => {
@@ -384,6 +397,16 @@ export function App() {
               </div>
               <div hidden={surfaceID !== "buffer"}>
                 <BufferSurface
+                  aiConfigurations={{
+                    codex: {
+                      model: String(pluginConfigurations["builtin.codex-cli"]?.model ?? "gpt-6-sol"),
+                      effort: String(pluginConfigurations["builtin.codex-cli"]?.effort ?? "medium"),
+                    },
+                    claude: {
+                      model: String(pluginConfigurations["builtin.claude-code-cli"]?.model ?? "claude-opus-5-5"),
+                      effort: String(pluginConfigurations["builtin.claude-code-cli"]?.effort ?? "medium"),
+                    },
+                  }}
                   aiConnector={bufferAIConnector}
                   availablePluginIDs={availableBufferPluginIDs}
                   externalSource={bufferExternalSource}
@@ -391,6 +414,7 @@ export function App() {
                   onLanguageChange={updateBufferLanguages}
                   onOpenPluginSettings={() => openSettings("core.plugins")}
                   onPluginConfigurationChange={updateBufferPluginConfiguration}
+                  onAIInferenceChange={updateBufferAIInference}
                   onSend={sendFromBuffer}
                   paused={bufferPaused}
                   sourceLanguage={bufferSourceLanguage}
@@ -398,7 +422,6 @@ export function App() {
                   streamLatency={streamLatency}
                   targetLanguage={bufferTargetLanguage}
                   translationContinuously={translateContinuously}
-                  translationProvider={translationProvider}
                 />
               </div>
               {surfaceID === "buffer" ? null : renderSurface()}

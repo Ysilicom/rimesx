@@ -5,7 +5,15 @@ Plugin 提供的可信配置。插件设置必须通过
 `PluginConfigurationSchema` 声明，并由 RIMES 渲染；不得为单个插件在
 `SettingsWindow` 中继续增加一次性的输入框或持久化分支。
 
-> **当前产品范围（2026-08-21）**：当前维护的 Buffer 插件只有 **AI 生成
+> **2026-09-26 AI 插件按渠道拆分**：原「AI 生成」拆成三个渠道插件，一个插件就是一个渠道，
+> **ChatGPT**（`builtin.codex-cli`，本地 Codex CLI）、**Claude**（`builtin.claude-code-cli`，本地 Claude Code CLI）、
+> **AI API**（`builtin.openai-compatible`，通用 Open API / OpenAI 兼容）。每个插件把源缓冲区原样
+> 作为完整请求发给自己的渠道，回复进入目标轨；没有任务提示词，也没有处理方式、格式或渠道下拉框。
+> ChatGPT 与 Claude 各自可在 Buffer 工具栏或插件齿轮中选择模型和推理深度，两处共用设置；ChatGPT 默认为 GPT-6 Sol / medium，Claude 默认为 Claude Opus 5.5 / medium。旧版“跟随默认”配置迁移为这两个明确档位。AI API 的 Provider 与登录仍在「连接器」配置。ChatGPT 工具栏另有「文字 / 图片 · imagegen」选择；图片任务由 Mailbox 持有，Buffer 关闭后继续运行，成功产物只保存并预览于 Mailbox。Skill 按渠道显式挂载，目前仅 ChatGPT 的 imagegen 可选。具体用途另做独立插件：
+> 实时翻译 2.2 只用 Apple 本地翻译，配置页只剩语言与连续翻译，旧的翻译通道/AI 渠道存储值被忽略。意识流输入是经确认的例外，保留自己的 AI 连接器配置。
+> 下文关于 AI 生成渠道选择与翻译 AI 通道的描述仅作历史记录。
+>
+> **当前产品范围（2026-08-21，AI 部分已由上条覆盖）**：当前维护的 Buffer 插件只有 **AI 生成
 > 2.1、实时翻译 2.1、意识流输入 1.3**。`Marine Chrome`、`My Prompt`、
 > `Remarkable` 已下架，不再下载、安装、启用，也不应出现在当前插件配置
 > UI。本文中保留的 My Prompt 数据目录与运行时规则仅是历史兼容说明，

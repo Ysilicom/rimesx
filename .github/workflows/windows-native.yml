@@ -3,7 +3,9 @@ name: Windows Native Foundation
 on:
   # The native Windows foundation is maintained independently of the macOS
   # product release path. A scheduled/manual run keeps evidence available
-  # without blocking ordinary PRs or macOS releases.
+  # without blocking ordinary PRs or macOS releases. Do not add pull_request
+  # here: MacOSReleaseGatePolicyTests forbids it (PR #31). PR-time IME
+  # evidence lives in windows-ime.yml and stays non-required.
   schedule:
     # Monday 04:07 Asia/Shanghai, after the data-preview maintenance run.
     - cron: '7 20 * * 0'
@@ -51,7 +53,49 @@ jobs:
             platforms/windows/native/out/build/windows-${{ matrix.architecture }}/Release/RimesTsf.dll
             platforms/windows/native/out/build/windows-${{ matrix.architecture }}/Release/RimesBroker.exe
             platforms/windows/native/out/build/windows-${{ matrix.architecture }}/Release/RimesRegistrar.exe
+            platforms/windows/native/out/build/windows-${{ matrix.architecture }}/Release/RimesTsfE2E.exe
+            platforms/windows/native/out/build/windows-${{ matrix.architecture }}/Release/RimesTsfTestHost.exe
             platforms/windows/native/out/build/windows-${{ matrix.architecture }}/Release/rimes-windows-registration.json
           if-no-files-found: error
           retention-days: 14
           compression-level: 6
+
+  e2e-typing:
+    name: IME typing ${{ matrix.architecture }}
+    needs: build-and-test
+    runs-on: windows-2022
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [x64, x86]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download unsigned foundation binaries
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: RIMES-Windows-Native-Foundation-UNSIGNED-${{ matrix.architecture }}-${{ github.sha }}
+          path: platforms/windows/native/out/build/windows-${{ matrix.architecture }}/Release
+
+      - name: Run in-process IME typing tests
+        shell: pwsh
+        run: |
+          ./platforms/windows/tests/Invoke-RimesImeE2E.ps1 `
+            -Architecture '${{ matrix.architecture }}' `
+            -Configuration Release `
+            -WorkDirectory "$env:RUNNER_TEMP/rimes-ime-e2e" `
+            -ProbeDesktop
+
+      - name: Upload typing-test diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: RIMES-Windows-IME-E2E-${{ matrix.architecture }}-${{ github.sha }}
+          path: ${{ runner.temp }}/rimes-ime-e2e
+          if-no-files-found: warn
+          retention-days: 14

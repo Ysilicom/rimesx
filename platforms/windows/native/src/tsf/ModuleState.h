@@ -4,6 +4,9 @@
 
 namespace rimes::windows::tsf::module {
 
+void SetInstance(HINSTANCE instance) noexcept;
+[[nodiscard]] HINSTANCE Instance() noexcept;
+
 void AddObject() noexcept;
 void ReleaseObject() noexcept;
 void AddServerLock() noexcept;

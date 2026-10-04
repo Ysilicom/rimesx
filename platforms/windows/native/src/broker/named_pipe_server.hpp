@@ -5,6 +5,7 @@
 #endif
 #include <windows.h>
 
+#include <atomic>
 #include <functional>
 #include <string>
 
@@ -20,8 +21,7 @@ enum class ClientAction {
 };
 
 using FrameHandler = std::function<ClientAction(
-    const core::Frame& request,
-    DWORD verified_client_process_id,
+    const core::Frame& request, DWORD verified_client_process_id,
     core::Frame* response)>;
 
 // A handler owns the protocol/session state for exactly one verified pipe
@@ -41,17 +41,19 @@ class NamedPipeServer {
   explicit NamedPipeServer(UserSecurityContext* security)
       : security_(security) {}
 
+  void RequestStop() noexcept { stopping_.store(true); }
+
   // Accepts verified clients continuously and serves each connection on its
   // own worker.  Pipe I/O is overlapped and bounded, so an idle client or a
   // client that sends only part of a frame cannot stall the accept loop or
   // retain a worker forever.  When serve_once is true, the first verified
   // client is served synchronously and its result is returned.
   ServeResult ServeClients(const FrameHandlerFactory& handler_factory,
-                           bool serve_once,
-                           std::wstring* error);
+                           bool serve_once, std::wstring* error);
 
  private:
   UserSecurityContext* security_;
+  std::atomic_bool stopping_{false};
 };
 
 }  // namespace rimes::windows::broker

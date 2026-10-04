@@ -17,7 +17,7 @@ enum PluginSource: String, Codable, CaseIterable {
 
     var title: String {
         switch self {
-        case .builtIn: return "内置扩展"
+        case .builtIn: return "官方内置"
         case .external: return "外部插件"
         }
     }
@@ -48,6 +48,9 @@ enum PluginCapability: String, Codable, CaseIterable, Hashable {
     case chordLearning
     case localStorage
     case connector
+    case capsuleModule
+    case mailboxModule
+    case hostModule
 
     var title: String {
         switch self {
@@ -58,6 +61,26 @@ enum PluginCapability: String, Codable, CaseIterable, Hashable {
         case .chordLearning: return "并击学习"
         case .localStorage: return "本地数据"
         case .connector: return "连接器"
+        case .capsuleModule: return "Capsule 模块"
+        case .mailboxModule: return "Mailbox 模块"
+        case .hostModule: return "内容模块"
+        }
+    }
+}
+
+/// A product plugin has one visible type; runtime capabilities stay additive.
+enum PluginKind: String, Codable, CaseIterable {
+    case buffer
+    case capsule
+    case mailbox
+    case extensionModule
+
+    var title: String {
+        switch self {
+        case .buffer: return "缓冲插件"
+        case .capsule: return "Capsule 插件"
+        case .mailbox: return "Mailbox 插件"
+        case .extensionModule: return "内置扩展"
         }
     }
 }
@@ -92,6 +115,23 @@ struct PluginDescriptor: Identifiable, Hashable {
     let canUninstall: Bool
 
     var id: PluginKey { key }
+
+    var kind: PluginKind {
+        if capabilities.contains(.mailboxModule) { return .mailbox }
+        if capabilities.contains(.capsuleModule) { return .capsule }
+        if capabilities.contains(.bufferAction) { return .buffer }
+        return .extensionModule
+    }
+
+    var producerName: String {
+        if source == .external { return name }
+        switch PresetBufferPluginCatalog.entry(id: key.rawID)?.producerID {
+        case "scholay": return "Scholay"
+        case "openai": return "OpenAI"
+        case "anthropic": return "Anthropic"
+        default: return "RIMES 官方"
+        }
+    }
 }
 
 /// Only trusted, compiled-in modules conform to this protocol. External Action
@@ -124,13 +164,35 @@ enum PluginVisualIdentity {
     static let fallbackSymbolName = "puzzlepiece.extension"
     private static let legacyFallbackSymbolName = "puzzlepiece"
     static let defaultWorkbenchSymbolName = "square.grid.2x2"
+    static let chatGPTSymbolName = "rimes.brand.chatgpt"
+    static let claudeSymbolName = "rimes.brand.claude"
+    static let scholaySymbolName = "rimes.brand.scholay"
+
+    private static let builtInBrandSymbols: Set<String> = [
+        chatGPTSymbolName, claudeSymbolName, scholaySymbolName,
+    ]
+    private static let brandAssets: [String: NSImage] = {
+        var assets: [String: NSImage] = [:]
+        for (symbolName, filename) in [
+            (chatGPTSymbolName, "chatgpt"),
+            (claudeSymbolName, "claude"),
+        ] {
+            guard let url = Bundle.module.url(forResource: filename,
+                                              withExtension: "png",
+                                              subdirectory: "PluginIcons"),
+                  let image = NSImage(contentsOf: url) else { continue }
+            assets[symbolName] = image
+        }
+        return assets
+    }()
 
     static func resolvedSymbolName(_ preferred: String?) -> String {
         if let preferred = preferred?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !preferred.isEmpty,
-           NSImage(systemSymbolName: preferred,
-                   accessibilityDescription: nil) != nil {
+           (builtInBrandSymbols.contains(preferred)
+            || NSImage(systemSymbolName: preferred,
+                       accessibilityDescription: nil) != nil) {
             return preferred
         }
         if NSImage(systemSymbolName: fallbackSymbolName,
@@ -145,6 +207,9 @@ enum PluginVisualIdentity {
                       pointSize: CGFloat,
                       weight: NSFont.Weight = .regular) -> NSImage? {
         let resolved = resolvedSymbolName(symbolName)
+        if builtInBrandSymbols.contains(resolved) {
+            return brandImage(symbolName: resolved, pointSize: pointSize)
+        }
         let configuration = NSImage.SymbolConfiguration(pointSize: pointSize,
                                                         weight: weight)
         let image = NSImage(
@@ -152,6 +217,43 @@ enum PluginVisualIdentity {
             accessibilityDescription: accessibilityDescription
         )?.withSymbolConfiguration(configuration)
         image?.isTemplate = true
+        return image
+    }
+
+    private static func brandImage(symbolName: String,
+                                   pointSize: CGFloat) -> NSImage? {
+        if symbolName == scholaySymbolName {
+            return sixPointedStar(pointSize: pointSize)
+        }
+        guard let image = brandAssets[symbolName]?.copy() as? NSImage else {
+            return nil
+        }
+        image.size = NSSize(width: pointSize, height: pointSize)
+        image.isTemplate = symbolName == chatGPTSymbolName
+        return image
+    }
+
+    private static func sixPointedStar(pointSize: CGFloat) -> NSImage {
+        let image = NSImage(size: NSSize(width: pointSize, height: pointSize),
+                            flipped: false) { bounds in
+            let center = NSPoint(x: bounds.midX, y: bounds.midY)
+            let outerRadius = min(bounds.width, bounds.height) * 0.47
+            let innerRadius = outerRadius * 0.54
+            let path = NSBezierPath()
+            for point in 0..<12 {
+                let angle = CGFloat(point) * .pi / 6 + .pi / 2
+                let radius = point.isMultiple(of: 2) ? outerRadius : innerRadius
+                let vertex = NSPoint(x: center.x + cos(angle) * radius,
+                                     y: center.y + sin(angle) * radius)
+                if point == 0 { path.move(to: vertex) }
+                else { path.line(to: vertex) }
+            }
+            path.close()
+            NSColor.black.setFill()
+            path.fill()
+            return true
+        }
+        image.isTemplate = true
         return image
     }
 }

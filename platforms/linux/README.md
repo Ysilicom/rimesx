@@ -140,7 +140,7 @@ tmp_root=$(mktemp -d)
 工具或 policy 校验失败时，构建会 fail-closed，不会退回复制整个 `rime-data`。
 
 归档同时保留项目 `LICENSE`、`THIRD_PARTY_NOTICES.md` 和经过 policy 校验的
-`rime-data/licenses/`。RIMES 自有脚本采用 MIT；雾凇及衍生数据按 GPL-3.0-only，
+`rime-data/licenses/`。RIMES 自有脚本采用 Apache-2.0，历史 MIT 授权范围见根目录 `LICENSING.md`；后续发行应附带 `LICENSE`、`NOTICE` 及适用的保留许可。雾凇及衍生数据按 GPL-3.0-only，
 easy-en 词典按 LGPL-3.0，`lua/search.lua` 保留 CC BY-SA 4.0 署名。精确来源边界见包内
 第三方声明和数据目录中的 source notice。
 

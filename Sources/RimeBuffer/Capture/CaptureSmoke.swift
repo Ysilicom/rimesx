@@ -223,7 +223,7 @@ enum CaptureSmoke {
             recorder.failed = { error in streamFailure = error; print("capture-live-smoke: stream error \(error.localizedDescription)"); fflush(stdout) }
             recorder.status = { elapsed, _ in if Int(elapsed) % 60 == 0 { print("capture-live-smoke: encoded=\(Int(elapsed))s"); fflush(stdout) } }
             let url = folder.appendingPathComponent("test.mp4")
-            try await withCheckedThrowingContinuation { (c:CheckedContinuation<Void,Error>) in recorder.start(target:CaptureTarget(display:display,window:window,rect:nil),content:content,options:options,output:url) { c.resume(with:$0) } }
+            try await withCheckedThrowingContinuation { (c:CheckedContinuation<Void,Error>) in recorder.start(target:CaptureTarget(display:display,window:window,rect:nil),content:content,excluding:[],options:options,output:url) { c.resume(with:$0) } }
             var maxDelay = 0.0
             for tick in 0..<max(3,seconds) {
                 let start = ProcessInfo.processInfo.systemUptime

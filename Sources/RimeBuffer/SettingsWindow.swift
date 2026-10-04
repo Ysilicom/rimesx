@@ -52,8 +52,16 @@ private final class SettingsPluginConfigurationButton: SettingsPointingButton {
     var pluginKey = PluginKey(domain: .builtIn, rawID: "")
 }
 
+private final class SettingsPluginDetailsButton: SettingsPointingButton {
+    var pluginKey = PluginKey(domain: .builtIn, rawID: "")
+}
+
 private final class SettingsPluginDownloadButton: SettingsPointingButton {
     var pluginKey = PluginKey(domain: .builtIn, rawID: "")
+}
+
+private final class SettingsThemeDetailsButton: SettingsPointingButton {
+    var mode: RimeAppearanceMode = .night
 }
 
 private final class SettingsLexiconButton: SettingsPointingButton {
@@ -202,10 +210,12 @@ private final class SettingsIconTileView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 8
-        imageView.image = NSImage(
-            systemSymbolName: symbolName,
-            accessibilityDescription: accessibilityDescription
-        )?.withSymbolConfiguration(.init(pointSize: 16, weight: .medium))
+        imageView.image = PluginVisualIdentity.image(
+            symbolName: symbolName,
+            accessibilityDescription: accessibilityDescription,
+            pointSize: 16,
+            weight: .medium
+        )
         imageView.imageScaling = .scaleProportionallyDown
         imageView.setAccessibilityElement(false)
         imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -263,9 +273,12 @@ private final class SettingsChoiceCardView: NSView {
         choice.removeFromSuperview()
 
         let icon = NSImageView()
-        icon.image = NSImage(systemSymbolName: symbolName,
-                             accessibilityDescription: title)?
-            .withSymbolConfiguration(.init(pointSize: 18, weight: .medium))
+        icon.image = PluginVisualIdentity.image(
+            symbolName: symbolName,
+            accessibilityDescription: title,
+            pointSize: 18,
+            weight: .medium
+        )
         icon.imageScaling = .scaleProportionallyDown
         icon.contentTintColor = RimeUI.textSecondary
         icon.setAccessibilityElement(false)
@@ -423,47 +436,79 @@ private final class SettingsThemeCardButton: SettingsPointingButton {
         wantsLayer = true
         layer?.cornerRadius = 8
         translatesAutoresizingMaskIntoConstraints = false
-        widthAnchor.constraint(equalToConstant: 650).isActive = true
-        heightAnchor.constraint(equalToConstant: 64).isActive = true
 
         let palette = mode.palette
-        let detailText = mode.detailText
-        let icon = SettingsIconTileView(
-            symbolName: "paintpalette",
-            accessibilityDescription: mode.title,
-            palette: palette
-        )
+        let preview = NSView()
+        preview.wantsLayer = true
+        preview.layer?.cornerRadius = 6
+        preview.layer?.borderWidth = SettingsVisualStyle.hairline(backingScale: nil)
+        preview.layer?.borderColor = RimeUI.color(palette.border).cgColor
+        preview.layer?.backgroundColor = RimeUI.color(palette.surface).cgColor
+        preview.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(preview)
+
+        let colors: [UInt32] = mode == .rasta
+            ? [palette.brandRed, palette.brandYellow, palette.brandGreen]
+            : [palette.surfaceSecondary, palette.selectedCandidateBackground,
+               palette.accentGreen]
+        let swatches = colors.map { value -> NSView in
+            let swatch = NSView()
+            swatch.wantsLayer = true
+            swatch.layer?.cornerRadius = 4
+            swatch.layer?.backgroundColor = RimeUI.color(value).cgColor
+            swatch.translatesAutoresizingMaskIntoConstraints = false
+            return swatch
+        }
+        let swatchRow = NSStackView(views: swatches)
+        swatchRow.orientation = .horizontal
+        swatchRow.distribution = .fillEqually
+        swatchRow.spacing = 6
+        swatchRow.translatesAutoresizingMaskIntoConstraints = false
+        preview.addSubview(swatchRow)
+
         let name = NSTextField(labelWithString: mode.title)
         name.font = .systemFont(ofSize: 11, weight: .semibold)
         name.textColor = RimeUI.color(palette.textPrimary)
-        name.toolTip = detailText
-        name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        name.toolTip = mode.detailText
+        name.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(name)
 
-        let status = NSTextField(labelWithString: selected ? "正在使用" : "可用")
-        status.font = .systemFont(ofSize: 9, weight: .semibold)
-        status.textColor = selected
-            ? RimeUI.color(palette.accentText)
-            : RimeUI.color(palette.textMuted)
-        status.setContentHuggingPriority(.required, for: .horizontal)
+        let family = NSTextField(labelWithString: mode.family == .classic ? "经典" : "拉斯塔")
+        family.font = .systemFont(ofSize: 9)
+        family.textColor = RimeUI.color(palette.textMuted)
+        family.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(family)
 
-        let row = NSStackView(views: [icon, name, NSView(), status])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 11
-        row.edgeInsets = NSEdgeInsets(top: 9, left: 11, bottom: 9, right: 11)
-        row.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(row)
+        let selectedMark = NSImageView()
+        selectedMark.image = NSImage(systemSymbolName: "checkmark.circle.fill",
+                                     accessibilityDescription: nil)
+        selectedMark.contentTintColor = RimeUI.color(palette.accentText)
+        selectedMark.isHidden = !selected
+        selectedMark.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(selectedMark)
         NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: leadingAnchor),
-            row.trailingAnchor.constraint(equalTo: trailingAnchor),
-            row.topAnchor.constraint(equalTo: topAnchor),
-            row.bottomAnchor.constraint(equalTo: bottomAnchor),
+            preview.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            preview.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            preview.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            preview.heightAnchor.constraint(equalToConstant: 68),
+            swatchRow.leadingAnchor.constraint(equalTo: preview.leadingAnchor, constant: 12),
+            swatchRow.trailingAnchor.constraint(equalTo: preview.trailingAnchor, constant: -12),
+            swatchRow.centerYAnchor.constraint(equalTo: preview.centerYAnchor),
+            swatchRow.heightAnchor.constraint(equalToConstant: 30),
+            name.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            name.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+            family.leadingAnchor.constraint(equalTo: name.trailingAnchor, constant: 8),
+            family.firstBaselineAnchor.constraint(equalTo: name.firstBaselineAnchor),
+            selectedMark.trailingAnchor.constraint(equalTo: preview.trailingAnchor, constant: -7),
+            selectedMark.topAnchor.constraint(equalTo: preview.topAnchor, constant: 7),
+            selectedMark.widthAnchor.constraint(equalToConstant: 16),
+            selectedMark.heightAnchor.constraint(equalToConstant: 16),
         ])
         layer?.backgroundColor = RimeUI.color(palette.surfaceSecondary).cgColor
         layer?.borderColor = RimeUI.color(
             selected ? palette.selectedCandidateBackground : palette.border
         ).cgColor
-        layer?.borderWidth = 1
+        layer?.borderWidth = selected ? 2 : SettingsVisualStyle.hairline(backingScale: nil)
         setAccessibilityLabel("\(mode.title)主题，\(selected ? "正在使用" : "可用")")
     }
 
@@ -707,6 +752,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
     private var pluginRefreshScheduled = false
     private var chordExtensionDeploymentInProgress = false
     private var pluginConfigurationSheet: NSPanel?
+    private var cardDetailsPopover: NSPopover?
 
     private var userDir: URL {
         if let override = ProcessInfo.processInfo.environment["RIMEBUFFER_USER_DIR"],
@@ -787,6 +833,25 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
                                      catalog: routeCatalog)
         showCurrentRoute()
         presentPluginConfiguration(pluginKey: pluginKey)
+    }
+
+    func showCapsulePlugins() {
+        guard show() else { return }
+        _ = navigation.selectRoute(SettingsCoreRoute.plugins.id,
+                                   catalog: routeCatalog)
+        _ = navigation.selectSubpage(PluginManagementSubpage.capsulePlugins.id,
+                                     catalog: routeCatalog)
+        showCurrentRoute()
+        window?.makeKeyAndOrderFront(nil)
+    }
+
+    func showMailboxPlugins() {
+        guard show() else { return }
+        _ = navigation.selectRoute(SettingsCoreRoute.plugins.id, catalog: routeCatalog)
+        _ = navigation.selectSubpage(PluginManagementSubpage.mailboxPlugins.id,
+                                     catalog: routeCatalog)
+        showCurrentRoute()
+        window?.makeKeyAndOrderFront(nil)
     }
 
     /// Dev-only: render one settings page to a PNG by drawing the window's own
@@ -2009,6 +2074,8 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
 
     private func showCurrentRoute() {
         guard let route = selectedRoute else { return }
+        cardDetailsPopover?.close()
+        cardDetailsPopover = nil
         refreshSidebarSelection()
         // Plugin views are embedded directly, not as child controllers. Notify
         // the page before releasing its owner so active practice can freeze and
@@ -2345,6 +2412,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         let name = NSTextField(labelWithString: title)
         name.font = .systemFont(ofSize: 11, weight: .semibold)
         name.textColor = RimeUI.textPrimary
+        name.alignment = .left
         name.lineBreakMode = .byTruncatingTail
         name.toolTip = detail
 
@@ -2537,12 +2605,76 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
     }
 
     private func themePreviewCard(_ mode: RimeAppearanceMode) -> NSView {
-        SettingsThemeCardButton(
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.heightAnchor.constraint(equalToConstant: 116).isActive = true
+        let card = SettingsThemeCardButton(
             mode: mode,
             selected: RimeUI.appearance == mode,
             target: self,
             action: #selector(appearanceCardChosen(_:))
         )
+        let details = SettingsThemeDetailsButton(
+            title: "", target: self, action: #selector(showThemeCardDetails(_:))
+        )
+        details.mode = mode
+        configureCardIconButton(details, symbol: "info.circle",
+                                label: "查看\(mode.title)主题详情")
+        container.addSubview(card)
+        container.addSubview(details)
+        NSLayoutConstraint.activate([
+            card.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            card.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            card.topAnchor.constraint(equalTo: container.topAnchor),
+            card.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            details.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -9),
+            details.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
+        ])
+        return container
+    }
+
+    private func configureCardIconButton(_ button: SettingsPointingButton,
+                                         symbol: String, label: String) {
+        button.title = ""
+        button.image = NSImage(systemSymbolName: symbol,
+                               accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .medium))
+        button.imagePosition = .imageOnly
+        button.isBordered = false
+        button.contentTintColor = RimeUI.textSecondary
+        button.toolTip = label
+        button.setAccessibilityLabel(label)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 24).isActive = true
+    }
+
+    private func cardGrid(_ cards: [NSView], columns: Int,
+                          height: CGFloat) -> NSView {
+        let grid = NSStackView()
+        grid.orientation = .vertical
+        grid.alignment = .width
+        grid.spacing = 8
+        grid.translatesAutoresizingMaskIntoConstraints = false
+        grid.widthAnchor.constraint(equalToConstant: 650).isActive = true
+        for start in stride(from: 0, to: cards.count, by: columns) {
+            var rowCards = Array(cards[start..<min(start + columns, cards.count)])
+            while rowCards.count < columns {
+                let placeholder = NSView()
+                placeholder.translatesAutoresizingMaskIntoConstraints = false
+                placeholder.heightAnchor.constraint(equalToConstant: height).isActive = true
+                rowCards.append(placeholder)
+            }
+            let row = NSStackView(views: rowCards)
+            row.orientation = .horizontal
+            row.alignment = .centerY
+            row.distribution = .fillEqually
+            row.spacing = 8
+            row.translatesAutoresizingMaskIntoConstraints = false
+            row.widthAnchor.constraint(equalToConstant: 650).isActive = true
+            grid.addArrangedSubview(row)
+        }
+        return grid
     }
 
     private func dictionaryCard(title: String, detail: String) -> NSView {
@@ -2705,13 +2837,9 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         if subpageID == "theme" {
             appearancePopUp.removeFromSuperview()
             return contentColumn([
-                sectionLabel("经典 · 配色"),
-                themePreviewCard(.night),
-                themePreviewCard(.day),
-                themePreviewCard(.quiet),
-                spacer(16),
-                sectionLabel("拉斯塔 · 主题"),
-                themePreviewCard(.rasta),
+                sectionLabel("选择主题"),
+                cardGrid(RimeAppearanceMode.allCases.map(themePreviewCard),
+                         columns: 2, height: 116),
             ])
         }
         let preview = CandidatePreviewView(maxWidth: 620)
@@ -3072,7 +3200,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
                 settingsRow(
                     title: "Codex CLI",
                     detail: detail,
-                    symbolName: "chevron.left.forwardslash.chevron.right",
+                    symbolName: PluginVisualIdentity.chatGPTSymbolName,
                     control: connectorStatusBadge(ready ? "可用" : "不可用", active: ready),
                     width: 626
                 ),
@@ -3110,7 +3238,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
                 settingsRow(
                     title: "Claude Code CLI",
                     detail: detail,
-                    symbolName: "sparkles",
+                    symbolName: PluginVisualIdentity.claudeSymbolName,
                     control: connectorStatusBadge(ready ? "可用" : "不可用", active: ready),
                     width: 626
                 ),
@@ -3466,13 +3594,13 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
             let symbol: String
             switch kind {
             case .codexCLI:
-                cardTitle = "Codex CLI"
+                cardTitle = "ChatGPT"
                 detail = "浏览器授权 · 隔离运行"
-                symbol = "chevron.left.forwardslash.chevron.right"
+                symbol = PluginVisualIdentity.chatGPTSymbolName
             case .claudeCodeCLI:
-                cardTitle = "Claude Code"
+                cardTitle = "Claude"
                 detail = "官方 CLI 授权"
-                symbol = "sparkles"
+                symbol = PluginVisualIdentity.claudeSymbolName
             case .openAICompatible:
                 cardTitle = "AI Provider"
                 detail = "多个 OpenAI 兼容 Provider"
@@ -3893,25 +4021,42 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
 
         pluginRowsStack.removeFromSuperview()
 
-        let showExternal = subpageID == "all" || subpageID == "buffer-plugins"
-        let showBuiltIns = subpageID == "all" || subpageID == "built-in-extensions"
-        var views: [NSView] = [
-            heading,
-            spacer(8),
-        ]
-        if showBuiltIns {
-            let rows = NSStackView()
-            rows.orientation = .vertical
-            rows.alignment = .width
-            rows.spacing = 6
-            let builtIns = PluginRegistry.shared.plugins(source: .builtIn).filter {
-                !$0.descriptor.capabilities.contains(.bufferAction)
+        let showExternal = subpageID == PluginManagementSubpage.all.rawValue
+            || subpageID == PluginManagementSubpage.bufferPlugins.rawValue
+        let showCapsule = subpageID == PluginManagementSubpage.all.rawValue
+            || subpageID == PluginManagementSubpage.capsulePlugins.rawValue
+        let showBuiltIns = subpageID == PluginManagementSubpage.all.rawValue
+            || subpageID == PluginManagementSubpage.builtInExtensions.rawValue
+        var views: [NSView] = showExternal ? [heading, spacer(8)] : []
+        if subpageID == PluginManagementSubpage.all.rawValue
+            || subpageID == PluginManagementSubpage.mailboxPlugins.rawValue {
+            let modules = PluginRegistry.shared.plugins(source: .builtIn).filter {
+                $0.descriptor.kind == .mailbox
             }
-            for plugin in builtIns {
-                rows.addArrangedSubview(pluginRow(plugin, mode: .enablement))
+            views.append(sectionLabel("Mailbox 插件"))
+            views.append(cardGrid(modules.map {
+                pluginCard($0, mode: .enablement)
+            }, columns: 3, height: 116))
+            views.append(spacer(16))
+        }
+        if showCapsule {
+            let modules = PluginRegistry.shared.plugins(source: .builtIn).filter {
+                $0.descriptor.kind == .capsule
+            }
+            views.append(sectionLabel("Capsule 插件"))
+            views.append(cardGrid(modules.map {
+                pluginCard($0, mode: .enablement)
+            }, columns: 3, height: 116))
+            if showExternal || showBuiltIns { views.append(spacer(16)) }
+        }
+        if showBuiltIns {
+            let builtIns = PluginRegistry.shared.plugins(source: .builtIn).filter {
+                $0.descriptor.kind == .extensionModule
             }
             views.append(sectionLabel("内置扩展"))
-            views.append(rows)
+            views.append(cardGrid(builtIns.map {
+                pluginCard($0, mode: .enablement)
+            }, columns: 3, height: 116))
             if showExternal { views.append(spacer(16)) }
         }
         if showExternal {
@@ -3922,69 +4067,59 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         return pluginContentColumn(views)
     }
 
-    private func pluginRow(_ plugin: RegisteredPlugin,
-                           mode: SettingsPluginSwitchMode) -> NSView {
+    private func pluginCard(_ plugin: RegisteredPlugin,
+                            mode: SettingsPluginSwitchMode) -> NSView {
         let icon = SettingsIconTileView(
             symbolName: plugin.descriptor.symbolName,
             accessibilityDescription: plugin.descriptor.name
         )
         icon.toolTip = plugin.descriptor.name
-        icon.setContentHuggingPriority(.required, for: .horizontal)
-        icon.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let details = SettingsPluginDetailsButton(
+            title: "", target: self, action: #selector(showPluginCardDetails(_:))
+        )
+        details.pluginKey = plugin.descriptor.key
+        configureCardIconButton(details, symbol: "info.circle",
+                                label: "查看\(plugin.descriptor.name)详情")
+
+        var topViews: [NSView] = [icon, flexSpacer(), details]
+        if plugin.isInstalled,
+           PluginRegistry.shared.hasConfiguration(for: plugin.descriptor.key) {
+            let configure = SettingsPluginConfigurationButton(
+                title: "", target: self,
+                action: #selector(configureBufferPlugin(_:))
+            )
+            configure.pluginKey = plugin.descriptor.key
+            configureCardIconButton(configure, symbol: "gearshape",
+                                    label: "配置\(plugin.descriptor.name)")
+            topViews.append(configure)
+        }
+        let top = NSStackView(views: topViews)
+        top.orientation = .horizontal
+        top.alignment = .centerY
+        top.spacing = 4
 
         let name = NSTextField(labelWithString: plugin.descriptor.name)
         name.font = .systemFont(ofSize: 11, weight: .semibold)
         name.textColor = RimeUI.textPrimary
         name.lineBreakMode = .byTruncatingTail
         name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        let version = NSTextField(labelWithString: "v\(plugin.descriptor.version)")
-        version.font = .monospacedSystemFont(ofSize: 9, weight: .regular)
-        version.textColor = RimeUI.textMuted
-        version.setContentHuggingPriority(.required, for: .horizontal)
-
-        let installationTitle: String
-        if plugin.descriptor.source == .external {
-            installationTitle = "外部"
-        } else if !plugin.isInstalled {
-            installationTitle = "未下载"
-        } else if PresetBufferPluginCatalog.entry(id: plugin.descriptor.key.rawID)?
-            .defaultInstalled == true {
-            installationTitle = "已预装"
-        } else {
-            installationTitle = "已安装"
-        }
-        let installation = NSTextField(labelWithString: installationTitle)
-        installation.font = .systemFont(ofSize: 9, weight: .semibold)
-        installation.textColor = plugin.isInstalled
-            ? RimeUI.textMuted
-            : themeStatusColor
-        installation.setContentHuggingPriority(.required, for: .horizontal)
-
         name.toolTip = plugin.descriptor.summary
-        let titleRow = NSStackView(views: [name, version, installation])
-        titleRow.orientation = .horizontal
-        titleRow.alignment = .firstBaseline
-        titleRow.spacing = 6
-        titleRow.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        titleRow.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        var rowViews: [NSView] = [icon, titleRow, flexSpacer()]
-        if plugin.isInstalled,
-           PluginRegistry.shared.hasConfiguration(
-            for: plugin.descriptor.key
-        ) {
-            let configure = SettingsPluginConfigurationButton(
-                title: "设置…",
-                target: self,
-                action: #selector(configureBufferPlugin(_:))
-            )
-            configure.pluginKey = plugin.descriptor.key
-            configure.controlSize = .small
-            configure.toolTip = "配置 \(plugin.descriptor.name)"
-            configure.setContentHuggingPriority(.required, for: .horizontal)
-            rowViews.append(configure)
-        }
+        let producer = NSTextField(labelWithString:
+            "出品方 · \(plugin.descriptor.producerName)")
+        producer.font = .systemFont(ofSize: 9)
+        producer.textColor = RimeUI.textMuted
+        producer.lineBreakMode = .byTruncatingTail
+
+        let isActive = mode == .bufferEnablement
+            && BufferPluginSelectionStore.shared.activeKey == plugin.descriptor.key
+        let status = NSTextField(labelWithString: !plugin.isInstalled
+            ? "未下载" : isActive ? "正在使用" : plugin.isEnabled ? "已启用" : "已停用")
+        status.font = .systemFont(ofSize: 9, weight: .medium)
+        status.textColor = isActive ? themeStatusColor : RimeUI.textMuted
+        status.setContentHuggingPriority(.required, for: .horizontal)
+        var bottomViews: [NSView] = [status, flexSpacer()]
         if plugin.isInstalled {
             let toggle = SettingsPluginSwitch(frame: .zero)
             toggle.pluginKey = plugin.descriptor.key
@@ -4000,45 +4135,61 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
                 ? (toggle.state == .on
                     ? "停用插件并从工作台移除"
                     : "启用插件并加入工作台")
-                : (toggle.state == .on ? "停用扩展" : "启用扩展")
+                : (toggle.state == .on ? "停用" : "启用")
+                    + plugin.descriptor.kind.title
             toggle.setAccessibilityLabel(
                 mode == .bufferEnablement
                     ? "在缓冲工作台启用\(plugin.descriptor.name)"
-                    : "启用\(plugin.descriptor.name)"
+                    : "启用\(plugin.descriptor.kind.title)\(plugin.descriptor.name)"
             )
             toggle.setContentHuggingPriority(.required, for: .horizontal)
-            rowViews.append(toggle)
+            bottomViews.append(toggle)
         } else {
             let download = SettingsPluginDownloadButton(
-                title: pluginDownloadInProgress ? "等待…" : "下载",
+                title: "",
                 target: self,
                 action: #selector(downloadPresetBufferPlugin(_:))
             )
             download.pluginKey = plugin.descriptor.key
-            download.controlSize = .small
             download.isEnabled = !pluginDownloadInProgress
-            download.toolTip = "从 RIMES GitHub 仓库下载并验证 \(plugin.descriptor.name)"
-            download.setAccessibilityLabel("下载并安装\(plugin.descriptor.name)")
-            download.setContentHuggingPriority(.required, for: .horizontal)
-            rowViews.append(download)
+            configureCardIconButton(download, symbol: "arrow.down.circle",
+                                    label: "下载并安装\(plugin.descriptor.name)")
+            bottomViews.append(download)
         }
+        let bottom = NSStackView(views: bottomViews)
+        bottom.orientation = .horizontal
+        bottom.alignment = .centerY
+        bottom.spacing = 6
+        let content = NSStackView(views: [top, name, producer, bottom])
+        content.orientation = .vertical
+        content.alignment = .leading
+        content.spacing = 5
+        content.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            top.widthAnchor.constraint(equalTo: content.widthAnchor),
+            name.widthAnchor.constraint(equalTo: content.widthAnchor),
+            producer.widthAnchor.constraint(equalTo: content.widthAnchor),
+            bottom.widthAnchor.constraint(equalTo: content.widthAnchor),
+        ])
 
-        let row = NSStackView(views: rowViews)
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 10
-        row.edgeInsets = NSEdgeInsets(top: 8, left: 11, bottom: 8, right: 10)
-        row.wantsLayer = true
-        row.layer?.backgroundColor = RimeUI.surface2.cgColor
-        row.layer?.borderColor = RimeUI.border.cgColor
-        row.layer?.borderWidth = SettingsVisualStyle.hairline(
+        let card = NSView()
+        card.wantsLayer = true
+        card.layer?.backgroundColor = RimeUI.surface2.cgColor
+        card.layer?.borderColor = (isActive ? themeStatusColor : RimeUI.border).cgColor
+        card.layer?.borderWidth = isActive ? 1.5 : SettingsVisualStyle.hairline(
             backingScale: window?.backingScaleFactor
         )
-        row.layer?.cornerRadius = 8
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.widthAnchor.constraint(equalToConstant: 650).isActive = true
-        row.heightAnchor.constraint(greaterThanOrEqualToConstant: 46).isActive = true
-        return row
+        card.layer?.cornerRadius = 8
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.heightAnchor.constraint(equalToConstant: 116).isActive = true
+        card.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 11),
+            content.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -11),
+            content.topAnchor.constraint(equalTo: card.topAnchor, constant: 10),
+            content.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -10),
+        ])
+        return card
     }
 
     private func pluginContentColumn(_ views: [NSView]) -> NSView {
@@ -4625,11 +4776,9 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
             empty.heightAnchor.constraint(equalToConstant: 58).isActive = true
             pluginRowsStack.addArrangedSubview(empty)
         } else {
-            plugins.forEach {
-                pluginRowsStack.addArrangedSubview(
-                    pluginRow($0, mode: .bufferEnablement)
-                )
-            }
+            pluginRowsStack.addArrangedSubview(cardGrid(plugins.map {
+                pluginCard($0, mode: .bufferEnablement)
+            }, columns: 3, height: 116))
         }
 
         if let statusMessage {
@@ -5149,9 +5298,10 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
 
     @objc private func pluginSwitchToggled(_ sender: SettingsPluginSwitch) {
         let on = sender.state == .on
-        let pluginName = PluginRegistry.shared.allPlugins()
+        let descriptor = PluginRegistry.shared.allPlugins()
             .first(where: { $0.descriptor.key == sender.pluginKey })?
-            .descriptor.name ?? sender.pluginKey.rawID
+            .descriptor
+        let pluginName = descriptor?.name ?? sender.pluginKey.rawID
         if sender.pluginKey.domain == .builtIn,
            sender.pluginKey.rawID == ChordExtensionStore.pluginID {
             applyChordExtensionEnablement(
@@ -5170,7 +5320,10 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
                     : "已停用并从工作台移除：\(pluginName)")
             case .enablement:
                 try PluginRegistry.shared.setEnabled(on, for: sender.pluginKey)
-                setPluginStatus(on ? "已启用扩展：\(pluginName)" : "已停用扩展：\(pluginName)")
+                let kind = descriptor?.kind.title ?? "插件"
+                setPluginStatus(on
+                    ? "已启用\(kind)：\(pluginName)"
+                    : "已停用\(kind)：\(pluginName)")
             }
             DispatchQueue.main.async { [weak self] in self?.refreshPluginList() }
         } catch {
@@ -5317,6 +5470,65 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         presentPluginConfiguration(pluginKey: sender.pluginKey)
     }
 
+    @objc private func showPluginCardDetails(_ sender: SettingsPluginDetailsButton) {
+        guard let plugin = PluginRegistry.shared.allPlugins().first(where: {
+            $0.descriptor.key == sender.pluginKey
+        }) else { return }
+        let installation: String
+        if plugin.descriptor.source == .external { installation = "外部插件" }
+        else if !plugin.isInstalled { installation = "未下载" }
+        else if PresetBufferPluginCatalog.entry(id: plugin.descriptor.key.rawID)?
+                    .defaultInstalled == true { installation = "已预装" }
+        else { installation = "已安装" }
+        showCardDetails(title: plugin.descriptor.name,
+                        metadata: "\(plugin.descriptor.kind.title) · v\(plugin.descriptor.version) · \(installation) · 出品方：\(plugin.descriptor.producerName)",
+                        detail: plugin.descriptor.summary,
+                        from: sender)
+    }
+
+    @objc private func showThemeCardDetails(_ sender: SettingsThemeDetailsButton) {
+        let mode = sender.mode
+        showCardDetails(title: mode.title,
+                        metadata: mode.family == .classic ? "经典配色" : "独立主题",
+                        detail: mode.detailText,
+                        from: sender)
+    }
+
+    private func showCardDetails(title: String, metadata: String,
+                                 detail: String, from button: NSButton) {
+        cardDetailsPopover?.close()
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        let metadataLabel = NSTextField(labelWithString: metadata)
+        metadataLabel.font = .systemFont(ofSize: 10)
+        metadataLabel.textColor = RimeUI.textMuted
+        let detailLabel = NSTextField(wrappingLabelWithString: detail)
+        detailLabel.font = .systemFont(ofSize: 11)
+        detailLabel.textColor = RimeUI.textSecondary
+        detailLabel.maximumNumberOfLines = 4
+        let stack = NSStackView(views: [titleLabel, metadataLabel, detailLabel])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 7
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        let body = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 150))
+        body.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: body.leadingAnchor, constant: 14),
+            stack.trailingAnchor.constraint(equalTo: body.trailingAnchor, constant: -14),
+            stack.topAnchor.constraint(equalTo: body.topAnchor, constant: 12),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: body.bottomAnchor, constant: -12),
+        ])
+        let controller = NSViewController()
+        controller.view = body
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = controller
+        popover.contentSize = body.frame.size
+        cardDetailsPopover = popover
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
+    }
+
     private func presentPluginConfiguration(pluginKey: PluginKey) {
         guard let parentWindow = window,
               pluginConfigurationSheet == nil else { return }
@@ -5458,7 +5670,8 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
                 }
                 self.refreshCodexLoginControls()
                 if authorizationChanged {
-                    AITextPluginRuntimeRegistry.shared.workspace.configurationDidChange()
+                    AITextPluginRuntimeRegistry.shared.workspace(for: .codexCLI)?
+                        .configurationDidChange()
                     BufferWindowController.shared.refresh()
                     RIMESController.refreshActiveUI()
                 }
@@ -5595,7 +5808,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
 
     @objc private func reinstallInputMethod() {
         guard let script = installScriptURL() else {
-            info("找不到 build_install.sh。默认查找：~/Documents/DEV/rime-buffer-1、~/Documents/05-dev/apps/rime-buffer-1 或旧版 rime-buffer 目录。")
+            info("找不到 build_install.sh。默认查找：~/Documents/05-dev/apps/rimes，兼容旧版 rime-buffer 目录。")
             return
         }
 
@@ -5633,6 +5846,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
     private func installScriptURL() -> URL? {
         let home = URL(fileURLWithPath: NSHomeDirectory())
         let candidates = [
+            home.appendingPathComponent("Documents/05-dev/apps/rimes/build_install.sh"),
             home.appendingPathComponent("Documents/DEV/rime-buffer-1/build_install.sh"),
             home.appendingPathComponent("Documents/05-dev/apps/rime-buffer-1/build_install.sh"),
             home.appendingPathComponent("Documents/DEV/rime-buffer/build_install.sh"),

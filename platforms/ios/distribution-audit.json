@@ -25,10 +25,17 @@
     },
     {
       "name": "flyyao",
-      "source": "chord-keymaps/Isaac2025.json at 20651da",
+      "source": "chord-keymaps/Isaac2025.json at 20651da, with dvuo → niang added by the publisher on 2026-09-28",
       "license": "Functional mapping example; publisher representation, not a separate upstream license grant",
       "status": "publisher-declared",
-      "evidence": "2026-09-22: publisher states the key-to-Pinyin method/mappings are not copyrighted input-method content and requests distribution. Verified package contains 426 functional mappings from Isaac2025.json at 20651da, without proprietary executable, documentation or artwork. Public name Default chord; source provenance retained. No independent worldwide copyright or patent clearance is claimed."
+      "evidence": "2026-09-22: publisher states the key-to-Pinyin method/mappings are not copyrighted input-method content and requests distribution. Verified package contains 426 functional mappings from Isaac2025.json at 20651da, without proprietary executable, documentation or artwork. Public name Default chord; source provenance retained. No independent worldwide copyright or patent clearance is claimed. 2026-09-28: the publisher added one functional mapping (dvuo → niang) to Isaac2025.json; the package now contains all 427 mappings, identical to that file."
+    },
+    {
+      "name": "noto-animated-emoji",
+      "source": "https://googlefonts.github.io/noto-emoji-animation/ (fonts.gstatic.com/s/e/notoemoji/latest/<codepoint>/512.webp)",
+      "license": "CC-BY-4.0",
+      "status": "verified",
+      "evidence": "2026-09-29: the official site's FAQ states 'Animated Noto Emoji is licensed under CC BY 4.0' and permits commercial use in apps. 12 files downscaled to 96 px animated PNG; attribution, license link and changes in Resources/THIRD_PARTY.txt and the keyboard settings panel. Source SHA-256 values in dependencies.lock.json."
     }
   ],
   "releasePrerequisites": [

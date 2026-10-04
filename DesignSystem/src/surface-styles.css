@@ -427,136 +427,130 @@
   gap: 8px;
 }
 
-.theme-family-list,
-.plugin-management-list {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-.theme-family-list { gap: 12px; }
-
-.theme-family {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  padding: 9px;
-  border: 1px solid var(--r-border);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--r-surface-2) 72%, transparent);
-}
-
-.theme-family__header {
-  min-height: 34px;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 1px 2px 3px;
-}
-
-.theme-family__header > span:first-child {
-  min-width: 0;
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.theme-family__header strong { color: var(--r-text); font-size: 11px; }
-.theme-family__header small { color: var(--r-text-3); font-size: 9px; line-height: 1.4; }
-
 .theme-choice-list {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .theme-choice {
-  min-height: 64px;
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 9px 11px;
+  min-width: 0;
+  min-height: 116px;
   color: var(--r-text);
-  text-align: left;
   border: 1px solid var(--r-border);
   border-radius: 8px;
   background: var(--r-surface-2);
-  cursor: pointer;
   position: relative;
 }
 
 .theme-choice:hover { border-color: var(--r-border-strong); }
 
 .theme-choice.is-selected {
-  border-color: var(--r-selection);
-  background: var(--r-surface-2);
+  border: 2px solid var(--r-selection);
 }
 
-.theme-choice.is-selected .theme-choice__icon { color: var(--r-accent-text); }
+.theme-choice__select {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  gap: 9px;
+  padding: 10px;
+  color: inherit;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.theme-choice__select:focus-visible,
+.plugin-management-card .r-icon-button:focus-visible { outline: 2px solid var(--r-accent-text); outline-offset: 2px; }
 
 .theme-choice__palette {
-  width: 46px;
-  height: 16px;
-  flex: 0 0 46px;
+  width: 100%;
+  height: 68px;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 2px;
-  overflow: hidden;
-  padding: 2px;
+  gap: 6px;
+  padding: 15px 12px;
   border: 1px solid var(--r-border);
-  border-radius: 999px;
+  border-radius: 6px;
   background: var(--r-surface);
 }
 
-.theme-choice__palette i { border-radius: 999px; }
+.theme-choice__palette i { border-radius: 4px; }
+
+.theme-choice__footer {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 28px 0 2px;
+}
+
+.theme-choice__footer strong,
+.plugin-management-card__name { overflow: hidden; color: var(--r-text); font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.theme-choice__footer small { color: var(--r-text-3); font-size: 9px; }
+.theme-choice__footer svg { margin-left: auto; color: var(--r-accent-text); }
+.theme-choice__details-button { position: absolute; right: 8px; bottom: 6px; }
 
 .theme-choice--rasta {
   border-color: color-mix(in srgb, var(--r-brand-yellow) 46%, var(--r-border));
-  background:
-    linear-gradient(var(--r-surface-2), var(--r-surface-2)) padding-box,
-    linear-gradient(115deg, var(--r-brand-red), var(--r-brand-yellow), var(--r-brand-green)) border-box;
 }
 
-.theme-choice--rasta .theme-choice__icon {
-  color: var(--r-brand-yellow);
-  box-shadow:
-    inset 2px 0 0 var(--r-brand-red),
-    inset -2px 0 0 var(--r-brand-green);
+.plugin-management-grid {
+  width: 650px;
+  max-width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .plugin-management-card {
-  width: 650px;
-  max-width: 100%;
-  height: 58px;
+  min-width: 0;
+  min-height: 116px;
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px 8px 11px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
   border: 1px solid var(--r-border);
   border-radius: 8px;
   background: var(--r-surface-2);
+  position: relative;
 }
 
-.plugin-management-card__title {
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.plugin-management-card__title small {
-  color: var(--r-text-3);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
-  font-size: 9px;
-}
-
-.plugin-management-card__actions {
-  flex: 0 0 auto;
+.plugin-management-card__top,
+.plugin-management-card__bottom {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
 }
+
+.plugin-management-card__bottom { margin-top: auto; }
+.plugin-management-card__bottom small { color: var(--r-text-3); font-size: 9px; }
+.plugin-management-card__name { display: block; }
+.plugin-management-card__actions { display: flex; align-items: center; gap: 4px; }
+
+.settings-card-details {
+  width: 230px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px;
+  color: var(--r-text);
+  border: 1px solid var(--r-border-strong);
+  border-radius: 8px;
+  background: var(--r-surface-3);
+  box-shadow: 0 8px 24px #0004;
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 10;
+}
+
+.settings-card-details strong { font-size: 12px; }
+.settings-card-details small { color: var(--r-text-3); font-size: 10px; }
+.settings-card-details p { margin: 0; color: var(--r-text-2); font-size: 11px; line-height: 1.4; }
 
 .metric-card-grid,
 .lesson-card-grid {
@@ -1811,16 +1805,20 @@
 }
 
 .buffer-track__status {
-  max-width: 132px;
+  width: 20px;
   min-height: 20px;
-  flex: 0 1 auto;
+  flex: 0 0 20px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  padding: 0;
+}
+
+.buffer-track__thinking {
+  display: block;
   overflow: hidden;
-  padding: 0 4px;
-  font-size: 9px;
-  font-weight: 600;
+  color: var(--r-text-2);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1846,6 +1844,41 @@
 
 .design-lab[data-theme="rasta"] .buffer-track > .buffer-track__copy {
   color: var(--r-brand-yellow);
+}
+
+/* Translation read-aloud switch, beside the language menus. */
+.buffer-plugin-popover__speech {
+  align-self: flex-end;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--r-text-2);
+  border-color: transparent;
+  background: transparent;
+}
+
+.buffer-plugin-popover__speech.is-on {
+  color: var(--r-accent);
+}
+
+.design-lab[data-theme="rasta"] .buffer-plugin-popover__speech.is-on {
+  color: var(--r-brand-green);
+}
+
+/* While read-aloud is on, a translated block reads itself on click. */
+button.buffer-track__pager-text--speakable {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+button.buffer-track__pager-text--speakable:hover:not(:disabled) {
+  color: var(--r-accent-text);
 }
 
 .buffer-track__editor {

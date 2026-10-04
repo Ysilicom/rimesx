@@ -1,0 +1,26 @@
+<resources>
+    <string name="app_name">RIMES</string>
+    <string name="english_keyboard">Chinese / English</string>
+    <string name="privacy">Ordinary typing stays on this device. Only explicitly requested online AI sends Buffer source to your configured service. Buffer drafts clear when the keyboard closes or the input field changes. Buffer is disabled in password and private fields.</string>
+    <string name="try_typing">Try typing here</string>
+    <string name="second_field">Second field — test target switching</string>
+    <string name="password_field">Password — Buffer must stay off</string>
+    <string name="buffer_on">Buffer on</string>
+    <string name="buffer_off">Buffer off</string>
+    <string name="buffer_empty">Confirmed text stays here</string>
+    <string name="insert_next">Insert</string>
+    <string name="insert_all">Insert all</string>
+    <string name="clear">Clear</string>
+    <string name="backspace">Delete</string>
+    <string name="space">Space</string>
+    <string name="enter">Enter</string>
+    <string name="switch_keyboard">Switch keyboard</string>
+    <string name="buffer_limit">Buffer is full. Insert or clear it first.</string>
+    <string name="learning">Learn words on this device</string>
+    <string name="learning_detail">Candidate selections improve your local dictionary. Turning this off preserves existing learning. Private fields never learn. No full typing history is stored.</string>
+    <string name="private_field">Private field — no learning or Buffer</string>
+    <string name="engine_loading">Preparing Chinese… English is available</string>
+    <string name="engine_failed">Chinese unavailable. Tap Retry; English is available.</string>
+    <string name="delivery_pending">Text is retained. Free Buffer space or retry insertion.</string>
+    <string name="retry">Retry</string>
+</resources>

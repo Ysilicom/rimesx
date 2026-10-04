@@ -27,6 +27,8 @@ bool IsKnownMessageType(MessageType type) {
     case MessageType::kInputSessionClosed:
     case MessageType::kKeyEvent:
     case MessageType::kInputState:
+    case MessageType::kControl:
+    case MessageType::kControlState:
       return true;
     case MessageType::kInvalid:
       return false;
@@ -143,10 +145,8 @@ class Reader {
   std::size_t offset_ = 0;
 };
 
-bool ValidateText(std::string_view value,
-                  std::size_t maximum_bytes,
-                  const char* field_name,
-                  std::string* error) {
+bool ValidateText(std::string_view value, std::size_t maximum_bytes,
+                  const char* field_name, std::string* error) {
   if (value.size() > maximum_bytes ||
       value.size() > std::numeric_limits<std::uint16_t>::max()) {
     SetError(error, std::string(field_name) + " exceeds its wire limit");
@@ -212,9 +212,9 @@ std::optional<std::uint32_t> Utf16Length(std::string_view value) {
 
 void AppendString(std::vector<std::byte>* output, std::string_view value) {
   AppendU16(output, static_cast<std::uint16_t>(value.size()));
-  output->insert(output->end(),
-                 reinterpret_cast<const std::byte*>(value.data()),
-                 reinterpret_cast<const std::byte*>(value.data() + value.size()));
+  output->insert(
+      output->end(), reinterpret_cast<const std::byte*>(value.data()),
+      reinterpret_cast<const std::byte*>(value.data() + value.size()));
 }
 
 bool ReadDtoPrefix(Reader* reader, std::string* error) {
@@ -240,20 +240,19 @@ void AppendDtoPrefix(std::vector<std::byte>* output) {
   AppendU16(output, 0);
 }
 
-bool EncodeHelloPayload(std::uint32_t process_id,
-                        std::uint32_t session_id,
-                        std::uint64_t capabilities,
-                        std::string_view label,
-                        std::size_t maximum_label_bytes,
-                        const char* field_name,
-                        std::vector<std::byte>* payload,
-                        std::string* error) {
+bool EncodeHelloPayload(std::uint32_t process_id, std::uint32_t session_id,
+                        std::uint64_t capabilities, std::string_view label,
+                        std::size_t maximum_label_bytes, const char* field_name,
+                        std::vector<std::byte>* payload, std::string* error) {
   if (payload == nullptr) {
     SetError(error, "payload output is null");
     return false;
   }
-  if (process_id == 0 || session_id == 0 || label.empty()) {
-    SetError(error, "hello identity fields must not be empty or zero");
+  // Windows Session 0 is valid for explicitly enabled automation. Endpoint
+  // policy and verified pipe identities decide whether it may connect; this
+  // OS identifier is distinct from a non-zero Rime input-session handle.
+  if (process_id == 0 || label.empty()) {
+    SetError(error, "hello process ID and label must not be zero or empty");
     return false;
   }
   if (!ValidateText(label, maximum_label_bytes, field_name, error)) {
@@ -273,10 +272,8 @@ bool EncodeHelloPayload(std::uint32_t process_id,
 
 bool DecodeHelloPayload(std::span<const std::byte> payload,
                         std::size_t maximum_label_bytes,
-                        std::uint32_t* process_id,
-                        std::uint32_t* session_id,
-                        std::uint64_t* capabilities,
-                        std::string* label,
+                        std::uint32_t* process_id, std::uint32_t* session_id,
+                        std::uint64_t* capabilities, std::string* label,
                         std::string* error) {
   Reader reader(payload);
   if (!ReadDtoPrefix(&reader, error)) {
@@ -292,8 +289,8 @@ bool DecodeHelloPayload(std::span<const std::byte> payload,
     SetError(error, "hello DTO has trailing bytes");
     return false;
   }
-  if (*process_id == 0 || *session_id == 0 || label->empty()) {
-    SetError(error, "hello identity fields must not be empty or zero");
+  if (*process_id == 0 || label->empty()) {
+    SetError(error, "hello process ID and label must not be zero or empty");
     return false;
   }
   return true;
@@ -319,8 +316,7 @@ bool EncodeSessionIdPayload(std::uint64_t session_id,
 }
 
 bool DecodeSessionIdPayload(std::span<const std::byte> payload,
-                            std::uint64_t* session_id,
-                            std::string* error) {
+                            std::uint64_t* session_id, std::string* error) {
   Reader reader(payload);
   if (!ReadDtoPrefix(&reader, error) || !reader.ReadU64(session_id)) {
     SetError(error, "malformed session DTO");
@@ -353,10 +349,11 @@ bool ValidateKeyEvent(const KeyEvent& dto, std::string* error) {
     SetError(error, "key event contains unknown flags");
     return false;
   }
-  const bool repeat =
-      (dto.event_flags & static_cast<std::uint32_t>(KeyEventFlags::kRepeat)) != 0;
+  const bool repeat = (dto.event_flags &
+                       static_cast<std::uint32_t>(KeyEventFlags::kRepeat)) != 0;
   const bool key_down =
-      (dto.event_flags & static_cast<std::uint32_t>(KeyEventFlags::kKeyDown)) != 0;
+      (dto.event_flags & static_cast<std::uint32_t>(KeyEventFlags::kKeyDown)) !=
+      0;
   if (repeat && !key_down) {
     SetError(error, "a repeated key event must be a key-down event");
     return false;
@@ -389,25 +386,23 @@ bool ValidateInputState(const InputState& dto, std::string* error) {
   }
 
   const bool composing =
-      (dto.state_flags & static_cast<std::uint32_t>(InputStateFlags::kComposing)) !=
-      0;
+      (dto.state_flags &
+       static_cast<std::uint32_t>(InputStateFlags::kComposing)) != 0;
   const bool candidates_visible =
       (dto.state_flags &
        static_cast<std::uint32_t>(InputStateFlags::kCandidatesVisible)) != 0;
-  const bool handled =
-      (dto.state_flags & static_cast<std::uint32_t>(InputStateFlags::kHandled)) !=
-      0;
+  const bool handled = (dto.state_flags & static_cast<std::uint32_t>(
+                                              InputStateFlags::kHandled)) != 0;
   const std::uint32_t composition_units =
       Utf16Length(dto.composition).value_or(0);
-  if (static_cast<std::uint64_t>(dto.caret_utf16) +
-          dto.selection_length_utf16 >
+  if (static_cast<std::uint64_t>(dto.caret_utf16) + dto.selection_length_utf16 >
       composition_units) {
     SetError(error, "composition selection is outside the UTF-16 text range");
     return false;
   }
   if (!composing && (!dto.composition.empty() || dto.caret_utf16 != 0 ||
-                     dto.selection_length_utf16 != 0 ||
-                     candidates_visible || !dto.candidates.empty())) {
+                     dto.selection_length_utf16 != 0 || candidates_visible ||
+                     !dto.candidates.empty())) {
     SetError(error, "non-composing state contains composition data");
     return false;
   }
@@ -450,8 +445,8 @@ bool ValidateInputState(const InputState& dto, std::string* error) {
       SetError(error, "candidate text must not be empty");
       return false;
     }
-    if (!ValidateText(candidate.text, kMaxCandidateTextBytes,
-                      "candidate text", error) ||
+    if (!ValidateText(candidate.text, kMaxCandidateTextBytes, "candidate text",
+                      error) ||
         !ValidateText(candidate.comment, kMaxCandidateCommentBytes,
                       "candidate comment", error) ||
         !ValidateText(candidate.label, kMaxCandidateLabelBytes,
@@ -464,8 +459,7 @@ bool ValidateInputState(const InputState& dto, std::string* error) {
 
 }  // namespace
 
-bool EncodeFrame(const Frame& frame,
-                 std::vector<std::byte>* encoded,
+bool EncodeFrame(const Frame& frame, std::vector<std::byte>* encoded,
                  std::string* error) {
   if (encoded == nullptr) {
     SetError(error, "encoded output is null");
@@ -553,7 +547,7 @@ HeaderDecodeResult DecodeFrameHeader(std::span<const std::byte> bytes) {
     result.status = DecodeStatus::kInvalidFrame;
     result.error = "unknown frame flags";
   } else if (!AreFrameFlagsConsistent(result.header.message_type,
-                                       result.header.flags)) {
+                                      result.header.flags)) {
     result.status = DecodeStatus::kInvalidFrame;
     result.error = "frame flags are inconsistent with the message type";
   } else if (result.header.payload_size > kMaxPayloadSize) {
@@ -588,16 +582,14 @@ FrameDecodeResult DecodeFrame(std::span<const std::byte> bytes) {
   return result;
 }
 
-bool EncodeClientHello(const ClientHello& dto,
-                       std::vector<std::byte>* payload,
+bool EncodeClientHello(const ClientHello& dto, std::vector<std::byte>* payload,
                        std::string* error) {
   return EncodeHelloPayload(dto.process_id, dto.session_id, dto.capabilities,
-                            dto.client_name, kMaxClientNameBytes,
-                            "client_name", payload, error);
+                            dto.client_name, kMaxClientNameBytes, "client_name",
+                            payload, error);
 }
 
-bool DecodeClientHello(std::span<const std::byte> payload,
-                       ClientHello* dto,
+bool DecodeClientHello(std::span<const std::byte> payload, ClientHello* dto,
                        std::string* error) {
   if (dto == nullptr) {
     SetError(error, "ClientHello output is null");
@@ -613,16 +605,14 @@ bool DecodeClientHello(std::span<const std::byte> payload,
   return true;
 }
 
-bool EncodeBrokerHello(const BrokerHello& dto,
-                       std::vector<std::byte>* payload,
+bool EncodeBrokerHello(const BrokerHello& dto, std::vector<std::byte>* payload,
                        std::string* error) {
   return EncodeHelloPayload(dto.process_id, dto.session_id, dto.capabilities,
                             dto.broker_version, kMaxBrokerVersionBytes,
                             "broker_version", payload, error);
 }
 
-bool DecodeBrokerHello(std::span<const std::byte> payload,
-                       BrokerHello* dto,
+bool DecodeBrokerHello(std::span<const std::byte> payload, BrokerHello* dto,
                        std::string* error) {
   if (dto == nullptr) {
     SetError(error, "BrokerHello output is null");
@@ -639,8 +629,7 @@ bool DecodeBrokerHello(std::span<const std::byte> payload,
 }
 
 bool EncodeErrorResponse(const ErrorResponse& dto,
-                         std::vector<std::byte>* payload,
-                         std::string* error) {
+                         std::vector<std::byte>* payload, std::string* error) {
   if (payload == nullptr) {
     SetError(error, "payload output is null");
     return false;
@@ -663,8 +652,7 @@ bool EncodeErrorResponse(const ErrorResponse& dto,
   return true;
 }
 
-bool DecodeErrorResponse(std::span<const std::byte> payload,
-                         ErrorResponse* dto,
+bool DecodeErrorResponse(std::span<const std::byte> payload, ErrorResponse* dto,
                          std::string* error) {
   if (dto == nullptr) {
     SetError(error, "ErrorResponse output is null");
@@ -725,16 +713,14 @@ bool EncodeOpenInputSession(const OpenInputSession& dto,
 }
 
 bool DecodeOpenInputSession(std::span<const std::byte> payload,
-                            OpenInputSession* dto,
-                            std::string* error) {
+                            OpenInputSession* dto, std::string* error) {
   if (dto == nullptr) {
     SetError(error, "OpenInputSession output is null");
     return false;
   }
   Reader reader(payload);
   OpenInputSession decoded;
-  if (!ReadDtoPrefix(&reader, error) ||
-      !reader.ReadU64(&decoded.context_id) ||
+  if (!ReadDtoPrefix(&reader, error) || !reader.ReadU64(&decoded.context_id) ||
       !reader.ReadString(kMaxSchemaIdBytes, &decoded.schema_id)) {
     SetError(error, "malformed open-input-session DTO");
     return false;
@@ -762,8 +748,8 @@ bool EncodeInputSessionOpened(const InputSessionOpened& dto,
     SetError(error, "session_id must not be zero");
     return false;
   }
-  if (!ValidateText(dto.active_schema_id, kMaxSchemaIdBytes,
-                    "active_schema_id", error)) {
+  if (!ValidateText(dto.active_schema_id, kMaxSchemaIdBytes, "active_schema_id",
+                    error)) {
     return false;
   }
   std::vector<std::byte> encoded;
@@ -776,16 +762,14 @@ bool EncodeInputSessionOpened(const InputSessionOpened& dto,
 }
 
 bool DecodeInputSessionOpened(std::span<const std::byte> payload,
-                              InputSessionOpened* dto,
-                              std::string* error) {
+                              InputSessionOpened* dto, std::string* error) {
   if (dto == nullptr) {
     SetError(error, "InputSessionOpened output is null");
     return false;
   }
   Reader reader(payload);
   InputSessionOpened decoded;
-  if (!ReadDtoPrefix(&reader, error) ||
-      !reader.ReadU64(&decoded.session_id) ||
+  if (!ReadDtoPrefix(&reader, error) || !reader.ReadU64(&decoded.session_id) ||
       !reader.ReadString(kMaxSchemaIdBytes, &decoded.active_schema_id)) {
     SetError(error, "malformed input-session-opened DTO");
     return false;
@@ -809,8 +793,7 @@ bool EncodeCloseInputSession(const CloseInputSession& dto,
 }
 
 bool DecodeCloseInputSession(std::span<const std::byte> payload,
-                             CloseInputSession* dto,
-                             std::string* error) {
+                             CloseInputSession* dto, std::string* error) {
   if (dto == nullptr) {
     SetError(error, "CloseInputSession output is null");
     return false;
@@ -830,8 +813,7 @@ bool EncodeInputSessionClosed(const InputSessionClosed& dto,
 }
 
 bool DecodeInputSessionClosed(std::span<const std::byte> payload,
-                              InputSessionClosed* dto,
-                              std::string* error) {
+                              InputSessionClosed* dto, std::string* error) {
   if (dto == nullptr) {
     SetError(error, "InputSessionClosed output is null");
     return false;
@@ -844,8 +826,7 @@ bool DecodeInputSessionClosed(std::span<const std::byte> payload,
   return true;
 }
 
-bool EncodeKeyEvent(const KeyEvent& dto,
-                    std::vector<std::byte>* payload,
+bool EncodeKeyEvent(const KeyEvent& dto, std::vector<std::byte>* payload,
                     std::string* error) {
   if (payload == nullptr) {
     SetError(error, "payload output is null");
@@ -869,8 +850,7 @@ bool EncodeKeyEvent(const KeyEvent& dto,
   return true;
 }
 
-bool DecodeKeyEvent(std::span<const std::byte> payload,
-                    KeyEvent* dto,
+bool DecodeKeyEvent(std::span<const std::byte> payload, KeyEvent* dto,
                     std::string* error) {
   if (dto == nullptr) {
     SetError(error, "KeyEvent output is null");
@@ -878,8 +858,7 @@ bool DecodeKeyEvent(std::span<const std::byte> payload,
   }
   Reader reader(payload);
   KeyEvent decoded;
-  if (!ReadDtoPrefix(&reader, error) ||
-      !reader.ReadU64(&decoded.session_id) ||
+  if (!ReadDtoPrefix(&reader, error) || !reader.ReadU64(&decoded.session_id) ||
       !reader.ReadU64(&decoded.sequence_id) ||
       !reader.ReadU64(&decoded.timestamp_millis) ||
       !reader.ReadU32(&decoded.virtual_key) ||
@@ -901,8 +880,7 @@ bool DecodeKeyEvent(std::span<const std::byte> payload,
   return true;
 }
 
-bool EncodeInputState(const InputState& dto,
-                      std::vector<std::byte>* payload,
+bool EncodeInputState(const InputState& dto, std::vector<std::byte>* payload,
                       std::string* error) {
   if (payload == nullptr) {
     SetError(error, "payload output is null");
@@ -942,8 +920,7 @@ bool EncodeInputState(const InputState& dto,
   return true;
 }
 
-bool DecodeInputState(std::span<const std::byte> payload,
-                      InputState* dto,
+bool DecodeInputState(std::span<const std::byte> payload, InputState* dto,
                       std::string* error) {
   if (dto == nullptr) {
     SetError(error, "InputState output is null");
@@ -952,8 +929,7 @@ bool DecodeInputState(std::span<const std::byte> payload,
   Reader reader(payload);
   InputState decoded;
   std::uint16_t candidate_count = 0;
-  if (!ReadDtoPrefix(&reader, error) ||
-      !reader.ReadU64(&decoded.session_id) ||
+  if (!ReadDtoPrefix(&reader, error) || !reader.ReadU64(&decoded.session_id) ||
       !reader.ReadU64(&decoded.sequence_id) ||
       !reader.ReadU64(&decoded.revision) ||
       !reader.ReadU32(&decoded.state_flags) ||

@@ -1,0 +1,254 @@
+{
+  "format_version": 1,
+  "project": "Lucide",
+  "upstream": "https://github.com/lucide-icons/lucide",
+  "commit": "12691c45680f5d088bbdccf301f268e6cf904682",
+  "license": "ISC; includes the MIT notice for Feather-derived icons",
+  "license_source": "lucide/LICENSE",
+  "license_sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
+  "packaged_license": "app/src/main/assets/licenses/Lucide-LICENSE.txt",
+  "viewport": [
+    24,
+    24
+  ],
+  "stroke_width": 2,
+  "stroke_linecap": "round",
+  "stroke_linejoin": "round",
+  "conversion": "SVG paths retain geometry. Circles/rounded rectangles become equivalent arc paths. Explicit command groups and separated SVG arc flags support Android PathParser. Fill remains none; SHIFT_FILL uses the official arrow-big-up-dash caps-lock marker. No runtime Lucide dependency.",
+  "icons": [
+    {
+      "enum": "SETTINGS",
+      "upstream_file": "icons/settings.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/settings.svg",
+      "svg": "lucide/settings.svg",
+      "svg_sha256": "0ae27fd0f81999229e3127ac96c5b32edfea448e291d509e76212b917551d66b",
+      "vector": "app/src/main/res/drawable/rimes_icon_settings.xml",
+      "vector_sha256": "8366e1746cf701f3537b0fd4630aedc976e8fa6056a40011cb885370f918bfa9"
+    },
+    {
+      "enum": "SLIDERS",
+      "upstream_file": "icons/sliders-horizontal.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/sliders-horizontal.svg",
+      "svg": "lucide/sliders-horizontal.svg",
+      "svg_sha256": "e43a00e5eb684e6cbb61083bed2528d7a3fa5f265693eb2b5f314cd432aa65f4",
+      "vector": "app/src/main/res/drawable/rimes_icon_sliders.xml",
+      "vector_sha256": "99a6137d0175caa06393ea75bc141432118961cc0781c67e6404df15d630a7bf"
+    },
+    {
+      "enum": "STACK_LAYERS",
+      "upstream_file": "icons/layers.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/layers.svg",
+      "svg": "lucide/layers.svg",
+      "svg_sha256": "ce16d0a955e3581cda17f6b2fd5c5bc2034b405f9cecc31c8ebb8495b4afc1bb",
+      "vector": "app/src/main/res/drawable/rimes_icon_stack_layers.xml",
+      "vector_sha256": "99846a246674b5f347a89d89d016bdcdb795e55c0d69f6fc1493b31d6e896530"
+    },
+    {
+      "enum": "GRID_9",
+      "upstream_file": "icons/grid-3x3.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/grid-3x3.svg",
+      "svg": "lucide/grid-3x3.svg",
+      "svg_sha256": "6c24155397cf0e751c05931bae68e67e4fe0fd58baeb7b29e9f80c90ed1d5194",
+      "vector": "app/src/main/res/drawable/rimes_icon_grid_9.xml",
+      "vector_sha256": "79f609e04d2edbb1b34ce6b2b8141e42b2a38dc56c93db44d1dadbca7b5ab5d5"
+    },
+    {
+      "enum": "PAPER_PLANE",
+      "upstream_file": "icons/send.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/send.svg",
+      "svg": "lucide/send.svg",
+      "svg_sha256": "a489257f447b808ab6b258ae888fa49686885bbc30a7a2774d97a01f11f9cd5e",
+      "vector": "app/src/main/res/drawable/rimes_icon_paper_plane.xml",
+      "vector_sha256": "c27b7d3873eea382bef9c0d7e693c6451d9cf5b4e5d5ee368cb8b84504c14ffe"
+    },
+    {
+      "enum": "SEND_ALL",
+      "upstream_file": "icons/chevrons-up.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/chevrons-up.svg",
+      "svg": "lucide/chevrons-up.svg",
+      "svg_sha256": "dcc30f99a1e3177505dee39749fec4722cf567d420d6829780990ef744ea533c",
+      "vector": "app/src/main/res/drawable/rimes_icon_send_all.xml",
+      "vector_sha256": "7fae5142cac7903af186c2748406f0576f35dbdaf2b91cbd4f418f4188d7493b"
+    },
+    {
+      "enum": "SHIFT",
+      "upstream_file": "icons/arrow-big-up.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/arrow-big-up.svg",
+      "svg": "lucide/arrow-big-up.svg",
+      "svg_sha256": "3149e1edfa3d8042f37bda6505305d629b0389e313e54327bbb251099977c639",
+      "vector": "app/src/main/res/drawable/rimes_icon_shift.xml",
+      "vector_sha256": "97465042370c14422d06086fca6b0a965c8f7548152ae97d2c9d072df3c5a434"
+    },
+    {
+      "enum": "SHIFT_FILL",
+      "upstream_file": "icons/arrow-big-up-dash.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/arrow-big-up-dash.svg",
+      "svg": "lucide/arrow-big-up-dash.svg",
+      "svg_sha256": "4f1e0974dd34ead36a16038b94acfa3159a6a6325a152e7d176e8a245e50870d",
+      "vector": "app/src/main/res/drawable/rimes_icon_shift_fill.xml",
+      "vector_sha256": "46eb13b2940b4a8780bdf28063728e76551268c348b0c3d9a62422abfe40764a"
+    },
+    {
+      "enum": "DELETE",
+      "upstream_file": "icons/delete.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/delete.svg",
+      "svg": "lucide/delete.svg",
+      "svg_sha256": "a83d9f3d624827c94d41dceff4df530728e502989fceb415d72203bf934aa0df",
+      "vector": "app/src/main/res/drawable/rimes_icon_delete.xml",
+      "vector_sha256": "9cd1bb25b14f5bbe2e3cd8b588896a58c63d117a34cf3617682013dc7bdf161b"
+    },
+    {
+      "enum": "SMILE",
+      "upstream_file": "icons/face-slightly-smiling.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/face-slightly-smiling.svg",
+      "svg": "lucide/face-slightly-smiling.svg",
+      "svg_sha256": "0018f779245b089b700ad4a2ab99db4518f5c87c559af743fbbf9abc070f10d3",
+      "vector": "app/src/main/res/drawable/rimes_icon_smile.xml",
+      "vector_sha256": "2a7c2a1c12e85587f3a70c99709f33d07087db3762fc6e01e707fb5ed47e0d10"
+    },
+    {
+      "enum": "GLOBE",
+      "upstream_file": "icons/globe.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/globe.svg",
+      "svg": "lucide/globe.svg",
+      "svg_sha256": "82c6b8fa0b8e8d775ec9becd86f74a4e50bff7bee4c81f7362de45348504f14d",
+      "vector": "app/src/main/res/drawable/rimes_icon_globe.xml",
+      "vector_sha256": "98cccaec7be14723ffee79698ad07d2a2861ca8bb6d84a0501a7a724a9bb282a"
+    },
+    {
+      "enum": "TRANSLATE",
+      "upstream_file": "icons/languages.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/languages.svg",
+      "svg": "lucide/languages.svg",
+      "svg_sha256": "ae9048feb2c7b19855da9a8f5414f68125573039777a89b9c253cceed5dc5075",
+      "vector": "app/src/main/res/drawable/rimes_icon_translate.xml",
+      "vector_sha256": "94db02bf392a9f3e2496c037c1432a61d63a2477316432502d0f8ae00c968e8e"
+    },
+    {
+      "enum": "CHAT_QUESTION",
+      "upstream_file": "icons/message-circle-question-mark.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/message-circle-question-mark.svg",
+      "svg": "lucide/message-circle-question-mark.svg",
+      "svg_sha256": "2414cc1a2aca33d215aa5c550457eea81a997d10a9339ac219cabd06830ac059",
+      "vector": "app/src/main/res/drawable/rimes_icon_chat_question.xml",
+      "vector_sha256": "b810f8434b80c54a4bb4355069e5ec938e142af66c81218ccc9b35498546b5cc"
+    },
+    {
+      "enum": "MAGIC_WAND",
+      "upstream_file": "icons/wand-sparkles.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/wand-sparkles.svg",
+      "svg": "lucide/wand-sparkles.svg",
+      "svg_sha256": "d73067ff2463118d4f11f9c532e7162be45f96835b966b4fc89977ca47a7317d",
+      "vector": "app/src/main/res/drawable/rimes_icon_magic_wand.xml",
+      "vector_sha256": "a8690e07a81736fd9cf0840a84cec65935ad47adcf68e7bb686a1c1fad52259a"
+    },
+    {
+      "enum": "BOOK",
+      "upstream_file": "icons/book-text.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/book-text.svg",
+      "svg": "lucide/book-text.svg",
+      "svg_sha256": "a731200c1b22332967c6c9b5b25307cc8c130ad38a063a568ddaae6ba016b8c8",
+      "vector": "app/src/main/res/drawable/rimes_icon_book.xml",
+      "vector_sha256": "cd38c1544318b632509f9565ef5a262e80954fedfd0ed5444afebdfb058818f0"
+    },
+    {
+      "enum": "PLAY",
+      "upstream_file": "icons/play.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/play.svg",
+      "svg": "lucide/play.svg",
+      "svg_sha256": "d7c34786135922a92b6896f6c2384ceeb0346afbf6041dc79982011411409833",
+      "vector": "app/src/main/res/drawable/rimes_icon_play.xml",
+      "vector_sha256": "0b98a16bb178cb2c8052c9f9ecad964a56162d684ed87f5f683bb76f164a47f2"
+    },
+    {
+      "enum": "PAUSE",
+      "upstream_file": "icons/pause.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/pause.svg",
+      "svg": "lucide/pause.svg",
+      "svg_sha256": "f122ec4ea7f5693a0b1baafa9c708b53980dc87b4aacb297c6e6f71c1a4c115c",
+      "vector": "app/src/main/res/drawable/rimes_icon_pause.xml",
+      "vector_sha256": "93ab35512a0b822b53bad81f0206826f8f988f48b7c9eb02ff63283f4d144466"
+    },
+    {
+      "enum": "STOP",
+      "upstream_file": "icons/square.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/square.svg",
+      "svg": "lucide/square.svg",
+      "svg_sha256": "bd979354f0ab184b95cecf03eedefe40c2dc65830ac6d7e60017b2b25a354acb",
+      "vector": "app/src/main/res/drawable/rimes_icon_stop.xml",
+      "vector_sha256": "a3d7b03b1e788bd19de1fb39b96c1b5bdff047acb2152574163362104809d8b8"
+    },
+    {
+      "enum": "CHEVRON_LEFT",
+      "upstream_file": "icons/chevron-left.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/chevron-left.svg",
+      "svg": "lucide/chevron-left.svg",
+      "svg_sha256": "83b0681aa38bf55e9d52a1e4b4cced624abe1fe7678ecafda133a574f1161d93",
+      "vector": "app/src/main/res/drawable/rimes_icon_chevron_left.xml",
+      "vector_sha256": "1e608c7d4fcef877ce79d0f60b16fa8e4131553626afff71f1bfb68f01ef1faa"
+    },
+    {
+      "enum": "CHEVRON_RIGHT",
+      "upstream_file": "icons/chevron-right.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/chevron-right.svg",
+      "svg": "lucide/chevron-right.svg",
+      "svg_sha256": "2758143d7b2434e4aa7307dfd34405c87909ff4052f21b5f3f40d45224b4f19b",
+      "vector": "app/src/main/res/drawable/rimes_icon_chevron_right.xml",
+      "vector_sha256": "61c7ee536994b7d68a761a8a351cb02adc55cfac0c47d15dbd269baee64b5577"
+    },
+    {
+      "enum": "CHECK",
+      "upstream_file": "icons/check.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/check.svg",
+      "svg": "lucide/check.svg",
+      "svg_sha256": "7f33acc9a77a61659531044525fc008edebe215bf4dcf1c789c8674ad3277db0",
+      "vector": "app/src/main/res/drawable/rimes_icon_check.xml",
+      "vector_sha256": "7eba871155da601f13eeaf9a884a1141b9dc0e1a6d37568333782687e42065ff"
+    },
+    {
+      "enum": "APPEARANCE",
+      "upstream_file": "icons/contrast.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/contrast.svg",
+      "svg": "lucide/contrast.svg",
+      "svg_sha256": "a9f1a6166c479cd3e546625b09686a7e97322c850a9b146f270f912e886c395c",
+      "vector": "app/src/main/res/drawable/rimes_icon_appearance.xml",
+      "vector_sha256": "f616992f410baf12a202e71beef78d4fe792f0b6b2b5b47ac1991ff7d486821e"
+    },
+    {
+      "enum": "SPACE",
+      "upstream_file": "icons/space.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/space.svg",
+      "svg": "lucide/space.svg",
+      "svg_sha256": "d64f9631d3be6f59f2b49d2a384a4de61cecbffc8d35d8d75eeb0b4e68889291",
+      "vector": "app/src/main/res/drawable/rimes_icon_space.xml",
+      "vector_sha256": "5c856b81ebac20c666d6509d008d98f43ec841f4253dfc076e647634f3a231d1"
+    },
+    {
+      "enum": "KEYBOARD",
+      "upstream_file": "icons/keyboard.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/keyboard.svg",
+      "svg": "lucide/keyboard.svg",
+      "svg_sha256": "f509925ca81964ed06251ad4702e989bb81a566ffc74d15c2226b4f07ded67be",
+      "vector": "app/src/main/res/drawable/rimes_icon_keyboard.xml",
+      "vector_sha256": "87442bf7d0d0a790eade1a756682051db0506ec97a658d835ec87df840c0e936"
+    },
+    {
+      "enum": "CLEAR",
+      "upstream_file": "icons/circle-x.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/circle-x.svg",
+      "svg": "lucide/circle-x.svg",
+      "svg_sha256": "bcd8788901e6f29e1b231a81ba5e707d083d06cb4848a28f29407fab4f8e0b64",
+      "vector": "app/src/main/res/drawable/rimes_icon_clear.xml",
+      "vector_sha256": "a26773774c63fc7bec5ed81ef370e2577c47aab598ea5d04bf4fb329ae554846"
+    },
+    {
+      "enum": "WRITE",
+      "upstream_file": "icons/square-pen.svg",
+      "upstream_url": "https://raw.githubusercontent.com/lucide-icons/lucide/12691c45680f5d088bbdccf301f268e6cf904682/icons/square-pen.svg",
+      "svg": "lucide/square-pen.svg",
+      "svg_sha256": "09bdac7fdb94058246a5d3132eea0976e690d01694179ab6f474faa2c21de59a",
+      "vector": "app/src/main/res/drawable/rimes_icon_write.xml",
+      "vector_sha256": "9d9ffa3d4c2d372e4bdf6377f032a7ce6e27667dd0d256ea2385a5bdb3439389"
+    }
+  ]
+}

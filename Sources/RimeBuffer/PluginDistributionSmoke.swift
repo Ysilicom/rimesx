@@ -91,10 +91,16 @@ private enum PluginDistributionSmokeHarnessError: Error {
 func runPluginDistributionSmokeTest() -> Bool {
     let fileManager = FileManager.default
     let expectedDefaultIDs: Set<String> = [
-        BuiltInPluginID.aiText,
+        BuiltInPluginID.codexCLI,
+        BuiltInPluginID.claudeCodeCLI,
+        BuiltInPluginID.openAICompatible,
+        BuiltInPluginID.scholay,
+        BuiltInPluginID.polisher,
+        BuiltInPluginID.latex,
         BuiltInPluginID.appleTranslation,
         BuiltInPluginID.streamInput,
         BuiltInPluginID.music,
+        BuiltInPluginID.morse,
     ]
     let legacyCapsuleBufferPluginID = "builtin.capsule"
     let expectedOptionalIDs: Set<String> = []
@@ -102,12 +108,21 @@ func runPluginDistributionSmokeTest() -> Bool {
         BuiltInPluginID.myPrompt,
         BuiltInPluginID.remarkable,
         BuiltInPluginID.marineChrome,
+        // The single generic AI Generation plug-in split into three task
+        // plug-ins, one per backend.
+        BuiltInPluginID.aiText,
     ]
     let expectedVersions = [
-        BuiltInPluginID.aiText: "2.1",
-        BuiltInPluginID.appleTranslation: "2.1",
+        BuiltInPluginID.codexCLI: "1.1",
+        BuiltInPluginID.claudeCodeCLI: "1.1",
+        BuiltInPluginID.openAICompatible: "1.0",
+        BuiltInPluginID.scholay: "0.1",
+        BuiltInPluginID.polisher: "0.1",
+        BuiltInPluginID.latex: "0.1",
+        BuiltInPluginID.appleTranslation: "2.2",
         BuiltInPluginID.streamInput: "1.4",
         BuiltInPluginID.music: "0.2.3",
+        BuiltInPluginID.morse: "0.1.0",
     ]
 
     func fail(_ message: String) -> Bool {
@@ -284,7 +299,7 @@ func runPluginDistributionSmokeTest() -> Bool {
             == expectedDefaultIDs,
           Set(PresetBufferPluginCatalog.entries.filter { !$0.defaultInstalled }.map(\.id))
             == expectedOptionalIDs else {
-        return fail("fresh catalog must contain exactly three bundled/enabled presets")
+        return fail("fresh catalog must contain exactly the bundled/enabled presets")
     }
     let registeredIDs = Set(BuiltInPlugins.makeAll().map {
         $0.descriptor.key.rawID
@@ -343,10 +358,10 @@ func runPluginDistributionSmokeTest() -> Bool {
             }
             try registry.setEnabled(
                 false,
-                for: PluginKey(domain: .builtIn, rawID: BuiltInPluginID.aiText)
+                for: PluginKey(domain: .builtIn, rawID: BuiltInPluginID.codexCLI)
             )
             guard !registry.isEnabled(
-                PluginKey(domain: .builtIn, rawID: BuiltInPluginID.aiText)
+                PluginKey(domain: .builtIn, rawID: BuiltInPluginID.codexCLI)
             ) else {
                 return fail("explicit default-plugin disable")
             }
@@ -371,9 +386,9 @@ func runPluginDistributionSmokeTest() -> Bool {
         let restartedEnabled = Set(
             restartedRegistry.allPlugins().filter(\.isEnabled).map { $0.id.rawID }
         )
-        guard restartedEnabled == expectedDefaultIDs.subtracting([BuiltInPluginID.aiText]),
+        guard restartedEnabled == expectedDefaultIDs.subtracting([BuiltInPluginID.codexCLI]),
               restartedFixtures.first(where: {
-                $0.descriptor.key.rawID == BuiltInPluginID.aiText
+                $0.descriptor.key.rawID == BuiltInPluginID.codexCLI
               })?.startCount == 0 else {
             return fail("restart reopened a user-disabled default plugin")
         }

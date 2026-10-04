@@ -89,6 +89,12 @@ enum BufferPrivacyTransitionRules {
 final class BufferModel {
     static let shared = BufferModel()
 
+    struct ImageAttachment {
+        let pngData: Data
+        let pixelWidth: Int
+        let pixelHeight: Int
+    }
+
     struct PluginMetadata: Equatable {
         let pluginId: String
         let actionId: String
@@ -206,6 +212,7 @@ final class BufferModel {
         let origin: Origin
         let createdAt: Date
         var pluginMetadata: PluginMetadata?
+        let imageAttachment: ImageAttachment?
         /// A local Mailbox decision may deliberately downgrade a plugin push
         /// to ordinary text after the original runtime/focus authority is no
         /// longer available. This marker is separate from PluginMetadata so a
@@ -218,12 +225,14 @@ final class BufferModel {
              origin: Origin = .rime,
              createdAt: Date = Date(),
              pluginMetadata: PluginMetadata? = nil,
+             imageAttachment: ImageAttachment? = nil,
              locallyReviewedAsPlainText: Bool = false) {
             self.id = id
             self.text = text
             self.origin = origin
             self.createdAt = createdAt
             self.pluginMetadata = pluginMetadata
+            self.imageAttachment = imageAttachment
             self.locallyReviewedAsPlainText = locallyReviewedAsPlainText
         }
     }
@@ -251,10 +260,14 @@ final class BufferModel {
     }
     private var directInputRun: DirectInputRun?
 
-    var stagedText: String { blocks.map(\.text).joined() }
+    var stagedText: String {
+        blocks.filter { $0.imageAttachment == nil }.map(\.text).joined()
+    }
     var stagedCharacterCount: Int { stagedText.count }
     var pendingDeliveryBlocks: [Block] {
-        blocks.filter { $0.pluginMetadata?.incomplete != true }
+        blocks.filter {
+            $0.imageAttachment == nil && $0.pluginMetadata?.incomplete != true
+        }
     }
     var pendingDeliveryCount: Int { pendingDeliveryBlocks.count }
     var hasIncompletePluginBlocks: Bool {
@@ -691,6 +704,23 @@ final class BufferModel {
     }
 
     @discardableResult
+    func insertPastedImage(_ image: ImageAttachment) -> UUID? {
+        guard !image.pngData.isEmpty,
+              image.pngData.count <= 4 * 1_048_576,
+              image.pixelWidth > 0, image.pixelHeight > 0 else { return nil }
+        removeSelectedContentBeforeLocalInsertion()
+        if !captureRouteEnabled { transientEnabled = true }
+        directInputRun = nil
+        let index = clampedInsertionIndex()
+        let block = Block(text: "公式图片", origin: .clipboard,
+                          imageAttachment: image)
+        blocks.insert(block, at: index)
+        insertionIndex = index + 1
+        notifyChange()
+        return block.id
+    }
+
+    @discardableResult
     func removeLastBlock() -> Bool {
         if removeSelectedContentForDeletion() { return true }
         guard let removed = blocks.popLast() else { return false }
@@ -709,6 +739,9 @@ final class BufferModel {
         if removeSelectedContentForDeletion() { return true }
         guard let index = blocks.indices.last else { return false }
         directInputRun = nil
+        if blocks[index].imageAttachment != nil {
+            return removeBlock(id: blocks[index].id)
+        }
         if blocks[index].text.count <= 1 {
             return removeBlock(id: blocks[index].id)
         }

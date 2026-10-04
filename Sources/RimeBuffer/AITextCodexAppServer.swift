@@ -5,8 +5,8 @@ import Foundation
 /// than in the shared Codex home prevents one latency-sensitive plugin from
 /// changing the user's ordinary AI connector defaults.
 struct AITextCodexInferenceProfile: Equatable {
-    let model: String
-    let effort: String
+    let model: String?
+    let effort: String?
     let summary: String
     let allowProviderModelFallback: Bool
     let rejectModelReroute: Bool
@@ -18,6 +18,17 @@ struct AITextCodexInferenceProfile: Equatable {
         allowProviderModelFallback: false,
         rejectModelReroute: true
     )
+
+    static func channel(model: String?, effort: String?) -> Self? {
+        guard model != nil || effort != nil else { return nil }
+        return Self(
+            model: model,
+            effort: effort,
+            summary: "concise",
+            allowProviderModelFallback: model == nil,
+            rejectModelReroute: model != nil
+        )
+    }
 }
 
 /// Pure request construction keeps the optional inference policy auditable and
@@ -34,12 +45,14 @@ private enum AITextCodexAppServerRequestShape {
             "personality": "none",
         ]
         if let inferenceProfile {
-            parameters["model"] = inferenceProfile.model
-            parameters["allowProviderModelFallback"] =
-                inferenceProfile.allowProviderModelFallback
-            parameters["config"] = [
-                "model_reasoning_effort": inferenceProfile.effort,
-            ]
+            if let model = inferenceProfile.model {
+                parameters["model"] = model
+                parameters["allowProviderModelFallback"] =
+                    inferenceProfile.allowProviderModelFallback
+            }
+            if let effort = inferenceProfile.effort {
+                parameters["config"] = ["model_reasoning_effort": effort]
+            }
         }
         return parameters
     }
@@ -48,11 +61,25 @@ private enum AITextCodexAppServerRequestShape {
         threadID: String,
         prompt: String,
         outputSchema: [String: Any],
-        inferenceProfile: AITextCodexInferenceProfile?
+        inferenceProfile: AITextCodexInferenceProfile?,
+        mountedSkill: AITextMountedSkill? = nil,
+        imagePaths: [String] = []
     ) -> [String: Any] {
+        var input: [[String: Any]] = []
+        if let mountedSkill {
+            input.append([
+                "type": "skill",
+                "name": mountedSkill.name,
+                "path": mountedSkill.path,
+            ])
+        }
+        input.append(["type": "text", "text": prompt])
+        for path in imagePaths {
+            input.append(["type": "localImage", "path": path])
+        }
         var parameters: [String: Any] = [
             "threadId": threadID,
-            "input": [["type": "text", "text": prompt]],
+            "input": input,
             "outputSchema": outputSchema,
             "summary": inferenceProfile?.summary ?? "concise",
         ]
@@ -83,6 +110,8 @@ final class AITextCodexAppServerOperation: AITextCancellable {
     private let currentDirectoryURL: URL
     private let prompt: String
     private let outputSchema: [String: Any]
+    private let mountedSkill: AITextMountedSkill?
+    private let imagePaths: [String]
     private let inferenceProfile: AITextCodexInferenceProfile?
     private let timeout: TimeInterval
     private let maximumOutputBytes: Int
@@ -115,6 +144,8 @@ final class AITextCodexAppServerOperation: AITextCancellable {
          currentDirectoryURL: URL,
          prompt: String,
          outputSchema: [String: Any],
+         mountedSkill: AITextMountedSkill? = nil,
+         imagePaths: [String] = [],
          inferenceProfile: AITextCodexInferenceProfile? = nil,
          timeout: TimeInterval,
          maximumOutputBytes: Int,
@@ -128,11 +159,14 @@ final class AITextCodexAppServerOperation: AITextCancellable {
         self.currentDirectoryURL = currentDirectoryURL
         self.prompt = prompt
         self.outputSchema = outputSchema
+        self.mountedSkill = mountedSkill
+        self.imagePaths = imagePaths
         self.inferenceProfile = inferenceProfile
         let rejectsReroute = inferenceProfile?.rejectModelReroute ?? false
         protocolState = AITextCodexAppServerProtocolState(
             requiredModel: rejectsReroute ? inferenceProfile?.model : nil,
-            rejectModelReroute: rejectsReroute
+            rejectModelReroute: rejectsReroute,
+            requiresImageArtifact: mountedSkill?.name == "imagegen"
         )
         self.timeout = timeout
         self.maximumOutputBytes = maximumOutputBytes
@@ -329,7 +363,9 @@ final class AITextCodexAppServerOperation: AITextCancellable {
             threadID: threadID,
             prompt: prompt,
             outputSchema: outputSchema,
-            inferenceProfile: inferenceProfile
+            inferenceProfile: inferenceProfile,
+            mountedSkill: mountedSkill,
+            imagePaths: imagePaths
         )
         guard send([
             "method": "turn/start",
@@ -377,7 +413,10 @@ final class AITextCodexAppServerOperation: AITextCancellable {
         }
         receivedOutputBytes += data.count
         lineBuffer.append(data)
-        let maximumLineBytes = min(maximumOutputBytes, 512 * 1_024)
+        let maximumLineBytes = min(
+            maximumOutputBytes,
+            mountedSkill?.name == "imagegen" ? 24 * 1_048_576 : 512 * 1_024
+        )
         while let newline = lineBuffer.firstIndex(of: 0x0A) {
             let record = Data(lineBuffer[..<newline])
             lineBuffer.removeSubrange(...newline)
@@ -396,7 +435,10 @@ final class AITextCodexAppServerOperation: AITextCancellable {
 
     private func finishBufferedLine() {
         guard !isFinished, !lineBuffer.isEmpty else { return }
-        let maximumLineBytes = min(maximumOutputBytes, 512 * 1_024)
+        let maximumLineBytes = min(
+            maximumOutputBytes,
+            mountedSkill?.name == "imagegen" ? 24 * 1_048_576 : 512 * 1_024
+        )
         guard lineBuffer.count <= maximumLineBytes else {
             finish(.failure(.resultTooLarge))
             return
@@ -427,13 +469,25 @@ final class AITextCodexAppServerOperation: AITextCancellable {
                 sendTurnStart(threadID: threadID)
             case let .activity(kind, message):
                 onEvent(.activity(AITextProviderActivity(kind: kind, message: message)))
+            case let .reasoningSnapshot(summary):
+                onEvent(.reasoningSnapshot(summary))
             case let .textSnapshot(text):
                 AITextProviderStreamingOutput.emit([text], callback: onEvent)
+            case .imageGenerationStarted:
+                onEvent(.imageGenerationStarted)
+            case let .imageArtifactPath(path):
+                onEvent(.imageArtifactPath(path))
             case let .completed(text):
                 onEvent(.activity(AITextProviderActivity(
                     kind: .validating,
                     message: "正在校验生成结果"
                 )))
+                if mountedSkill?.name == "imagegen" {
+                    finish(.success([AITextProviderBlock(
+                        index: 0, text: text, title: nil
+                    )]))
+                    break
+                }
                 do {
                     finish(.success(try AITextResultDecoder.decodeFinalText(text)))
                 } catch let error as AITextProviderError {
@@ -519,7 +573,10 @@ private enum AITextCodexAppServerProtocolAction {
     case sendThreadStart
     case sendTurnStart(String)
     case activity(AITextProviderActivityKind, String)
+    case reasoningSnapshot(String)
     case textSnapshot(String)
+    case imageGenerationStarted
+    case imageArtifactPath(String)
     case completed(String)
     case failed
 }
@@ -538,16 +595,22 @@ struct AITextCodexAppServerProtocolState {
     private var agentTextByID: [String: String] = [:]
     private var agentPhaseByID: [String: String] = [:]
     private var reasoningSummaryByKey: [String: String] = [:]
+    private var reasoningSummaryOrder: [String] = []
     private var authoritativeFinalText: String?
     private var fallbackFinalText: String?
     private var pendingFatalError = false
     private var emittedComposing = false
     private let requiredModel: String?
     private let rejectModelReroute: Bool
+    private let requiresImageArtifact: Bool
+    private var completedImagePath: String?
 
-    init(requiredModel: String? = nil, rejectModelReroute: Bool = false) {
+    init(requiredModel: String? = nil,
+         rejectModelReroute: Bool = false,
+         requiresImageArtifact: Bool = false) {
         self.requiredModel = requiredModel
         self.rejectModelReroute = rejectModelReroute
+        self.requiresImageArtifact = requiresImageArtifact
     }
 
     fileprivate mutating func consume(_ object: [String: Any])
@@ -653,8 +716,14 @@ struct AITextCodexAppServerProtocolState {
         case "turn/completed":
             guard let turn = params["turn"] as? [String: Any],
                   let status = turn["status"] as? String else { return [.failed] }
-            guard status == "completed", !pendingFatalError,
-                  let text = authoritativeFinalText ?? fallbackFinalText,
+            guard status == "completed", !pendingFatalError else {
+                return [.failed]
+            }
+            if requiresImageArtifact {
+                guard completedImagePath != nil else { return [.failed] }
+                return [.completed("图片生成完成")]
+            }
+            guard let text = authoritativeFinalText ?? fallbackFinalText,
                   !text.isEmpty else { return [.failed] }
             return [.completed(text)]
         default:
@@ -679,6 +748,9 @@ struct AITextCodexAppServerProtocolState {
         }
         if type == "userMessage" {
             return [.activity(.connecting, "模型已收到请求")]
+        }
+        if type == "imageGeneration" {
+            return [.imageGenerationStarted]
         }
         return []
     }
@@ -706,11 +778,19 @@ struct AITextCodexAppServerProtocolState {
         let identifier = params["itemId"] as? String ?? "reasoning"
         let summaryIndex = Self.integer(params["summaryIndex"]) ?? 0
         let key = "\(identifier):\(summaryIndex)"
-        let summary = (reasoningSummaryByKey[key] ?? "") + delta
+        if reasoningSummaryByKey[key] == nil {
+            reasoningSummaryOrder.append(key)
+        }
+        let summary = String(((reasoningSummaryByKey[key] ?? "") + delta).suffix(4_096))
         reasoningSummaryByKey[key] = summary
         let visible = Self.activitySummary(summary)
-        return [.activity(.reasoning,
-                          visible.isEmpty ? "模型正在思考" : visible)]
+        let snapshot = String(reasoningSummaryOrder
+            .compactMap { reasoningSummaryByKey[$0] }
+            .joined(separator: "\n").suffix(4_096))
+        return [
+            .activity(.reasoning, visible.isEmpty ? "模型正在思考" : visible),
+            .reasoningSnapshot(snapshot),
+        ]
     }
 
     private mutating func itemCompleted(_ params: [String: Any])
@@ -734,6 +814,13 @@ struct AITextCodexAppServerProtocolState {
         }
         if type == "reasoning" {
             return [.activity(.reasoning, "思考完成，正在组织回复")]
+        }
+        if type == "imageGeneration",
+           item["status"] as? String == "completed",
+           let path = item["savedPath"] as? String,
+           !path.isEmpty {
+            completedImagePath = path
+            return [.imageArtifactPath(path)]
         }
         if type == "error",
            let message = item["message"] as? String,
@@ -769,7 +856,8 @@ struct AITextCodexAppServerProtocolState {
 
 enum AITextCodexAppServerProtocolSmoke {
     static func run() -> Bool {
-        guard requestShapesAreCorrect(), strictModelLockIsEnforced() else {
+        guard requestShapesAreCorrect(), strictModelLockIsEnforced(),
+              imageSkillEventsAreAuthoritative() else {
             return false
         }
 
@@ -836,7 +924,13 @@ enum AITextCodexAppServerProtocolSmoke {
             "method": "item/reasoning/summaryTextDelta",
             "params": ["itemId": "reasoning-smoke", "summaryIndex": 0, "delta": "正在分析"],
         ])
-        guard containsActivity(reasoning, kind: .reasoning) else { return false }
+        guard containsActivity(reasoning, kind: .reasoning),
+              lastReasoning(reasoning) == "正在分析" else { return false }
+        let continuedReasoning = state.consume([
+            "method": "item/reasoning/summaryTextDelta",
+            "params": ["itemId": "reasoning-smoke", "summaryIndex": 0, "delta": "请求"],
+        ])
+        guard lastReasoning(continuedReasoning) == "正在分析请求" else { return false }
 
         let rawReasoning = state.consume([
             "method": "item/reasoning/textDelta",
@@ -870,6 +964,63 @@ enum AITextCodexAppServerProtocolSmoke {
             }
             return false
         }
+    }
+
+    private static func imageSkillEventsAreAuthoritative() -> Bool {
+        let mounted = AITextMountedSkill(
+            name: "imagegen", path: "/private/skill/imagegen/SKILL.md"
+        )
+        let turn = AITextCodexAppServerRequestShape.turnStartParameters(
+            threadID: "image-thread", prompt: "draw",
+            outputSchema: ["type": "object"],
+            inferenceProfile: nil, mountedSkill: mounted
+        )
+        guard let input = turn["input"] as? [[String: Any]],
+              input.count == 2,
+              input[0]["type"] as? String == "skill",
+              input[0]["name"] as? String == "imagegen",
+              input[0]["path"] as? String == mounted.path,
+              input[1]["type"] as? String == "text" else { return false }
+
+        var missingImage = AITextCodexAppServerProtocolState(
+            requiresImageArtifact: true
+        )
+        let early = missingImage.consume([
+            "method": "turn/completed",
+            "params": ["turn": ["status": "completed"]],
+        ])
+        guard containsFailure(early) else { return false }
+
+        var state = AITextCodexAppServerProtocolState(
+            requiresImageArtifact: true
+        )
+        let started = state.consume([
+            "method": "item/started",
+            "params": ["item": ["type": "imageGeneration",
+                                 "status": "in_progress"]],
+        ])
+        guard started.contains(where: {
+            if case .imageGenerationStarted = $0 { return true }
+            return false
+        }) else { return false }
+        let path = "/private/generated_images/smoke.png"
+        let saved = state.consume([
+            "method": "item/completed",
+            "params": ["item": ["type": "imageGeneration",
+                                 "status": "completed", "savedPath": path]],
+        ])
+        guard saved.contains(where: {
+            if case let .imageArtifactPath(value) = $0 { return value == path }
+            return false
+        }) else { return false }
+        let terminal = state.consume([
+            "method": "turn/completed",
+            "params": ["turn": ["status": "completed"]],
+        ])
+        return terminal.contains(where: {
+            if case .completed = $0 { return true }
+            return false
+        })
     }
 
     private static func requestShapesAreCorrect() -> Bool {
@@ -926,13 +1077,39 @@ enum AITextCodexAppServerProtocolSmoke {
             outputSchema: schema,
             inferenceProfile: locked
         )
-        return lockedTurn["model"] as? String == "gpt-5.6-luna"
+        guard lockedTurn["model"] as? String == "gpt-5.6-luna"
             && lockedTurn["effort"] as? String == "low"
-            && lockedTurn["summary"] as? String == "none"
+            && lockedTurn["summary"] as? String == "none" else { return false }
+
+        let configured = AITextCodexInferenceProfile.channel(
+            model: "gpt-6-sol", effort: "high"
+        )
+        let configuredThread = AITextCodexAppServerRequestShape.threadStartParameters(
+            currentDirectoryURL: workspaceURL, inferenceProfile: configured
+        )
+        let configuredTurn = AITextCodexAppServerRequestShape.turnStartParameters(
+            threadID: "configured-thread", prompt: "prompt", outputSchema: schema,
+            inferenceProfile: configured
+        )
+        guard configuredThread["model"] as? String == "gpt-6-sol",
+              (configuredThread["config"] as? [String: String])?["model_reasoning_effort"] == "high",
+              configuredTurn["model"] as? String == "gpt-6-sol",
+              configuredTurn["effort"] as? String == "high" else { return false }
+
+        let defaultModel = AITextCodexInferenceProfile.channel(
+            model: nil, effort: "medium"
+        )
+        let defaultThread = AITextCodexAppServerRequestShape.threadStartParameters(
+            currentDirectoryURL: workspaceURL, inferenceProfile: defaultModel
+        )
+        return defaultThread["model"] == nil
+            && (defaultThread["config"] as? [String: String])?["model_reasoning_effort"] == "medium"
     }
 
     private static func strictModelLockIsEnforced() -> Bool {
-        let model = AITextCodexInferenceProfile.streamInput.model
+        guard let model = AITextCodexInferenceProfile.streamInput.model else {
+            return false
+        }
 
         var missingModel = AITextCodexAppServerProtocolState(
             requiredModel: model,
@@ -1025,6 +1202,15 @@ enum AITextCodexAppServerProtocolSmoke {
     ) -> String? {
         actions.reversed().compactMap { action in
             if case let .textSnapshot(text) = action { return text }
+            return nil
+        }.first
+    }
+
+    private static func lastReasoning(
+        _ actions: [AITextCodexAppServerProtocolAction]
+    ) -> String? {
+        actions.reversed().compactMap { action in
+            if case let .reasoningSnapshot(text) = action { return text }
             return nil
         }.first
     }

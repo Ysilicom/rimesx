@@ -6,6 +6,11 @@ module RimesRelease
     raise 'Expected release tag ios-vMAJOR.MINOR.PATCH' unless match
     match.captures.join('.')
   end
+  def self.require_target(version, path)
+    target = File.read(path).strip
+    raise 'Release tag must match the numeric VERSION product target' unless /\A(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\z/.match?(target) && target == version
+    target
+  end
   def self.build_number(env)
     major = Integer(env.fetch('GITHUB_RUN_NUMBER')) + 100
     attempt = Integer(env.fetch('GITHUB_RUN_ATTEMPT', '1'))

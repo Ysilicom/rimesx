@@ -23,10 +23,14 @@ final class CaptureHotKey {
             let action = id.id
             let pressedAt = ProcessInfo.processInfo.systemUptime
             DispatchQueue.main.async {
-                if action == 2 {
-                    CaptureCoordinator.shared.begin("area", requestedAt: pressedAt)
-                } else {
-                    CaptureCoordinator.shared.showLauncher()
+                RimeInputSourceSelection.open("capture", awaitsFocus: false) {
+                    MainActor.assumeIsolated {
+                        if action == 2 {
+                            CaptureCoordinator.shared.begin("area", requestedAt: pressedAt)
+                        } else {
+                            CaptureCoordinator.shared.showLauncher()
+                        }
+                    }
                 }
             }
             return noErr

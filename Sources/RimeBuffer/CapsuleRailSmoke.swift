@@ -170,13 +170,21 @@ enum CapsuleRailSmoke {
     private static func checkRules(
         expect: (_ condition: @autoclosure () -> Bool, _ message: String) -> Void
     ) {
-        expect(
-            CapsuleRailTab.ordered.map(\.label) == ["临时", "捕获", "笔记", "图库", "影集", "PDF", "技能", "密码"],
-            "tab order"
-        )
-        expect(CapsuleRailTab.recent.cycled(by: -1) == .saved(.password), "tabs wrap backward")
-        expect(CapsuleRailTab.saved(.password).cycled(by: 1) == .recent, "tabs wrap forward")
-        expect(CapsuleRailTab.saved(.note).cycled(by: 3) == .saved(.pdf), "tabs step")
+        expect(CapsuleModuleID.allCases.map(\.title)
+            == ["临时", "捕获", "笔记", "资源", "密码"], "module order")
+        let enabledTabs = CapsuleRailTab.ordered
+        if CapsuleNavigationPolicy.usesModules {
+            expect(Set(enabledTabs.map(\.label)).isSubset(of:
+                Set(["临时", "捕获", "笔记", "资源", "密码"])), "enabled tabs")
+        } else {
+            expect(enabledTabs.map(\.label) == [
+                "临时", "捕获", "笔记", "图库", "影集", "文献", "技能", "密码",
+            ], "legacy tabs")
+        }
+        if let first = enabledTabs.first, let last = enabledTabs.last {
+            expect(first.cycled(by: -1) == last, "tabs wrap backward")
+            expect(last.cycled(by: 1) == first, "tabs wrap forward")
+        }
         expect(CapsuleRailActivationRules.action(for: .note) == .insertText, "note inserts text")
         for kind in [CapsuleEntryKind.image, .video, .pdf, .skill] {
             expect(
@@ -347,11 +355,17 @@ enum CapsuleRailSmoke {
         expect(searched.countText == "1 / 2", "search count")
         pane.resetSearch()
 
+        let activatedBeforeDetail = activated.count
         expect(
             pane.handleSavedCardInteraction(id: noteA.id, clickCount: 2),
-            "double click activates"
+            "double click opens the note"
         )
-        expect(activated.last?.id == noteA.id, "double click activates that note")
+        expect(pane.openDetailForSmoke?.entry.id == noteA.id && activated.count == activatedBeforeDetail,
+               "double click opens that note's detail instead of inserting it")
+        expect(pane.handleKeyDown(key(kVK_Escape)) && pane.openDetailForSmoke == nil,
+               "Escape returns from the detail to the cards")
+        expect(pane.handleKeyDown(key(kVK_Return)) && activated.last?.id == noteA.id,
+               "Return on the card still inserts the whole note")
 
         pane.selectTab(.saved(.password))
         pane.layoutSubtreeIfNeeded()
@@ -365,8 +379,12 @@ enum CapsuleRailSmoke {
         _ = pane.handleKeyDown(key(kVK_ANSI_C, modifiers: .command))
         expect(pane.handleSavedCardInteraction(id: password.id, clickCount: 1), "password click selects")
         expect(managed.isEmpty, "single click does not open password manager")
-        expect(pane.handleSavedCardInteraction(id: password.id, clickCount: 2), "password double click authenticates in place")
-        expect(passwordInputRequests == 3 && managed.isEmpty, "Return, Command-1 and double click request native in-place verification, never manager")
+        expect(pane.handleSavedCardInteraction(id: password.id, clickCount: 2), "password double click opens verification")
+        // Return opens the detail; while it verifies, ⌘1 and ⌘C belong to the
+        // passcode field. A click closes it and a double-click reopens it.
+        expect(passwordInputRequests == 2 && managed.isEmpty, "Return and double click request native verification in the detail, never manager")
+        expect(pane.openDetailForSmoke?.mode == .password && pane.capsuleRailSnapshotForSmoke().hint.isEmpty,
+               "verification shows no instruction text")
         expect(activated.count == activationsBefore, "a password never activates")
         expect(copied.count == copiesBefore, "a password never copies")
 
@@ -381,7 +399,7 @@ enum CapsuleRailSmoke {
         expect(shielded.stateMessage == "安全输入期间已隐藏内容", "protection message on a saved tab")
         pane.selectTab(.saved(.password))
         expect(!pane.activateSelectedItems(), "protected password cannot open manager")
-        expect(passwordInputRequests == 3 && managed.isEmpty, "protection prevents in-place verification")
+        expect(passwordInputRequests == 2 && managed.isEmpty, "protection prevents verification")
     }
 
     private static func checkSaveRules(

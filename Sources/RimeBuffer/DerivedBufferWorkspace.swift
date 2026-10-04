@@ -137,11 +137,21 @@ extension AppleTranslationWorkspace: DerivedBufferWorkspace,
 extension AITextPluginWorkspace: DerivedBufferWorkspace,
                                  WorkbenchManualGenerationControls {
     var workspacePluginKey: PluginKey { pluginKey }
-    var workbenchDisplayName: String { "AI 生成 · \(kind.displayName)" }
-    var isGenerating: Bool { phase == .running }
+    var workbenchDisplayName: String {
+        PresetBufferPluginCatalog.entry(id: kind.pluginRawID)?.nameZH ?? kind.displayName
+    }
+    var isGenerating: Bool {
+        if AITextSkillSelectionStore.shared.selected(for: kind) == .imagegen {
+            return CodexImageGenerationCoordinator.shared.isRunning
+        }
+        return phase == .running
+    }
     var generationProviderName: String { kind.displayName }
     var generationRequestDescription: String {
-        return "用 \(kind.displayName) 原地处理当前全部缓冲内容"
+        if AITextSkillSelectionStore.shared.selected(for: kind) == .imagegen {
+            return "用 ChatGPT imagegen 生成图片，完成后存入 Mailbox"
+        }
+        return "把当前缓冲内容原样发送给 \(kind.displayName)"
     }
     var generationStatusText: String { statusText }
     var primaryAction: WorkbenchManualGenerationPrimaryAction {
@@ -181,9 +191,12 @@ enum DerivedBufferWorkspaceRouter {
     private static var all: [any DerivedBufferWorkspace] {
         [
             AppleTranslationWorkspace.shared,
-            AITextPluginRuntimeRegistry.shared.workspace,
             StreamInputWorkspace.shared,
-        ]
+            ScholayWorkspace.shared,
+            ScholayAcademicWorkspace.polisher,
+            ScholayAcademicWorkspace.latex,
+            MorseWorkspace.shared,
+        ] + AITextPluginRuntimeRegistry.shared.workspaces
     }
 
     static var selectedWorkspace: (any DerivedBufferWorkspace)? {

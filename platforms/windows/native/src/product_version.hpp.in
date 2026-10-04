@@ -1,0 +1,5 @@
+#pragma once
+namespace rimes::windows {
+inline constexpr char kProductVersion[] = "@PROJECT_VERSION@";
+inline constexpr wchar_t kProductVersionWide[] = L"@PROJECT_VERSION@";
+}

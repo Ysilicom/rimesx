@@ -294,6 +294,7 @@ final class StatusMenu {
     private func installScriptURL() -> URL? {
         let home = URL(fileURLWithPath: NSHomeDirectory())
         let candidates = [
+            home.appendingPathComponent("Documents/05-dev/apps/rimes/build_install.sh"),
             home.appendingPathComponent("Documents/DEV/rime-buffer-1/build_install.sh"),
             home.appendingPathComponent("Documents/05-dev/apps/rime-buffer-1/build_install.sh"),
             home.appendingPathComponent("Documents/DEV/rime-buffer/build_install.sh"),

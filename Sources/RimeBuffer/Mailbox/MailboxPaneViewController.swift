@@ -2783,6 +2783,8 @@ private final class MailboxAIReplyCoordinatorSmokeStub: MailboxAIReplyCoordinati
 
 private final class MailboxMessageRowView: NSView {
     private let bodyView: MailboxMessageTextView
+    private let imageView: NSImageView?
+    private let imageURL: URL?
     private let timeLabel: NSTextField
     private let sourceLabel: NSTextField
     private let markerLabel: NSTextField
@@ -2791,7 +2793,9 @@ private final class MailboxMessageRowView: NSView {
 
     private let streaming: Bool
 
-    init(message: MailboxMessage, streaming: Bool = false) {
+    init(message: MailboxMessage,
+         streaming: Bool = false,
+         imageDataOverride: Data? = nil) {
         self.streaming = streaming
         let authorText: String
         if message.kind == .localNote {
@@ -2823,6 +2827,21 @@ private final class MailboxMessageRowView: NSView {
         bodyStyle = style
         let presentation = MailboxMessageFormatting.presentation(for: message, style: style)
         bodyView = MailboxMessageTextView(presentation: presentation)
+        if !streaming,
+           let imageData = imageDataOverride
+                ?? MailboxStore.shared.imageData(for: message),
+           let image = NSImage(data: imageData) {
+            let preview = NSImageView(image: image)
+            preview.imageScaling = .scaleProportionallyUpOrDown
+            preview.translatesAutoresizingMaskIntoConstraints = false
+            preview.setAccessibilityLabel("生成的图片，点击打开原图")
+            imageView = preview
+            imageURL = imageDataOverride == nil
+                ? MailboxStore.shared.imageURL(for: message) : nil
+        } else {
+            imageView = nil
+            imageURL = nil
+        }
         timeLabel = NSTextField(labelWithString: MailboxPresentation.timeLabel(message.createdAt))
         sourceLabel = NSTextField(labelWithString: authorText.uppercased())
         markerLabel = NSTextField(labelWithString: MailboxPresentation.promptMarker(for: message.role))
@@ -2877,8 +2896,17 @@ private final class MailboxMessageRowView: NSView {
         addSubview(sourceStack)
         addSubview(markerLabel)
         addSubview(bodyView)
+        if let imageView {
+            addSubview(imageView)
+            if imageURL != nil {
+                imageView.toolTip = "点击打开原图"
+                imageView.addGestureRecognizer(NSClickGestureRecognizer(
+                    target: self, action: #selector(openGeneratedImage)
+                ))
+            }
+        }
         addSubview(separator)
-        NSLayoutConstraint.activate([
+        var constraints = [
             timeLabel.leadingAnchor.constraint(
                 equalTo: leadingAnchor,
                 constant: MailboxTerminalLayout.outerInset
@@ -2910,7 +2938,6 @@ private final class MailboxMessageRowView: NSView {
                 constant: -MailboxTerminalLayout.bodyTrailing
             ),
             bodyView.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            bodyView.bottomAnchor.constraint(equalTo: separator.topAnchor, constant: -11),
             bodyView.heightAnchor.constraint(greaterThanOrEqualToConstant: 18),
 
             separator.leadingAnchor.constraint(
@@ -2923,7 +2950,28 @@ private final class MailboxMessageRowView: NSView {
             ),
             separator.bottomAnchor.constraint(equalTo: bottomAnchor),
             separator.heightAnchor.constraint(equalToConstant: 1),
-        ])
+        ]
+        if let imageView {
+            let preferredWidth = imageView.widthAnchor.constraint(
+                equalToConstant: 360
+            )
+            preferredWidth.priority = .defaultHigh
+            constraints += [
+                imageView.leadingAnchor.constraint(equalTo: bodyView.leadingAnchor),
+                imageView.topAnchor.constraint(equalTo: bodyView.bottomAnchor,
+                                               constant: 8),
+                imageView.bottomAnchor.constraint(equalTo: separator.topAnchor,
+                                                  constant: -11),
+                imageView.widthAnchor.constraint(lessThanOrEqualTo: bodyView.widthAnchor),
+                preferredWidth,
+                imageView.heightAnchor.constraint(equalToConstant: 260),
+            ]
+        } else {
+            constraints.append(bodyView.bottomAnchor.constraint(
+                equalTo: separator.topAnchor, constant: -11
+            ))
+        }
+        NSLayoutConstraint.activate(constraints)
 
         switch message.role {
         case .user:
@@ -2948,6 +2996,11 @@ private final class MailboxMessageRowView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    @objc private func openGeneratedImage() {
+        guard let imageURL else { return }
+        NSWorkspace.shared.open(imageURL)
+    }
 
     /// Streaming previews retain one row and replace only its public body
     /// snapshot. Durable rows are therefore not recreated on every provider
@@ -2974,6 +3027,7 @@ private final class MailboxMessageRowView: NSView {
     }
     fileprivate var transcriptBodyString: String { bodyView.string }
     fileprivate var transcriptIsStreamingForSmoke: Bool { streaming }
+    fileprivate var hasImagePreviewForSmoke: Bool { imageView != nil }
     fileprivate var transcriptFirstBaselines: [CGFloat] {
         [timeLabel, sourceLabel, markerLabel, bodyView].map {
             MailboxTerminalGeometry.firstBaselineY(of: $0, in: self)
@@ -3168,6 +3222,7 @@ enum MailboxPaneVisualSmoke {
             .validateNewConversationForSmoke()
         let pointingHandControls = validatePointingHandControls()
         let compactThreads = validateCompactThreadRows(now: now)
+        let imagePreview = validateImagePreview()
         let progressProjection = validateProgressProjectionRules(now: now)
         let formatting = validateMessageFormatting()
         let relativeDate = MailboxPresentation.headerDateLabel(now, now: now) == "今天"
@@ -3181,11 +3236,13 @@ enum MailboxPaneVisualSmoke {
             fputs("mailbox visual smoke: pointing-hand controls\n", stderr)
         }
         if !compactThreads { fputs("mailbox visual smoke: compact thread rows\n", stderr) }
+        if !imagePreview { fputs("mailbox visual smoke: image preview\n", stderr) }
         if !progressProjection { fputs("mailbox visual smoke: progress projection\n", stderr) }
         if !formatting { fputs("mailbox visual smoke: message formatting\n", stderr) }
         if !relativeDate { fputs("mailbox visual smoke: relative date\n", stderr) }
         return transcript && composer && streaming && standalone
             && newConversation && pointingHandControls && compactThreads
+            && imagePreview
             && progressProjection
             && formatting && relativeDate
     }
@@ -3336,7 +3393,7 @@ enum MailboxPaneVisualSmoke {
         let enabledCursor = selected.pointingHandCursorKindForSmoke
         selected.isPointingHandEnabled = false
         let disabledCursor = selected.pointingHandCursorKindForSmoke
-        let expectedAccessibility = "#05，Codex，未读"
+        let expectedAccessibility = "#05，ChatGPT，未读"
         return MailboxThreadListLayout.rowHeight == 40
             && enabledCursor == .pointingHand
             && disabledCursor == .arrow
@@ -3344,6 +3401,48 @@ enum MailboxPaneVisualSmoke {
             && standard.contentRowCountForSmoke == 1
             && selected.accessibilitySummaryForSmoke == expectedAccessibility
             && standard.accessibilitySummaryForSmoke == expectedAccessibility
+    }
+
+    private static func validateImagePreview() -> Bool {
+        guard let png = Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="
+        ) else { return false }
+        let row = MailboxMessageRowView(
+            message: MailboxMessage(
+                role: .inbound,
+                author: "ChatGPT",
+                body: "图片已生成。",
+                imageFileName: "\(UUID().uuidString).png"
+            ),
+            imageDataOverride: png
+        )
+        guard row.hasImagePreviewForSmoke else { return false }
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 828, height: 320))
+        host.appearance = RimeUI.appKitAppearance
+        host.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            row.topAnchor.constraint(equalTo: host.topAnchor),
+            row.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+        ])
+        host.layoutSubtreeIfNeeded()
+        host.displayIfNeeded()
+        if let path = ProcessInfo.processInfo.environment[
+            "RIMEBUFFER_MAILBOX_IMAGE_RENDER_PATH"
+        ] {
+            guard let bitmap = host.bitmapImageRepForCachingDisplay(
+                in: host.bounds
+            ) else { return false }
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            guard let data = bitmap.representation(using: .png,
+                                                   properties: [:]),
+                  (try? data.write(to: URL(fileURLWithPath: path),
+                                   options: .atomic)) != nil else {
+                return false
+            }
+        }
+        return true
     }
 
     private static func validateMessageFormatting() -> Bool {

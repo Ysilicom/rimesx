@@ -32,6 +32,20 @@ enum CaptureOverlaySmoke {
         try require(coordinator.overlays.count == 3, "three result windows")
         let panels = records.compactMap { coordinator.overlays[$0.id] }
         try wait { panels.allSatisfy { $0.preview.image != nil } }
+        // Captures leave out only the capture tool's chrome and these cards;
+        // pins, editors and every other RIMES window stay capturable.
+        let ordinaryPanel = CapturePanel(size: NSSize(width: 200, height: 120), key: false)
+        let chromePanel = CapturePanel(size: NSSize(width: 200, height: 120), key: false)
+        chromePanel.excludedFromCapture = true
+        let appWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120),
+                                 styleMask: [.titled], backing: .buffered, defer: false)
+        appWindow.isReleasedWhenClosed = false
+        defer { ordinaryPanel.close(); chromePanel.close(); appWindow.close() }
+        let chrome = coordinator.chromeWindowIDs()
+        try require(panels.allSatisfy { chrome.contains(CGWindowID($0.windowNumber)) }, "result cards stay out of captures")
+        try require(chrome.contains(CGWindowID(chromePanel.windowNumber)), "capture chrome stays out of captures")
+        try require(!chrome.contains(CGWindowID(ordinaryPanel.windowNumber)) && !chrome.contains(CGWindowID(appWindow.windowNumber)),
+                    "ordinary RIMES windows stay in captures")
         let frames = panels.map(\.frame)
         try require(Set(frames.map { $0.minY }).count == 3, "three distinct stack positions")
         let order = coordinator.overlayOrder
@@ -183,6 +197,6 @@ enum CaptureOverlaySmoke {
         try require(replacement != nil && replacement !== restored && replacement?.dismissed == false
                     && coordinator.overlays[copyRecord.id] === replacement,
                     "late copy completion must not dismiss a replacement card")
-        print("capture-overlay-smoke: OK (stable identity, refresh, hidden restore, compaction, overflow, preview generations, copy dismissal/failure/history/replacement)")
+        print("capture-overlay-smoke: OK (stable identity, refresh, hidden restore, compaction, overflow, preview generations, copy dismissal/failure/history/replacement, capture exclusions)")
     }
 }

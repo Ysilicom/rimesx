@@ -57,10 +57,16 @@
 
 | 插件 | ID | 版本 | 默认安装 | 默认状态 |
 |---|---|---:|---|---|
-| AI 生成 | `builtin.ai-text` | 2.1 | 随 RIMES 预装 | 启用 |
-| 实时翻译 | `builtin.apple-translation` | 2.1 | 随 RIMES 预装 | 启用 |
+| ChatGPT | `builtin.codex-cli` | 1.1 | 随 RIMES 预装 | 启用 |
+| Claude | `builtin.claude-code-cli` | 1.1 | 随 RIMES 预装 | 启用 |
+| AI API | `builtin.openai-compatible` | 1.0 | 随 RIMES 预装 | 启用 |
+| Reference | `builtin.scholay` | 0.1 | 随 RIMES 预装 | 启用 |
+| Polisher | `builtin.polisher` | 0.1 | 随 RIMES 预装 | 启用 |
+| LaTeX | `builtin.latex` | 0.1 | 随 RIMES 预装 | 启用 |
+| 实时翻译 | `builtin.apple-translation` | 2.2 | 随 RIMES 预装 | 启用 |
 | 意识流输入 | `builtin.stream-input` | 1.4 | 随 RIMES 预装 | 启用 |
 | 电音演奏 | `builtin.music` | 0.2.3 | 随 RIMES 预装 | 启用 |
+| 摩斯电码 | `builtin.morse` | 0.1.0 | 随 RIMES 预装 | 启用 |
 
 表中插件均随 RIMES 预装，并在全新安装后默认启用。
 <!-- END PRESET BUFFER PLUGINS -->
@@ -75,7 +81,7 @@
 
 ## 安装
 
-macOS、iOS、Windows、Android、Linux 都已开工，完成度不同。各平台安装包的下载地址即将提供。在此之前，请拉取源码后在本机构建：
+macOS、iOS、Android、Windows 正在收敛 **1.0.0** 正式版本；Linux 暂时保留现状。iOS 已开放 [TestFlight 公开邀请](https://testflight.apple.com/join/Kdj9RB4q)，当前外部测试构建为 **0.1.0（32）**。Windows 1.0.0 将提供未签名 EXE 安装包，其余平台按各自签名要求准备；正式下载在最终验收后提供。也可以拉取源码后在本机构建：
 
 ```bash
 git clone https://github.com/scholay/rimes.git
@@ -87,7 +93,7 @@ cd rimes
 | macOS | 输入法，以及 Buffer、Capsule、Mailbox | `./build_install.sh` |
 | iOS | 键盘与主 App（iOS 17+）：离线拼音、自然码、五笔、英文，以及 Buffer | 用 Xcode 打开 [`platforms/ios/RIMES.xcodeproj`](platforms/ios/README.md) |
 | Windows | 原生 TSF 输入法：预编辑、候选、上屏。还没有 Buffer、Capsule、Mailbox，也没有签名安装包 | 见 [`platforms/windows/native/README.md`](platforms/windows/native/README.md) |
-| Android | 开发中 | 源码尚未进入本仓库 |
+| Android | 原生输入法（InputConnection）与应用设置，开发 APK 见 Android 文档 | 见 [`platforms/android/README.md`](platforms/android/README.md) |
 | Linux | Fcitx5 输入法、Buffer、Capsule。还没有 Mailbox | 见 [`platforms/linux/ime/README.md`](platforms/linux/ime/README.md) |
 
 ## 文档
@@ -102,6 +108,8 @@ cd rimes
 | [platforms/ios/README.md](platforms/ios/README.md) | iOS 键盘与主 App |
 | [platforms/windows/native/README.md](platforms/windows/native/README.md) | Windows 原生 TSF 输入法 |
 | [platforms/linux/ime/README.md](platforms/linux/ime/README.md) | Linux Fcitx5 输入法、Buffer 与 Capsule |
+| [PLATFORM-ROADMAP.md](PLATFORM-ROADMAP.md) | Windows / Android 对齐路线与当前验收边界 |
+| [platforms/android/README.md](platforms/android/README.md) | Android 原生工程、开发 APK 与验收 |
 | [RELEASE.md](RELEASE.md) | 发布流程：渠道、一条命令发布、节奏与版本号规则 |
 | [RELEASE-REFERENCE.md](RELEASE-REFERENCE.md) | 发布技术参考：签名、安装器、应用内更新、CI |
 | [RELEASE-HISTORY.md](RELEASE-HISTORY.md) | 已关闭的发布通道、旧仓库迁移与改名记录 |
@@ -145,6 +153,8 @@ Pre-release，不进入自动更新。Windows/Linux `platform-preview-vX.Y.Z` �
 
 ## 许可证与第三方
 
-RIMES 自有代码采用 [MIT License](LICENSE)。随包 Rime 方案、词库和 Lua/OpenCC 数据
-保留各自的 GPL/LGPL/CC 许可与署名；完整边界见
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 `rime-data/licenses/`。
+RIMES 自有代码采用 [Apache License 2.0](LICENSE)，具体范围及历史 MIT 授权见 [LICENSING.md](LICENSING.md)。核心维护者为[学术海](https://pm.scholay.com)。
+
+中文输入基于 [Rime 输入法引擎（librime）](https://github.com/rime/librime)。来源声明见 [NOTICE](NOTICE)；我们倡议衍生版本说明 Rime、RIMES 及修改者的关系，示例见[来源与署名](ATTRIBUTION.md)。该展示倡议不增加许可证之外的限制。
+
+第三方组件、方案、词库和 Lua/OpenCC 数据保留各自的许可与署名，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)、[LICENSES](LICENSES/) 和 `rime-data/licenses/`。官方免费插件在 [rimes-plugins](https://github.com/scholay/rimes-plugins) 仓库维护。

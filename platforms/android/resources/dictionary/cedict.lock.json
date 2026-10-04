@@ -1,0 +1,67 @@
+{
+  "format_version": 1,
+  "dictionary_data_license": "CC-BY-SA-4.0",
+  "source": {
+    "publisher": "MDBG and CC-CEDICT contributors",
+    "homepage": "https://www.mdbg.net/chinese/dictionary?page=cedict",
+    "download_url": "https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz",
+    "path": "cedict_1_0_ts_utf-8_mdbg.txt.gz",
+    "sha256": "d434b5e90470877952fcbae02de42e4272a09d88783ce2ffa66f571e6871c2f9",
+    "bytes": 3977944
+  },
+  "license": {
+    "url": "https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt",
+    "path": "CC-BY-SA-4.0.txt",
+    "sha256": "28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5"
+  },
+  "conversion": {
+    "script": "verify-dictionary.py",
+    "format": "RMDICT03",
+    "modifications": "Deterministic lexical gloss selection; reverse English aliases; verified common-word sense choices; variant cross-reference resolution; precompiled UTF-16 radix tries and UTF-8 value pools. Derived dictionary data remains CC BY-SA 4.0. No contextual sentence translation or runtime download."
+  },
+  "index": {
+    "path": "app/src/main/assets/dictionary/cedict-index.rmdict",
+    "sha256": "4dcd01007f78cb1d2857b51593cd6c70d22fa049446e5c4fee2a2a16806f5e8c",
+    "bytes": 4663964
+  },
+  "notice": {
+    "path": "app/src/main/assets/dictionary/CC-CEDICT-NOTICE.txt",
+    "sha256": "17476d07f13bd3a631fb0b106c5aea79d07a999841c7cfa502b84702108fcb6a",
+    "bytes": 1608
+  },
+  "packaged_license": {
+    "path": "app/src/main/assets/licenses/CC-CEDICT-CC-BY-SA-4.0.txt",
+    "sha256": "28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5",
+    "bytes": 20138
+  },
+  "metrics": {
+    "source_entries": 125166,
+    "source_release": "2026-10-01T23:26:37Z",
+    "uncompressed_index_bytes": 10578032,
+    "zh_en": {
+      "keys": 183491,
+      "nodes": 193335,
+      "edges": 193334,
+      "utf16_label_units": 262329,
+      "values": 77925,
+      "utf8_pool_bytes": 1541873
+    },
+    "en_zh": {
+      "keys": 103644,
+      "nodes": 141343,
+      "edges": 141342,
+      "utf16_label_units": 981764,
+      "values": 74118,
+      "utf8_pool_bytes": 584889
+    },
+    "verified_common_choices": {
+      "zh_en": 2,
+      "en_zh": 30
+    }
+  },
+  "preferences": {
+    "path": "preferred-headwords.json",
+    "sha256": "b8378afdf19c1905362e6ff2f08c85d3a676f8c3e9d679a0eceabf48cfc9549f",
+    "description": "30 English common senses and 2 Chinese greeting forms. Every preferred pair is verified against an official source definition; not a sentence model."
+  }
+}

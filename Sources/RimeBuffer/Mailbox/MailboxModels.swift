@@ -24,6 +24,8 @@ struct MailboxMessage: Identifiable, Codable, Equatable {
     let format: AITextContentFormat
     let author: String?
     let body: String
+    /// A private Mailbox attachment filename; never a provider supplied path.
+    let imageFileName: String?
     let createdAt: Date
 
     init(id: UUID = UUID(),
@@ -32,6 +34,7 @@ struct MailboxMessage: Identifiable, Codable, Equatable {
          format: AITextContentFormat = .plain,
          author: String? = nil,
          body: String,
+         imageFileName: String? = nil,
          createdAt: Date = Date()) {
         self.id = id
         self.role = role
@@ -39,6 +42,7 @@ struct MailboxMessage: Identifiable, Codable, Equatable {
         self.format = format
         self.author = author
         self.body = body
+        self.imageFileName = imageFileName
         self.createdAt = createdAt
     }
 
@@ -49,6 +53,7 @@ struct MailboxMessage: Identifiable, Codable, Equatable {
         case format
         case author
         case body
+        case imageFileName
         case createdAt
     }
 
@@ -66,6 +71,7 @@ struct MailboxMessage: Identifiable, Codable, Equatable {
         }
         author = try values.decodeIfPresent(String.self, forKey: .author)
         body = try values.decode(String.self, forKey: .body)
+        imageFileName = try values.decodeIfPresent(String.self, forKey: .imageFileName)
         createdAt = try values.decode(Date.self, forKey: .createdAt)
     }
 
@@ -77,6 +83,7 @@ struct MailboxMessage: Identifiable, Codable, Equatable {
         try values.encode(format.rawValue, forKey: .format)
         try values.encodeIfPresent(author, forKey: .author)
         try values.encode(body, forKey: .body)
+        try values.encodeIfPresent(imageFileName, forKey: .imageFileName)
         try values.encode(createdAt, forKey: .createdAt)
     }
 }
@@ -318,7 +325,7 @@ struct MailboxSource: Codable, Equatable {
     static func codexCLI(model: String? = nil) -> MailboxSource {
         MailboxSource(
             kind: .codexCLI,
-            displayName: "Codex",
+            displayName: "ChatGPT",
             identifier: "builtin.codex-cli",
             model: model,
             replyCapability: .aiContinuation
@@ -328,7 +335,7 @@ struct MailboxSource: Codable, Equatable {
     static func claudeCodeCLI(model: String? = nil) -> MailboxSource {
         MailboxSource(
             kind: .claudeCodeCLI,
-            displayName: "Claude Code",
+            displayName: "Claude",
             identifier: "builtin.claude-code-cli",
             model: model,
             replyCapability: .aiContinuation
@@ -436,6 +443,11 @@ struct MailboxThread: Identifiable, Codable, Equatable {
     /// Present only when a one-way inbound message needs, or has received, a
     /// local Buffer review decision. Older Mailbox files decode this as nil.
     var review: MailboxReview? = nil
+    /// Optional additions preserve schema-v1 documents. Terminal processes are
+    /// never reconstructed from untrusted source labels or from these IDs.
+    var workspace: MailboxContentWorkspace? = nil
+    var terminalSessionID: UUID? = nil
+    var archivedAt: Date? = nil
     var unread: Bool
     let createdAt: Date
     var updatedAt: Date
@@ -494,7 +506,7 @@ struct MailboxStoreSnapshot: Equatable {
     }
 
     var unreadCount: Int {
-        threads.reduce(0) { $0 + ($1.unread ? 1 : 0) }
+        threads.reduce(0) { $0 + ($1.unread && $1.archivedAt == nil ? 1 : 0) }
     }
 
     func thread(id: UUID) -> MailboxThread? {

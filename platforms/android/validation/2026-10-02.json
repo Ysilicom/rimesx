@@ -1,0 +1,26 @@
+{
+  "version": "0.1.0-dev.4",
+  "versionCode": 4,
+  "application_source": "889d4208ba66d11d4ef34c8a9b13dccac7bae14a",
+  "sha256": "81d17a40629331528b56b4797adddf84240b2f63ad794b2411ba12d1848a6c71",
+  "size": 12913729,
+  "installed_apk_matches": true,
+  "jvm_tests": 18,
+  "layout_dark_assertions": 388,
+  "layout_light_large_assertions": 388,
+  "input_contract_assertions": 301,
+  "packaged_resource_files": 19,
+  "palettes": 18,
+  "default_ime_restored": true,
+  "device_settings_restored": true,
+  "prior_schema_restored": "rimes_ziranma",
+  "upgrade_file_hashes_preserved": 21,
+  "apk_name": "RIMES-Android-0.1.0-dev.4-889d420.apk",
+  "device": {
+    "android": 16,
+    "api": 36,
+    "model": "25098PN5AC",
+    "page_size": 4096
+  },
+  "physical_soak_repeated": false
+}

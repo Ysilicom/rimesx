@@ -1,4 +1,7 @@
 import UIKit
+#if KEYBOARD_LAYOUT_TESTS
+@testable import RIMES
+#endif
 import RimesCore
 
 final class KeySurface: UIView {
@@ -19,6 +22,25 @@ final class KeySurface: UIView {
     var resolvesChords: Bool { chordMode && !numeric && !emojiMode && !shifted && !englishInput }
     var hasUtilityCells: Bool { chordMode && !numeric }
     var onModeChanged: (() -> Void)?
+    /// Used only by ordinary input. Chord mode, including EN/Shift, keeps its original geometry.
+    var customLayout: CustomKeyboardLayout? {
+        didSet { if oldValue != customLayout { cancel(); touchIDs.removeAll(); setNeedsLayout() } }
+    }
+    var customFunctionViews: [CustomKeyAction: UIView] = [:]
+    var usesCustomLayout: Bool { customLayout != nil && !chordMode && !numeric && !emojiMode }
+    var standardMode: StandardKeyboardMode? { didSet { if oldValue != standardMode { cancel(); touchIDs.removeAll(); setNeedsLayout() } } }
+    var standardFunctionViews: [StandardKeyControl: UIView] = [:]
+    var usesStandardLayout: Bool { standardMode != nil && !chordMode && !emojiMode }
+    var usesManagedLayout: Bool { usesCustomLayout || usesStandardLayout }
+    var theme: StatusSkin = .rhino {
+        didSet {
+            guard oldValue != theme else { return }
+            for button in [emojiButton, languageButton, backButton] + emojiButtons { button.theme = theme }
+            setNeedsDisplay()
+        }
+    }
+    var skin: KeyboardSkin { theme.keyboardStyle }
+    private var labels: [String: String] = [:]
     /// When set, replaces the 中/EN utility cell in chord mode (the controller puts Delete here).
     var languageCellView: UIView? {
         didSet { oldValue?.removeFromSuperview(); if let languageCellView { addSubview(languageCellView); languageCellView.isHidden = true }; setNeedsLayout() }
@@ -58,6 +80,7 @@ final class KeySurface: UIView {
         }
         installUtility(backButton) { [weak self] in self?.emojiMode = false }
         updateLanguageButton()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (surface: KeySurface, _: UITraitCollection) in surface.setNeedsDisplay() }
     }
     required init?(coder: NSCoder) { fatalError() }
     private func installUtility(_ button: UtilityKeycapButton, action: @escaping () -> Void) {
@@ -99,7 +122,8 @@ final class KeySurface: UIView {
     /// late callbacks cannot commit and a fresh keyboard session is not stuck.
     func retire() { feedback.reset(); gesture.reset(); touchIDs.removeAll(); ordinary.removeAll(); emojiMode = false; onPreview?(""); redraw() }
     override func layoutSubviews() {
-        super.layoutSubviews(); boxes.removeAll()
+        super.layoutSubviews(); boxes.removeAll(); labels.removeAll()
+        standardFunctionViews.values.forEach { $0.isHidden = true }
         let rowHeight = bounds.height / 3
         let utilitiesVisible = hasUtilityCells && !emojiMode
         emojiButton.isHidden = !utilitiesVisible; languageButton.isHidden = !utilitiesVisible || languageCellView != nil
@@ -110,6 +134,22 @@ final class KeySurface: UIView {
             for (index, button) in (emojiButtons + [backButton]).enumerated() {
                 button.frame = CGRect(x: CGFloat(index % 10) * unit + 2, y: CGFloat(index / 10) * rowHeight + 3, width: unit - 4, height: rowHeight - 6)
             }
+        } else if usesCustomLayout, let customLayout {
+            let geometry = customLayout.geometry(width: Double(bounds.width), landscape: bounds.width > 590)
+            customFunctionViews.values.forEach { $0.isHidden = true }
+            for item in geometry.frames {
+                let frame = CGRect(x: item.x, y: item.y, width: item.width, height: item.height)
+                if item.key.action == .character { boxes.append((item.key.text, frame)) }
+                else if let button = customFunctionViews[item.key.action] { button.frame = frame; button.isHidden = false }
+            }
+        } else if usesStandardLayout, let standardMode {
+            let geometry = StandardKeyboardGeometry.make(width: bounds.width, mode: standardMode, landscape: bounds.width > 590)
+            boxes = geometry.keys.map { ($0.text, $0.frame) }
+            labels = Dictionary(uniqueKeysWithValues: geometry.keys.map { ($0.text, $0.label) })
+            standardFunctionViews.values.forEach { $0.isHidden = true }
+            for (action, frame) in geometry.controls {
+                standardFunctionViews[action]?.frame = frame; standardFunctionViews[action]?.isHidden = false
+            }
         } else {
             let geometry = KeyboardGeometry.make(size: bounds.size, profile: profile, chord: chordMode, numeric: numeric, layout: chordLayout)
             boxes = geometry.keys
@@ -119,10 +159,29 @@ final class KeySurface: UIView {
             emojiButton.compactCap = chordMode && !numeric; languageButton.compactCap = chordMode && !numeric
         }
         let letters: [Any] = boxes.map { key, rect in
-            let item = KeyAccessibility(accessibilityContainer: self); item.accessibilityLabel = key.uppercased(); item.accessibilityTraits = .keyboardKey; item.accessibilityFrameInContainerSpace = rect
+            let item = KeyAccessibility(accessibilityContainer: self); item.accessibilityLabel = labels[key] ?? key.uppercased(); item.accessibilityTraits = .keyboardKey; item.accessibilityFrameInContainerSpace = rect
             item.activate = { [weak self] in guard let self else { return }; self.onTypingPress?(); self.feedback.send(.press); self.onKey?(self.shifted && !self.numeric ? key.uppercased() : key) }; return item
         }
-        accessibilityElements = letters + ([emojiButton, languageButton] + [languageCellView].compactMap { $0 } + emojiButtons + [backButton]).filter { !$0.isHidden }
+        var utilityElements: [UIView] = [emojiButton, languageButton]
+        if let languageCellView { utilityElements.append(languageCellView) }
+        utilityElements.append(contentsOf: emojiButtons)
+        utilityElements.append(backButton)
+        var orderedElements: [Any] = letters
+        orderedElements.append(contentsOf: utilityElements.filter { !$0.isHidden })
+        func readingOrder(_ left: UIView, _ right: UIView) -> Bool {
+            left.frame.minY == right.frame.minY
+                ? left.frame.minX < right.frame.minX
+                : left.frame.minY < right.frame.minY
+        }
+        if usesCustomLayout {
+            let visible = customFunctionViews.values.filter { !$0.isHidden }
+            orderedElements.append(contentsOf: visible.sorted(by: readingOrder))
+        }
+        if usesStandardLayout {
+            let visible = standardFunctionViews.values.filter { !$0.isHidden }
+            orderedElements.append(contentsOf: visible.sorted(by: readingOrder))
+        }
+        accessibilityElements = orderedElements
         redraw()
     }
     override func draw(_ rect: CGRect) {
@@ -134,13 +193,15 @@ final class KeySurface: UIView {
             let context = UIGraphicsGetCurrentContext()!
             context.saveGState(); context.setAlpha(dimmed ? 0.30 : 1)
             let cap = KeycapStyle.capRect(in: box, pressed: active, compact: chordMode && !numeric)
-            KeycapStyle.draw(in: box, pressed: active, compact: chordMode && !numeric)
-            let value = key.uppercased()
-            let font = UIFont.monospacedSystemFont(ofSize: 21, weight: .medium)
-            let fittedFont = font.withSize(min(21, max(1, floor(21 * cap.height / font.lineHeight))))
-            let attr: [NSAttributedString.Key: Any] = [.font: fittedFont, .foregroundColor: active ? UIColor.white : UIColor.label]
-            let size = value.size(withAttributes: attr)
-            value.draw(at: CGPoint(x: cap.midX - size.width / 2, y: cap.midY - size.height / 2), withAttributes: attr)
+            KeycapStyle.draw(in: box, pressed: active, compact: chordMode && !numeric, theme: theme)
+            let value = labels[key] ?? key.uppercased()
+            let nativeFont = !chordMode && skin == .system
+            let size: CGFloat = standardMode == .nineKey ? 20 : nativeFont ? 24 : 21
+            let font = nativeFont ? UIFont.systemFont(ofSize: size) : UIFont.monospacedSystemFont(ofSize: size, weight: .medium)
+            let fittedFont = font.withSize(min(size, max(1, floor(size * cap.height / font.lineHeight)), max(1, floor(size * (cap.width - 2) / max(1, value.size(withAttributes: [.font: font]).width)))))
+            let attr: [NSAttributedString.Key: Any] = [.font: fittedFont, .foregroundColor: active ? theme.palette.accentInk : theme.palette.ink]
+            let textSize = value.size(withAttributes: attr)
+            value.draw(at: CGPoint(x: cap.midX - textSize.width / 2, y: cap.midY - textSize.height / 2), withAttributes: attr)
             context.restoreGState()
         }
     }

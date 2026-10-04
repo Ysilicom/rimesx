@@ -43,6 +43,8 @@
 		<key>NSExtensionPrincipalClass</key>
 		<string>$(PRODUCT_MODULE_NAME).KeyboardViewController</string>
 	</dict>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save the typing statistics image you choose to your photo library. RIMES does not read your photos.</string>
 	<key>RIMESAppGroup</key>
 	<string>$(RIMES_APP_GROUP)</string>
 	<key>RIMESKeychainGroup</key>

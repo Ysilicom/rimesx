@@ -1,0 +1,107 @@
+{
+  "date": "2026-09-29",
+  "sourceCommit": "55e2ec7b22471afd647436d7c68d5e90e50d6507",
+  "package": "org.scholay.rimes.android.debug",
+  "versionName": "0.1.0-dev.2",
+  "versionCode": 2,
+  "apkSha256": "d721b15259ac2352816ddca59e231dac723548dce337abd21e354d10ccaa3068",
+  "device": {
+    "model": "25098PN5AC",
+    "android": "16",
+    "api": 36,
+    "navigation": "three-button",
+    "locale": "en"
+  },
+  "installation": {
+    "success": true,
+    "firstInstallTime": "2026-09-29T22:50:52+08:00",
+    "finalUpdateTime": "2026-09-29T23:10:19+08:00",
+    "installedApkSha256": "d721b15259ac2352816ddca59e231dac723548dce337abd21e354d10ccaa3068",
+    "installedApkMatchesLocal": true
+  },
+  "build": {
+    "command": "./gradlew --no-daemon :core:test :app:assembleDebug :app:lintDebug",
+    "passed": true,
+    "coreTests": 9,
+    "coreTestsUpToDateInFinalBuild": true,
+    "lintErrors": 0,
+    "lintWarnings": 3,
+    "remoteCiRun": false
+  },
+  "checks": [
+    {
+      "check": "Direct English, space, digit, punctuation, delete, multiline enter",
+      "passed": true,
+      "hostText": "hi 1\n"
+    },
+    {
+      "check": "Buffer capture and next/all/empty Enter delivery",
+      "passed": true,
+      "hostText": "hello world",
+      "draft": "empty",
+      "duplicates": 0
+    },
+    {
+      "check": "Pending draft discarded on target switch",
+      "passed": true,
+      "firstHostText": "hello world",
+      "secondHostText": "",
+      "draft": "cleared"
+    },
+    {
+      "check": "Hide/reopen clears pending draft",
+      "passed": true
+    },
+    {
+      "check": "Password field disables Buffer and clears previous draft",
+      "passed": true
+    },
+    {
+      "check": "Delete selected host text",
+      "passed": true,
+      "before": "hi 1\n",
+      "after": ""
+    },
+    {
+      "check": "Cross-host draft clearing and external host Buffer delivery",
+      "passed": true,
+      "host": "com.android.settings",
+      "text": "rimes"
+    },
+    {
+      "check": "Host IME_ACTION_SEARCH",
+      "passed": true,
+      "imeOptions": "0x3",
+      "textAfterEnter": "rimes",
+      "keyboardHidden": true
+    },
+    {
+      "check": "Landscape controls visible, Buffer Enter then all insertion",
+      "passed": true,
+      "hostText": "hi ok"
+    },
+    {
+      "check": "Rotation clears draft and portrait input recovers",
+      "passed": true
+    },
+    {
+      "check": "Switch away from RIMES and back clears draft",
+      "passed": true
+    }
+  ],
+  "scope": "Full portrait/input lifecycle pass before final landscape-only toolbar adjustment. Final APK repeated landscape delivery, rotation, portrait Buffer capture and keyboard-switch cleanup. Delivery/lifecycle implementation unchanged.",
+  "restored": {
+    "defaultKeyboard": "com.sohu.inputmethod.sogou.xiaomi/.SogouIME",
+    "accelerometerRotation": 0,
+    "userRotation": 0,
+    "verified": true
+  },
+  "remaining": [
+    "Chinese input and iOS feature parity",
+    "Additional hosts and Android versions",
+    "Gesture navigation, accessibility, dark theme and large fonts",
+    "NO_PERSONALIZED_LEARNING and numeric/phone framework fields",
+    "Rejected or stale framework connections and process death"
+  ],
+  "published": false
+}

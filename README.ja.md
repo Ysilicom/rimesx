@@ -56,10 +56,16 @@
 
 | プラグイン | ID | バージョン | 既定の導入 | 既定の状態 |
 |---|---|---:|---|---|
-| AI 生成 | `builtin.ai-text` | 2.1 | RIMES に同梱 | 有効 |
-| リアルタイム翻訳 | `builtin.apple-translation` | 2.1 | RIMES に同梱 | 有効 |
+| ChatGPT | `builtin.codex-cli` | 1.1 | RIMES に同梱 | 有効 |
+| Claude | `builtin.claude-code-cli` | 1.1 | RIMES に同梱 | 有効 |
+| AI API | `builtin.openai-compatible` | 1.0 | RIMES に同梱 | 有効 |
+| Reference | `builtin.scholay` | 0.1 | RIMES に同梱 | 有効 |
+| Polisher | `builtin.polisher` | 0.1 | RIMES に同梱 | 有効 |
+| LaTeX | `builtin.latex` | 0.1 | RIMES に同梱 | 有効 |
+| リアルタイム翻訳 | `builtin.apple-translation` | 2.2 | RIMES に同梱 | 有効 |
 | 意識の流れ入力 | `builtin.stream-input` | 1.4 | RIMES に同梱 | 有効 |
 | 電子音楽 | `builtin.music` | 0.2.3 | RIMES に同梱 | 有効 |
+| モールス符号 | `builtin.morse` | 0.1.0 | RIMES に同梱 | 有効 |
 
 表のプラグインはすべて RIMES に同梱され、新規インストール後は既定で有効です。
 
@@ -73,7 +79,7 @@
 
 ## インストール
 
-macOS、iOS、Windows、Android、Linux は、いずれも開発に入っていますが、進み具合は違います。各プラットフォームのダウンロード先は間もなく用意します。それまではソースを取得して、手元でビルドしてください。
+macOS、iOS、Android、Windows は次の正式版 **1.0.0** に向けて準備中です。Linux は現状を維持します。iOS の [TestFlight 公開招待](https://testflight.apple.com/join/Kdj9RB4q)を利用でき、現在の外部テスト版は **0.1.0 (32)** です。Windows 1.0.0 は未署名の EXE インストーラを使用し、他のプラットフォームでは所定の署名を行います。正式版は最終検証後に公開します。ソースからのローカルビルドも可能です。
 
 ```bash
 git clone https://github.com/scholay/rimes.git
@@ -141,4 +147,8 @@ cd rimes
 
 ## ライセンスと第三者
 
-RIMES 自身のコードは [MIT License](LICENSE) です。同梱する Rime の方案、辞書、Lua/OpenCC データは、それぞれの GPL/LGPL/CC ライセンスとクレジットを保ちます。境界の全体は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) と `rime-data/licenses/` にあります。
+RIMES 自身のコードは [Apache License 2.0](LICENSE) を採用しています。適用範囲と従来の MIT 許諾については [LICENSING.md](LICENSING.md) を参照してください。コアメンテナーは[学术海](https://pm.scholay.com)です。
+
+中国語入力には [Rime 入力エンジン（librime）](https://github.com/rime/librime)を使用しています。[NOTICE](NOTICE) に帰属情報、[ATTRIBUTION.md](ATTRIBUTION.md) に任意の表示例を記載しています。表示の推奨は追加のライセンス条件ではありません。
+
+第三者のコンポーネント、方案、辞書、Lua/OpenCC データはそれぞれのライセンスとクレジットを保ちます。[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)、[LICENSES](LICENSES/)、`rime-data/licenses/` を参照してください。公式の無料プラグインは [rimes-plugins](https://github.com/scholay/rimes-plugins) で管理します。

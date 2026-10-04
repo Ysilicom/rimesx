@@ -1,0 +1,89 @@
+{
+  "date": "2026-10-03",
+  "version": "0.1.0-dev.8",
+  "versionCode": 8,
+  "package": "org.scholay.rimes.android.debug",
+  "branch": "codex/android-chinese-input",
+  "base_commit": "00994612b187572d400267180f0d1fa5fbe0e031",
+  "source_state": "uncommitted local changes; not pushed or published",
+  "artifact": {
+    "bytes": 17549129,
+    "sha256": "d5a083054d0b98297fe32e9ddfcce6f1a6f705bd7c0c6769a29fea34f03ecae2",
+    "installed_apk_matches": true
+  },
+  "device": {
+    "model": "25098PN5AC",
+    "android": "16",
+    "api": 36
+  },
+  "provider": {
+    "name": "CometAPI",
+    "endpoint": "https://api.cometapi.com/v1/chat/completions",
+    "model": "deepseek-v4-flash",
+    "initial_result": "HTTP 403 region_restricted on original phone network",
+    "final_result": "real keyboard requests succeeded after maintainer changed phone network",
+    "assistant_changed_provider_access_controls": false
+  },
+  "tests": {
+    "jvm": 47,
+    "network_and_keystore": 43,
+    "local_plugin_backend": 68,
+    "service_delivery": 150,
+    "live_keyboard": 202,
+    "live_keyboard_result": "PASS",
+    "live_timing_ms_including_ui_wait_and_send_verification": {
+      "ask": 4311,
+      "polish": 3094,
+      "translate": 2875
+    },
+    "app_settings_final": 381
+  },
+  "live_examples": {
+    "polish": {
+      "input": "we is happy today",
+      "output": "We are happy today."
+    },
+    "translation": {
+      "input": "good morning",
+      "output": "早上好"
+    }
+  },
+  "privacy": {
+    "credential_in_source": false,
+    "credential_in_apk": false,
+    "request_response_logging_in_app": false,
+    "private_and_password_ai_denied": true,
+    "settings_encryption": "Android Keystore AES-GCM",
+    "credential_after_test": "Removed from phone; CometAPI disabled; temporary Mac plaintext removed",
+    "preferences_restored": true,
+    "selected_ime_restored": true,
+    "temporary_device_credential_removed": true,
+    "temporary_plaintext_removed": true
+  },
+  "scope_limits": [
+    "One Android 16 physical device; not multi-OEM or minimum-API acceptance",
+    "Only deepseek-v4-flash real text calls verified; poem/art text prompts share implementation but not live-tested",
+    "Art does not generate images",
+    "No new soak, store release, release signing or source publication",
+    "OEM secure keyboard may replace RIMES in password fields; tested absence of AI actions rather than requiring RIMES keycaps"
+  ],
+  "source_sha256": {
+    "platforms/android/app/build.gradle.kts": "ddd194aba6fd9e455b0f7f14078a2f84a5204704ef59e7c1837ca17513ba4341",
+    "platforms/android/app/src/androidTest/java/org/scholay/rimes/android/AppSettingsContract.java": "b91b05cffd1e32dfefdc7385074edc56bd51948c4ce7e89b085eb5b778a555f9",
+    "platforms/android/app/src/androidTest/java/org/scholay/rimes/android/EngineInstrumentation.java": "645ee7632636ec51600a2976292012dbb08b42f608f7e97fb00f5a3c942f28b2",
+    "platforms/android/app/src/androidTest/java/org/scholay/rimes/android/NetworkAiContract.java": "61a11da82444f9d9dc399584b32acaebc05555970e71b5767358a2f0d5a9594b",
+    "platforms/android/app/src/androidTest/java/org/scholay/rimes/android/ServiceDeliveryContract.java": "85f59c75ee8931a815f63f6ba724c3b8d28e674e74356575f250eeda0bff730c",
+    "platforms/android/app/src/main/AndroidManifest.xml": "5e41c74afdeff9da43a9a9d021bd0d9de1dfbacda0c40b2da4fa3113e0a9a159",
+    "platforms/android/app/src/main/java/org/scholay/rimes/android/BufferPluginExecutor.java": "de6025067c68a9675456dd093766c82b03a7d53b6f34a512ef8773fe2c6fb7b2",
+    "platforms/android/app/src/main/java/org/scholay/rimes/android/BufferPluginPanel.java": "0be8c6b13e7fcf0f2dd50e7d9ff2a73293bcfef20ecf1f16bb317853ef072735",
+    "platforms/android/app/src/main/java/org/scholay/rimes/android/CometAiSettings.java": "1d46fa0c15d91d6740b8d9820d2f36fbcb544c85b119af3b5a470000533b14e8",
+    "platforms/android/app/src/main/java/org/scholay/rimes/android/HttpOpenAiTransport.java": "57ffa52ffa0d05efbc088d6939ba2eb7b56b983125a3c86d419dd0c9e11a0ec8",
+    "platforms/android/app/src/main/java/org/scholay/rimes/android/OpenAiChatCodec.java": "19f439a63e84009ceed05cf9e8294b00955e56f010bca4a055b5df41043a22c2",
+    "platforms/android/app/src/main/java/org/scholay/rimes/android/PluginCancellation.java": "3fc0ad517d74a386457a6b376caec6431716f7ba050f444ada49d583203bb7a0",
+    "platforms/android/app/src/main/java/org/scholay/rimes/android/RimesInputMethodService.java": "f0fe9f0bfdc02f7b95a461358ea34070d0c839556d908d6ea8c83ade04131d2e",
+    "platforms/android/app/src/main/java/org/scholay/rimes/android/SetupActivity.java": "99944d25fa7b75d1ea2fde9dc5fc5cc3f6177787ad910eed01f30f1eae5b2781",
+    "platforms/android/app/src/main/res/values/strings.xml": "004db32c0ad3d614b8442ebf834b281701f619e086212158cd6d8ffb68c3af39",
+    "platforms/android/app/src/main/res/values-zh/strings.xml": "83e3a09aa4977bfacf1e9be062280d1ad7867dad37aa2d36d14bd928875520de",
+    "platforms/android/testhost/src/androidTest/java/org/scholay/rimes/testhost/InputContractInstrumentation.java": "61b185da5acb89e40ae770da1a0503eb67e988653acdbd36b81c6dedb7bc3d67"
+  }
+}

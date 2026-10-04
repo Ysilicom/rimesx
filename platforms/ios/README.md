@@ -1,12 +1,15 @@
-# RIMES iOS 0.1
+# RIMES iOS 1.0.0 preparation
 
-Native iPhone application and keyboard extension (iOS 17+). The current local
-development build is **0.1.0 (22)**. App Store build **10** was submitted on
-22 September 2026; this development round does not change that submission.
-The iPhone 15 Pro was updated in place and its version read back as **0.1.0 (22)**.
-Physical thumb ergonomics and haptics still need user confirmation. See `VALIDATION.md`
-for build 22 checks and `AppStore/README.md` for the separate store handoff.
-macOS input-method source and installation are unchanged.
+Native iPhone application and keyboard extension (iOS 17+). The next local
+release target is **1.0.0 (34)**; both targets inherit the same marketing version
+and build number from `project.yml`. This version has not been uploaded or released.
+
+The [public TestFlight invitation](https://testflight.apple.com/join/Kdj9RB4q)
+is enabled. On 2026-10-03 its external group offered **0.1.0 (32)**, while
+App Store version 0.1.0 still showed Waiting for Review. The build list reported
+41 crashes for build 32; diagnose those reports and revalidate the final 1.0 build
+before calling it release-ready. Historical build 22 checks remain in `VALIDATION.md`.
+See `CI_RELEASE.md` and the root `RELEASE-1.0.0.md` for release preparation.
 
 ## Implemented
 
@@ -39,12 +42,20 @@ macOS input-method source and installation are unchanged.
 - Backspace deletes immediately, then after 400 ms repeats every 75 ms; lifting,
   leaving the key, cancellation, target changes, rotation and hiding stop it.
   Each deletion tick emits feedback at the selected haptic strength.
+  In the Default Buffer each Delete removes the whole block before the caret (the
+  block holding the caret if it is inside one); pinyin in composition, selections,
+  plugin input and host fields keep their usual deletion.
 - Outside chord resolution (QWERTY, numbers, Shift or EN), the cap under the finger
   at release is typed and the highlight follows the finger; taps in the 6 pt gutters
   between caps snap to the nearest cap. Chord hit testing is unchanged.
 - Hold Space for 0.35 s, then drag: each 10 pt moves the caret one character (an
   emoji counts as one) in the host field or the Buffer, with a haptic tick. Releasing
   after a hold types no space. Holding during composition does not start it.
+  In the chord grid Space is split: a tap on either half types a space; holding the
+  right half moves the caret, holding the left half selects in the Buffer from the
+  caret (Delete removes the selection; any other key clears it). iOS gives keyboards
+  no API to select host text, so in app fields the left half also moves the caret,
+  with a one-time note.
 - Touches near the screen edges are no longer held back by the system's edge-swipe
   recognizers; their touch delay is released while the gestures stay enabled.
 - Shift latches uppercase ASCII entry while preserving the chord layout. Return
@@ -70,6 +81,15 @@ macOS input-method source and installation are unchanged.
   typing collapses them to one row until expanded again.
   Tap the paper plane for one block; hold it for one second for all remaining blocks.
   The More menu contains explicit source insertion, cursor movement and Clear.
+- After a Chinese commit, the empty candidate row offers associated words: first
+  what you have typed next on this device, then continuations from the bundled Pinyin
+  dictionary (`associations.tsv`, built by `scripts/build-associations.py`; e.g.
+  谢谢 → 了/大家/合作). Tapping one inserts it and chains; any other key hides them
+  (Space still types a space). Learning is keyboard-private, bounded to 600 words ×
+  8 next words and excluded from backup. Clearing is available only in the app's
+  Data management → Clear learned associations, with a destructive confirmation.
+  The app sends a reset revision without reading any learned words; the keyboard
+  applies it once on its next presentation. Updating the app does not request a reset.
 - Composition appears inline as native marked text in the host, or at the Buffer
   cursor. Confirming a candidate replaces it once; unconfirmed text stays out of
   Buffer source revisions and translation requests. There is no separate preedit row.
@@ -79,15 +99,34 @@ macOS input-method source and installation are unchanged.
   the typing block stays anchored to the bottom while auxiliaries grow upward.
 - Default Buffer shows committed characters/minute, touch starts/character,
   touch starts/second and backspace presses centered in the output line.
-  Default does not duplicate source text there. Its input line is the same plain
-  line as plugins; desktop clause/phrase segmentation still splits delivery blocks,
-  without drawing them. Repeats do not
+  Default does not duplicate source text there. As on the desktop, every commit is
+  its own block (one typed word = one block); punctuation and spaces join the block
+  before them and direct Latin letters join into one word. Text set whole (restored
+  or cleared) falls back to clause segmentation. The input line shows these blocks as
+  rounded backgrounds with a gap between them, the caret block outlined, and Send /
+  automatic insertion deliver exactly these blocks; plugin output lines show their result
+  blocks the same way, head block outlined. Gaps are kerning and the caret is a thin
+  blinking overlay, so neither inserts characters or shifts the text. Repeats do not
   inflate touch counts; a six-second idle gap starts a new burst. No accuracy is
   inferred for free typing. Gear → Default automatic insertion offers Off/1/2/3/5 s
   (default Off). Blocks age separately, edited text restarts, composition pauses,
   and only the head is delivered through the existing proxy. Switching targets
   suspends automatic delivery until explicitly re-enabled; hiding clears drafts
   and timers. Translation/AI output remains explicitly inserted.
+- Tap the Default Buffer stats readout to choose Emoji blocks, ordinary text, or
+  an optional PNG in one preview. Text is inserted only after tapping Insert text;
+  the gear menu has no stats-export entry. Emoji frames stay eight cells wide;
+  long numbers continue on additional rows, with the complete GitHub link below.
+  The preview
+  has a complete drawn frame and a full-width hint at the bottom. Save to Photos
+  requests add-only authorization on the explicit save; denied/restricted access
+  and Photos write errors are shown as failures. Full Access is needed to export
+  from the keyboard. The containing app's Typing stats card page also offers Save
+  to Photos, system sharing and file export. Image copying is a secondary action.
+  Preview pauses automatic insertion and does not consume Buffer or totals. The
+  stats tap only previews; images are an opt-in format. Only the latest
+  explicitly saved PNG is retained in the App Group, excluded from backup and
+  deletable in the app. Photos copies are managed separately in Photos.
 - Compiled-in Buffer plugins with serial, cancellable, revision-bound execution.
   Apple on-device translation on iOS 26+ previews after a 400 ms pause; defaults
   to Simplified Chinese → English. Download languages in the containing app first.
@@ -151,7 +190,7 @@ This smoke is not a substitute for keyboard-extension lifecycle or physical test
 - `RimesCore` has no AppKit/InputMethodKit/CLI dependency. It owns portable keymaps,
   gesture reduction, Buffer state, provider requests and bounded SSE decoding.
 - The original desktop encoding algorithm is preserved in a standalone mobile
-  port. `scripts/verify.py` enforces source parity and the 426 mapping fixture.
+  port. `scripts/verify.py` enforces source parity and the 427 mapping fixture.
   Desktop imports/build products are deliberately not restructured in this version.
 - UIKit owns key hit testing, candidate UI and `UITextDocumentProxy` insertion.
   Each controller has one Rime session; initialization happens once per process.
@@ -168,8 +207,10 @@ This smoke is not a substitute for keyboard-extension lifecycle or physical test
 - iOS's proxy gives no host acknowledgement of successful application-level send.
   RIMES makes one explicit proxy insertion and consumes that local block; it does
   not retry, synthesize Return or claim a message was sent.
-- Basic typing and Buffer work without Full Access. AI requires both Full Access
-  and separate recipient consent. Password fields and opting-out host apps use the
+- Basic typing, Buffer and card previews work without Full Access. Keyboard image
+  export and clipboard access require Full Access; AI also requires separate
+  recipient consent. Saving images requests add-only Photos permission, never
+  library read access. Password fields and opting-out host apps use the
   system keyboard. No unsupported mechanisms are used to bypass those limits.
 
 ## Distribution gate

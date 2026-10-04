@@ -26,6 +26,25 @@ export type BufferLanguage = {
 export type BufferSendAcknowledgement = boolean;
 export type BufferAIConnector = "codex" | "claude" | "openai";
 
+/**
+ * Each AI backend is its own Buffer channel plug-in. It sends the source
+ * buffer to that one backend as-is; there is no task prompt or picker.
+ */
+export const AI_CHANNEL_PLUGINS: Record<BufferAIConnector, {
+  id: string;
+  backend: string;
+}> = {
+  codex: { id: "builtin.codex-cli", backend: "Codex" },
+  claude: { id: "builtin.claude-code-cli", backend: "Claude Code CLI" },
+  openai: { id: "builtin.openai-compatible", backend: "OpenAI 兼容 API" },
+};
+
+const AI_CONNECTOR_ORDER: readonly BufferAIConnector[] = ["codex", "claude", "openai"];
+
+type AIInferenceConfiguration = { model: string; effort: string };
+const CODEX_MODELS = ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
+const CLAUDE_MODELS = ["claude-opus-5-5", "opus", "sonnet", "haiku"];
+
 export type BufferPluginConfiguration =
   | {
     mode: "ai";
@@ -35,7 +54,6 @@ export type BufferPluginConfiguration =
     mode: "translation";
     sourceLanguage: string;
     targetLanguage: string;
-    provider: "apple" | "ai";
     translateContinuously: boolean;
   }
   | {
@@ -79,8 +97,13 @@ export type BufferSurfaceProps = {
   targetLanguage?: string;
   defaultTargetLanguage?: string;
   translationContinuously?: boolean;
-  translationProvider?: "apple" | "ai";
+  /** Initial state of the translation read-aloud switch. Off by default. */
+  defaultReadAloud?: boolean;
+  onReadAloudChange?: (enabled: boolean) => void;
   aiConnector?: BufferAIConnector;
+  aiConfigurations?: Partial<Record<BufferAIConnector, AIInferenceConfiguration>>;
+  /** Temporary provider summary. Never becomes a target that can be sent. */
+  thinkingText?: string;
   streamCandidateCount?: number;
   streamLatency?: "fast" | "balanced" | "stable";
   externalSource?: BufferExternalSource;
@@ -95,6 +118,7 @@ export type BufferSurfaceProps = {
   onTargetSelect?: (index: number, target: string) => void;
   onLanguageChange?: (sourceLanguage: string, targetLanguage: string) => void;
   onPluginConfigurationChange?: (configuration: BufferPluginConfiguration) => void;
+  onAIInferenceChange?: (connector: BufferAIConnector, configuration: AIInferenceConfiguration) => void;
   onOpenPluginSettings?: (pluginID: string) => void;
   onGenerate?: (
     mode: BufferMode,
@@ -124,14 +148,23 @@ const MODE_ORDER: readonly BufferMode[] = [
 ];
 
 export const BUFFER_MODE_PLUGIN_IDS = {
-  ai: "builtin.ai-text",
   translation: "builtin.apple-translation",
   stream: "builtin.stream-input",
-} as const satisfies Record<Exclude<BufferMode, "normal">, string>;
+} as const satisfies Record<Exclude<BufferMode, "normal" | "ai">, string>;
+
+export function bufferPluginIDFor(
+  mode: Exclude<BufferMode, "normal">,
+  aiConnector: BufferAIConnector = "codex",
+): string {
+  return mode === "ai" ? AI_CHANNEL_PLUGINS[aiConnector].id : BUFFER_MODE_PLUGIN_IDS[mode];
+}
+
+function aiChannelLabel(connector: BufferAIConnector): string {
+  return pluginCatalog.get(AI_CHANNEL_PLUGINS[connector].id)?.name ?? AI_CHANNEL_PLUGINS[connector].backend;
+}
 
 const pluginCatalog = new Map(initialPlugins.map((plugin) => [plugin.id, plugin]));
 const translationPlugin = pluginCatalog.get("builtin.apple-translation");
-const aiPlugin = pluginCatalog.get("builtin.ai-text");
 const streamPlugin = pluginCatalog.get("builtin.stream-input");
 
 const MODE_DESCRIPTORS: Record<BufferMode, ModeDescriptor> = {
@@ -148,10 +181,10 @@ const MODE_DESCRIPTORS: Record<BufferMode, ModeDescriptor> = {
     loadingAction: "翻译中…",
   },
   ai: {
-    label: aiPlugin?.name ?? "AI 生成",
-    icon: aiPlugin?.icon ?? "sparkle",
-    action: "生成",
-    loadingAction: "生成中…",
+    label: aiChannelLabel("codex"),
+    icon: "sparkle",
+    action: "请求",
+    loadingAction: "请求中…",
   },
   stream: {
     label: streamPlugin?.name ?? "意识流输入",
@@ -201,7 +234,6 @@ export function bufferInputContextKey(
   sourceText: string,
   sourceLanguage: string,
   targetLanguage: string,
-  translationProvider: "apple" | "ai",
   streamCandidateCount: number,
   streamLatency: "fast" | "balanced" | "stable",
   aiConnector: BufferAIConnector = "codex",
@@ -212,7 +244,6 @@ export function bufferInputContextKey(
       sourceText,
       sourceLanguage,
       targetLanguage,
-      translationProvider,
     ]);
   }
   if (mode === "stream") {
@@ -226,7 +257,7 @@ function generatedTargetsFor(
   mode: BufferMode,
   source: string,
   streamCandidateCount = 5,
-  translationProvider: "apple" | "ai" = "apple",
+  aiConnector: BufferAIConnector = "codex",
 ): readonly string[] {
   const conciseSource = source.trim() || "当前缓冲内容";
   switch (mode) {
@@ -234,10 +265,17 @@ function generatedTargetsFor(
       return [];
     case "translation":
       return [
-        `${translationProvider === "ai" ? "AI 通道" : "Apple 本地"}译文：${conciseSource}`,
+        `Apple 本地译文：${conciseSource}`,
       ];
     case "ai":
-      return [`已根据“${conciseSource}”生成一段可直接发送的内容。`];
+      switch (aiConnector) {
+        case "codex":
+          return [`Codex 回复：${conciseSource}`];
+        case "claude":
+          return [`Claude Code 回复：${conciseSource}`];
+        case "openai":
+          return [`AI API 回复：${conciseSource}`];
+      }
     case "stream":
       return [
         `${conciseSource}`,
@@ -288,12 +326,47 @@ export async function copyBufferResult(text: string): Promise<boolean> {
   }
 }
 
+const SPEECH_LANGUAGES: Record<string, string> = {
+  "zh-Hans": "zh-CN",
+  "zh-Hant": "zh-TW",
+};
+
+/**
+ * Reads a finished result aloud with the platform's on-device voices. Returns
+ * a stop function, or null when this browser has no speech synthesis.
+ */
+export function speakBufferResult(
+  text: string,
+  language: string,
+  onEnd: () => void,
+): (() => void) | null {
+  const synthesis = typeof window === "undefined" ? undefined : window.speechSynthesis;
+  if (!text.trim() || !synthesis || typeof SpeechSynthesisUtterance === "undefined") return null;
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = SPEECH_LANGUAGES[language] ?? language;
+  let settled = false;
+  const settle = () => {
+    if (settled) return;
+    settled = true;
+    onEnd();
+  };
+  utterance.onend = settle;
+  utterance.onerror = settle;
+  synthesis.cancel();
+  synthesis.speak(utterance);
+  return () => {
+    synthesis.cancel();
+    settle();
+  };
+}
+
 function BufferTrack({
   kind,
   leadingControl,
   protectedContent,
   loading,
   loadingLabel,
+  thinkingText,
   status,
   statusTone = "ready",
   sourceValue,
@@ -304,6 +377,7 @@ function BufferTrack({
   onTargetSelect,
   onCopy,
   copyDisabled = false,
+  onTargetSpeak,
   interactionDisabled = false,
 }: {
   kind: "source" | "target";
@@ -311,6 +385,7 @@ function BufferTrack({
   protectedContent: boolean;
   loading: boolean;
   loadingLabel?: string;
+  thinkingText?: string;
   status?: string | null;
   statusTone?: BufferPhase;
   sourceValue?: string;
@@ -321,12 +396,22 @@ function BufferTrack({
   onTargetSelect?: (index: number) => void;
   onCopy?: () => void;
   copyDisabled?: boolean;
+  /** Set while translation read-aloud is on: clicking a block reads it. */
+  onTargetSpeak?: (text: string) => void;
   interactionDisabled?: boolean;
 }) {
   const [sourceFocused, setSourceFocused] = useState(false);
   const targetCount = targets?.length ?? 0;
   const activeIndex = clampTargetIndex(selectedTarget, targetCount);
   const activeTarget = targetCount > 0 ? targets![activeIndex] : "";
+  const statusDescription = kind === "target" && loading
+    ? loadingLabel ?? "正在处理"
+    : status ?? (kind === "target" && targetCount === 0
+      ? emptyLabel ?? "等待结果" : null);
+  const statusLoading = loading || statusTone === "loading";
+  const statusIcon: IconName = statusLoading ? "refresh"
+    : statusTone === "protected" ? "lock"
+      : statusTone === "error" ? "warning" : "info";
 
   const stepTarget = (delta: number) => {
     if (interactionDisabled || targetCount <= 1) return;
@@ -370,10 +455,9 @@ function BufferTrack({
             value={sourceValue ?? ""}
           />
         ) : loading ? (
-          <span className="buffer-track__loading">
-            <Icon className="is-spinning" name="refresh" size={13} />
-            {loadingLabel ?? "正在处理…"}
-          </span>
+          thinkingText ? <span className="buffer-track__thinking" title={thinkingText}>
+            {thinkingText}
+          </span> : null
         ) : targetCount > 0 ? (
           <div
             aria-label={`候选 ${activeIndex + 1} / ${targetCount}`}
@@ -405,18 +489,30 @@ function BufferTrack({
                 </button>
               </span>
             </span> : null}
-            <span className="buffer-track__pager-text" title={activeTarget}>
-              {activeTarget}
-            </span>
+            {onTargetSpeak ? (
+              <button
+                aria-label={`朗读此块：${activeTarget}`}
+                className="buffer-track__pager-text buffer-track__pager-text--speakable"
+                disabled={interactionDisabled}
+                onClick={() => onTargetSpeak(activeTarget)}
+                title={activeTarget}
+                type="button"
+              >
+                {activeTarget}
+              </button>
+            ) : (
+              <span className="buffer-track__pager-text" title={activeTarget}>
+                {activeTarget}
+              </span>
+            )}
           </div>
-        ) : (
-          <span className="buffer-track__empty">{emptyLabel ?? "等待结果"}</span>
-        )}
+        ) : null}
       </div>
-      {status ? (
-        <span className={`buffer-track__status buffer-status--${statusTone}`}>
-          {protectedContent ? <Icon name="lock" size={12} weight="bold" /> : null}
-          {status}
+      {statusDescription ? (
+        <span aria-label={statusDescription} className={`buffer-track__status buffer-status--${statusTone}`}
+          role="img" title={statusDescription}>
+          <Icon className={statusLoading ? "is-spinning" : undefined}
+            name={statusIcon} size={14} weight="bold" />
         </span>
       ) : null}
     </div>
@@ -427,15 +523,17 @@ function BufferInputControl({
   mode,
   descriptor,
   availableModes,
+  availableAIConnectors,
   configurationDisabled,
   protectedContent,
   sourceLanguage,
   targetLanguage,
   languageOptions,
   targetLanguageOptions,
-  translationProvider,
   translationContinuously,
+  readAloud,
   aiConnector,
+  aiConfiguration,
   streamCandidateCount,
   streamLatency,
   canReturnToSource,
@@ -444,9 +542,10 @@ function BufferInputControl({
   onSourceLanguageChange,
   onTargetLanguageChange,
   onSwapLanguages,
-  onTranslationProviderChange,
   onTranslationContinuouslyChange,
+  onReadAloudChange,
   onAIConnectorChange,
+  onAIInferenceChange,
   onStreamCandidateCountChange,
   onStreamLatencyChange,
   onReturnToSource,
@@ -457,15 +556,17 @@ function BufferInputControl({
   mode: BufferMode;
   descriptor: ModeDescriptor;
   availableModes: readonly BufferMode[];
+  availableAIConnectors: readonly BufferAIConnector[];
   configurationDisabled: boolean;
   protectedContent: boolean;
   sourceLanguage: string;
   targetLanguage: string;
   languageOptions: readonly BufferLanguage[];
   targetLanguageOptions: readonly BufferLanguage[];
-  translationProvider: "apple" | "ai";
   translationContinuously: boolean;
+  readAloud: boolean;
   aiConnector: BufferAIConnector;
+  aiConfiguration: AIInferenceConfiguration;
   streamCandidateCount: number;
   streamLatency: "fast" | "balanced" | "stable";
   canReturnToSource: boolean;
@@ -474,9 +575,10 @@ function BufferInputControl({
   onSourceLanguageChange: (event: ChangeEvent<HTMLSelectElement>) => void;
   onTargetLanguageChange: (event: ChangeEvent<HTMLSelectElement>) => void;
   onSwapLanguages: () => void;
-  onTranslationProviderChange: (provider: "apple" | "ai") => void;
   onTranslationContinuouslyChange: (continuous: boolean) => void;
+  onReadAloudChange: (enabled: boolean) => void;
   onAIConnectorChange: (connector: BufferAIConnector) => void;
+  onAIInferenceChange: (configuration: AIInferenceConfiguration) => void;
   onStreamCandidateCountChange: (count: number) => void;
   onStreamLatencyChange: (latency: "fast" | "balanced" | "stable") => void;
   onReturnToSource: () => void;
@@ -513,13 +615,26 @@ function BufferInputControl({
             <select
               aria-label="工作台插件"
               disabled={configurationDisabled}
-              onChange={(event) => onModeChange(event.target.value as BufferMode)}
-              value={mode}
+              onChange={(event) => {
+                // AI channel plug-ins share the "ai" behavior; the suffix names which one.
+                const [nextMode, connector] = event.target.value.split(":");
+                if (connector) onAIConnectorChange(connector as BufferAIConnector);
+                onModeChange(nextMode as BufferMode);
+              }}
+              value={mode === "ai" ? `ai:${aiConnector}` : mode}
             >
-              {availableModes.map((pluginMode) => (
-                <option key={pluginMode} value={pluginMode}>
-                  {MODE_DESCRIPTORS[pluginMode].label}
-                </option>
+              {availableModes.flatMap((pluginMode) => (
+                pluginMode === "ai"
+                  ? availableAIConnectors.map((connector) => (
+                    <option key={`ai:${connector}`} value={`ai:${connector}`}>
+                      {aiChannelLabel(connector)}
+                    </option>
+                  ))
+                  : [(
+                    <option key={pluginMode} value={pluginMode}>
+                      {MODE_DESCRIPTORS[pluginMode].label}
+                    </option>
+                  )]
               ))}
             </select>
           </label>
@@ -566,19 +681,16 @@ function BufferInputControl({
                     ))}
                   </select>
                 </label>
-              </div>
-              <label className="buffer-plugin-popover__field">
-                <span>翻译通道</span>
-                <select
-                  aria-label="翻译通道"
+                <IconButton
+                  aria-pressed={readAloud}
+                  className={`buffer-plugin-popover__speech${readAloud ? " is-on" : ""}`}
                   disabled={configurationDisabled}
-                  onChange={(event) => onTranslationProviderChange(event.target.value as "apple" | "ai")}
-                  value={translationProvider}
-                >
-                  <option value="apple">Apple 本地</option>
-                  <option value="ai">当前 AI 连接器</option>
-                </select>
-              </label>
+                  icon={readAloud ? "speak" : "speakOff"}
+                  label="朗读译文"
+                  onClick={() => onReadAloudChange(!readAloud)}
+                  title={readAloud ? "朗读已开启：点按译文块或发送时朗读该块" : "朗读已关闭"}
+                />
+              </div>
               <label className="buffer-plugin-popover__check">
                 <input
                   checked={translationContinuously}
@@ -591,20 +703,32 @@ function BufferInputControl({
             </div>
           ) : null}
 
-          {mode === "ai" ? (
-            <label className="buffer-plugin-popover__field">
-              <span>默认连接器</span>
-              <select
-                aria-label="AI 生成连接器"
-                disabled={configurationDisabled}
-                onChange={(event) => onAIConnectorChange(event.target.value as BufferAIConnector)}
-                value={aiConnector}
-              >
-                <option value="codex">Codex CLI</option>
-                <option value="claude">Claude Code CLI</option>
-                <option value="openai">OpenAI 兼容 API</option>
-              </select>
-            </label>
+          {mode === "ai" && aiConnector !== "openai" ? (
+            <div className="buffer-plugin-popover__configuration">
+              <label className="buffer-plugin-popover__field">
+                <span>模型</span>
+                <select aria-label={`${aiChannelLabel(aiConnector)} 模型`} disabled={configurationDisabled}
+                  onChange={(event) => onAIInferenceChange({ ...aiConfiguration, model: event.target.value })}
+                  value={aiConfiguration.model}>
+                  {(aiConnector === "codex" ? CODEX_MODELS : CLAUDE_MODELS).map((model) => (
+                    <option key={model} value={model}>{model === "claude-opus-5-5" ? "Claude Opus 5.5" : model}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="buffer-plugin-popover__field">
+                <span>推理深度</span>
+                <select aria-label={`${aiChannelLabel(aiConnector)} 推理深度`} disabled={configurationDisabled}
+                  onChange={(event) => onAIInferenceChange({ ...aiConfiguration, effort: event.target.value })}
+                  value={aiConfiguration.effort}>
+                  {(aiConnector === "codex"
+                    ? ["low", "medium", "high", "xhigh", "max", "ultra"]
+                    : ["low", "medium", "high", "xhigh", "max"]
+                  ).map((effort) => <option key={effort} value={effort}>{effort}</option>)}
+                </select>
+              </label>
+            </div>
+          ) : mode === "ai" ? (
+            <p className="buffer-plugin-popover__empty">AI API 模型在连接器中选择。</p>
           ) : null}
 
           {mode === "stream" ? (
@@ -695,8 +819,11 @@ export function BufferSurface({
   targetLanguage: controlledTargetLanguage,
   defaultTargetLanguage = "en",
   translationContinuously: requestedTranslationContinuously = true,
-  translationProvider: requestedTranslationProvider = "apple",
+  defaultReadAloud: requestedReadAloud = false,
+  onReadAloudChange,
   aiConnector: requestedAIConnector = "codex",
+  aiConfigurations,
+  thinkingText,
   streamCandidateCount: requestedStreamCandidateCount = 5,
   streamLatency: requestedStreamLatency = "balanced",
   externalSource,
@@ -711,6 +838,7 @@ export function BufferSurface({
   onTargetSelect,
   onLanguageChange,
   onPluginConfigurationChange,
+  onAIInferenceChange,
   onOpenPluginSettings,
   onGenerate,
   onSend,
@@ -748,8 +876,17 @@ export function BufferSurface({
   const [translationContinuously, setTranslationContinuously] = useState(
     requestedTranslationContinuously,
   );
-  const [translationProvider, setTranslationProvider] = useState(requestedTranslationProvider);
   const [aiConnector, setAIConnector] = useState<BufferAIConnector>(requestedAIConnector);
+  const [localAIConfigurations, setLocalAIConfigurations] = useState<Partial<Record<BufferAIConnector, AIInferenceConfiguration>>>({});
+  const storedAIConfiguration = aiConfigurations?.[aiConnector]
+    ?? localAIConfigurations[aiConnector];
+  const aiConfiguration = {
+    model: storedAIConfiguration?.model && storedAIConfiguration.model !== "default"
+      ? storedAIConfiguration.model
+      : aiConnector === "codex" ? "gpt-6-sol" : "claude-opus-5-5",
+    effort: storedAIConfiguration?.effort && storedAIConfiguration.effort !== "default"
+      ? storedAIConfiguration.effort : "medium",
+  };
   const [streamCandidateCount, setStreamCandidateCount] = useState(
     Math.min(5, Math.max(1, Math.trunc(requestedStreamCandidateCount))),
   );
@@ -758,6 +895,8 @@ export function BufferSurface({
   const [deliveryTone, setDeliveryTone] = useState<BufferPhase>("ready");
   const [sending, setSending] = useState(false);
   const [copying, setCopying] = useState(false);
+  const [readAloud, setReadAloud] = useState(requestedReadAloud);
+  const stopSpeech = useRef<(() => void) | null>(null);
   const [targetsAreCurrent, setTargetsAreCurrent] = useState(
     () => (controlledTargets ?? defaultTargets ?? []).length > 0,
   );
@@ -791,10 +930,6 @@ export function BufferSurface({
   }, [requestedTranslationContinuously]);
 
   useEffect(() => {
-    setTranslationProvider(requestedTranslationProvider);
-  }, [requestedTranslationProvider]);
-
-  useEffect(() => {
     setAIConnector(requestedAIConnector);
   }, [requestedAIConnector]);
 
@@ -813,13 +948,27 @@ export function BufferSurface({
     const availableIDs = new Set(availablePluginIDs);
     return MODE_ORDER.filter((candidateMode) => (
       candidateMode === "normal"
-      || availableIDs.has(BUFFER_MODE_PLUGIN_IDS[candidateMode])
+      || (candidateMode === "ai"
+        ? AI_CONNECTOR_ORDER.some((connector) => availableIDs.has(AI_CHANNEL_PLUGINS[connector].id))
+        : availableIDs.has(BUFFER_MODE_PLUGIN_IDS[candidateMode]))
     ));
+  }, [availablePluginIDs]);
+  const availableAIConnectors = useMemo<readonly BufferAIConnector[]>(() => {
+    if (availablePluginIDs === undefined) return AI_CONNECTOR_ORDER;
+    const availableIDs = new Set(availablePluginIDs);
+    return AI_CONNECTOR_ORDER.filter((connector) => availableIDs.has(AI_CHANNEL_PLUGINS[connector].id));
   }, [availablePluginIDs]);
   const availableModeSet = useMemo(() => new Set(availableModes), [availableModes]);
   const modeIsAvailable = availableModeSet.has(mode);
   const effectiveMode: BufferMode = modeIsAvailable ? mode : "normal";
-  const descriptor = MODE_DESCRIPTORS[effectiveMode];
+  const descriptor = effectiveMode === "ai"
+    ? {
+      ...MODE_DESCRIPTORS.ai,
+      label: aiChannelLabel(aiConnector),
+      action: "请求",
+      loadingAction: "请求中…",
+    }
+    : MODE_DESCRIPTORS[effectiveMode];
   const layout = bufferLayoutFor(effectiveMode);
   const liveExpand = layout === "live-expand";
   const exchange = layout === "single-exchange" && effectiveMode !== "normal";
@@ -834,7 +983,6 @@ export function BufferSurface({
     sourceText,
     sourceLanguage,
     targetLanguage,
-    translationProvider,
     streamCandidateCount,
     streamLatency,
     aiConnector,
@@ -888,8 +1036,12 @@ export function BufferSurface({
     && !copying
     && outputIsCurrent
     && selectedOutput.trim().length > 0;
+  const speaksBlocks = readAloud
+    && effectiveMode === "translation"
+    && !paused
+    && !protectedContent;
   const phaseStatus = effectiveMode === "translation" && phase === "loading"
-    ? translationProvider === "ai" ? "正在通过 AI 通道翻译" : "正在使用 Apple 本地翻译"
+    ? "正在使用 Apple 本地翻译"
     : statusFor(effectiveMode, phase, hasSource);
   const phaseOverridesDelivery = phase === "protected"
     || phase === "loading"
@@ -1007,7 +1159,6 @@ export function BufferSurface({
       requestSource,
       sourceLanguage,
       targetLanguage,
-      translationProvider,
       streamCandidateCount,
       streamLatency,
       aiConnector,
@@ -1040,7 +1191,7 @@ export function BufferSurface({
           requestMode,
           requestSource,
           streamCandidateCount,
-          translationProvider,
+          aiConnector,
         );
         setTargets(nextTargets);
         setSelectedTarget(0);
@@ -1069,7 +1220,7 @@ export function BufferSurface({
     targetLanguage,
     targets.length,
     outputIsCurrent,
-    translationProvider,
+    aiConnector,
   ]);
 
   // Render the safe fallback immediately, then persist it through either the
@@ -1227,7 +1378,7 @@ export function BufferSurface({
           requestMode,
           requestSource,
           streamCandidateCount,
-          translationProvider,
+          aiConnector,
         );
         setTargets(nextTargets);
         setSelectedTarget(0);
@@ -1256,7 +1407,7 @@ export function BufferSurface({
     streamLatency,
     targetLanguage,
     translationContinuously,
-    translationProvider,
+    aiConnector,
   ]);
 
   useEffect(() => () => {
@@ -1330,7 +1481,6 @@ export function BufferSurface({
       mode: "translation",
       sourceLanguage: next,
       targetLanguage,
-      provider: translationProvider,
       translateContinuously: translationContinuously,
     });
   };
@@ -1351,7 +1501,6 @@ export function BufferSurface({
       mode: "translation",
       sourceLanguage,
       targetLanguage: next,
-      provider: translationProvider,
       translateContinuously: translationContinuously,
     });
   };
@@ -1374,24 +1523,6 @@ export function BufferSurface({
       mode: "translation",
       sourceLanguage: nextSource,
       targetLanguage: nextTarget,
-      provider: translationProvider,
-      translateContinuously: translationContinuously,
-    });
-  };
-
-  const changeTranslationProvider = (provider: "apple" | "ai") => {
-    if (paused || protectedContent || loading || sending || copying) return;
-    cancelPendingGeneration();
-    clearDeliveryStatus();
-    setTargetsAreCurrent(false);
-    setTranslationProvider(provider);
-    setTargets([]);
-    setPhase(hasSource ? "ready" : "idle");
-    onPluginConfigurationChange?.({
-      mode: "translation",
-      sourceLanguage,
-      targetLanguage,
-      provider,
       translateContinuously: translationContinuously,
     });
   };
@@ -1405,7 +1536,6 @@ export function BufferSurface({
       mode: "translation",
       sourceLanguage,
       targetLanguage,
-      provider: translationProvider,
       translateContinuously: continuous,
     });
   };
@@ -1420,6 +1550,18 @@ export function BufferSurface({
     setSelectedTarget(0);
     setPhase(hasSource ? "ready" : "idle");
     onPluginConfigurationChange?.({ mode: "ai", connector });
+  };
+
+  const changeAIInference = (configuration: AIInferenceConfiguration) => {
+    if (paused || protectedContent || sending || copying) return;
+    cancelPendingGeneration();
+    clearDeliveryStatus();
+    setTargetsAreCurrent(false);
+    setTargets([]);
+    setSelectedTarget(0);
+    setPhase(hasSource ? "ready" : "idle");
+    setLocalAIConfigurations((current) => ({ ...current, [aiConnector]: configuration }));
+    onAIInferenceChange?.(aiConnector, configuration);
   };
 
   const changeStreamCandidateCount = (count: number) => {
@@ -1535,6 +1677,7 @@ export function BufferSurface({
 
     setDeliveryNote("已发送");
     setDeliveryTone("ready");
+    if (requestMode === "translation") speakBlock(requestOutput);
     if (exchange) {
       cancelPendingGeneration();
       setTargetsAreCurrent(false);
@@ -1543,6 +1686,33 @@ export function BufferSurface({
       setPhase(hasSource ? "ready" : "idle");
     }
   };
+
+  // Read-aloud reads one block at a time, only when the switch is on and the
+  // block is clicked or sent. A newer block replaces the one being read.
+  const speakBlock = (text: string) => {
+    if (!speaksBlocks) return;
+    stopSpeech.current?.();
+    const stop = speakBufferResult(text, targetLanguage, () => {
+      if (stopSpeech.current === stop) stopSpeech.current = null;
+    });
+    if (!stop) {
+      setDeliveryNote("当前环境不支持朗读");
+      return;
+    }
+    stopSpeech.current = stop;
+  };
+
+  const changeReadAloud = (enabled: boolean) => {
+    setReadAloud(enabled);
+    if (!enabled) stopSpeech.current?.();
+    onReadAloudChange?.(enabled);
+  };
+
+  useEffect(() => {
+    if (effectiveMode !== "translation" || protectedContent || paused) stopSpeech.current?.();
+  }, [effectiveMode, protectedContent, paused]);
+
+  useEffect(() => () => stopSpeech.current?.(), []);
 
   const copyCurrentResult = async () => {
     if (!canCopy) return;
@@ -1614,9 +1784,7 @@ export function BufferSurface({
     : awaitingRequest
       ? descriptor.action
       : "发送";
-  const primaryIcon: IconName = loading || sending
-    ? "refresh"
-    : awaitingRequest
+  const primaryIcon: IconName = awaitingRequest
       ? descriptor.icon
       : "send";
 
@@ -1652,11 +1820,13 @@ export function BufferSurface({
   ) && !paused && canRequest;
   const activePluginID = effectiveMode === "normal"
     ? undefined
-    : BUFFER_MODE_PLUGIN_IDS[effectiveMode];
+    : bufferPluginIDFor(effectiveMode, aiConnector);
   const inputControl = (
     <BufferInputControl
       aiConnector={aiConnector}
+      aiConfiguration={aiConfiguration}
       availableModes={availableModes}
+      availableAIConnectors={availableAIConnectors}
       canRetry={canRetry}
       canReturnToSource={canReturnToSource}
       configurationDisabled={paused || protectedContent || loading || sending || copying}
@@ -1664,6 +1834,7 @@ export function BufferSurface({
       languageOptions={languageOptions}
       mode={effectiveMode}
       onAIConnectorChange={changeAIConnector}
+      onAIInferenceChange={changeAIInference}
       onClose={onClose}
       onModeChange={changeMode}
       onOpenSettings={activePluginID && onOpenPluginSettings
@@ -1677,7 +1848,7 @@ export function BufferSurface({
       onSwapLanguages={swapLanguages}
       onTargetLanguageChange={changeTargetLanguage}
       onTranslationContinuouslyChange={changeTranslationContinuously}
-      onTranslationProviderChange={changeTranslationProvider}
+      onReadAloudChange={changeReadAloud}
       protectedContent={protectedContent}
       sourceLanguage={sourceLanguage}
       streamCandidateCount={streamCandidateCount}
@@ -1685,7 +1856,7 @@ export function BufferSurface({
       targetLanguage={targetLanguage}
       targetLanguageOptions={targetLanguageOptions}
       translationContinuously={translationContinuously}
-      translationProvider={translationProvider}
+      readAloud={readAloud}
     />
   );
 
@@ -1712,6 +1883,7 @@ export function BufferSurface({
               leadingControl={inputControl}
               loading={loading}
               loadingLabel={phaseStatus ?? undefined}
+              thinkingText={loading ? thinkingText : undefined}
               interactionDisabled={paused || sending || copying}
               onCopy={copyCurrentResult}
               onTargetSelect={selectTarget}
@@ -1745,8 +1917,10 @@ export function BufferSurface({
               kind="target"
               loading={loading}
               loadingLabel={phaseStatus ?? undefined}
+              thinkingText={loading ? thinkingText : undefined}
               interactionDisabled={paused || sending || copying}
               onCopy={copyCurrentResult}
+              onTargetSpeak={speaksBlocks ? speakBlock : undefined}
               onTargetSelect={selectTarget}
               protectedContent={protectedContent}
               selectedTarget={resolvedSelectedTarget}

@@ -21,9 +21,12 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Require a mainline source commit
+        run: git merge-base --is-ancestor HEAD origin/main
       - name: Validate tag, release notes and build counter
         run: |
-          ruby -r ./platforms/ios/scripts/release-config.rb -e 'v=RimesRelease.version(ENV.fetch("GITHUB_REF_NAME")); RimesRelease.notes("platforms/ios",v); File.open(ENV.fetch("GITHUB_ENV"),"a") { |f| f.puts "IOS_BUILD_NUMBER=#{RimesRelease.build_number(ENV)}" }'
+          ruby -r ./platforms/ios/scripts/release-config.rb -e 'v=RimesRelease.version(ENV.fetch("GITHUB_REF_NAME")); RimesRelease.require_target(v,"VERSION"); RimesRelease.notes("platforms/ios",v); File.open(ENV.fetch("GITHUB_ENV"),"a") { |f| f.puts "IOS_BUILD_NUMBER=#{RimesRelease.build_number(ENV)}" }'
       - name: Check required signing credentials
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}

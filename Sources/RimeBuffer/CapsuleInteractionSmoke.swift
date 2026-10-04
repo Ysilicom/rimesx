@@ -26,10 +26,11 @@ enum CapsuleInteractionSmoke {
             let code = CapsuleRevealPasscode(chords: ["ab", "df", "jk", "mn"].map { CapsuleRevealChord($0)! })!
             store.set(code)
             let chords: [[UInt16]] = [[0, 11], [2, 3], [38, 40], [46, 45]]
-            let note = try repository.save(CapsuleWindowDraft(kind: .note, title: "登录资料", content: "fixture-secret-body"))
+            let secretBody = "- 用户名：demo\n- 密码：fixture-secret-body\n备注一行"
+            let note = try repository.save(CapsuleWindowDraft(kind: .note, title: "登录资料", content: secretBody))
             let password = try repository.moveNoteToPassword(note)
             try require(try repository.list(kind: .note).allSatisfy { $0.id != note.id }, "migration removes only the committed source")
-            try require(try passwords.record(id: password.id).secret.body == "fixture-secret-body", "migration preserves content")
+            try require(try passwords.record(id: password.id).secret.body == secretBody, "migration preserves content")
             let bytes = try Data(contentsOf: password.fileURL)
             try require(!String(decoding: bytes, as: UTF8.self).contains("fixture-secret-body"), "destination is encrypted")
             let stale = try repository.save(CapsuleWindowDraft(kind: .note, title: "并发修改", content: "initial"))
@@ -50,7 +51,8 @@ enum CapsuleInteractionSmoke {
             let entries = try CapsuleRailLibrary.load(contentStore: content, passwordStore: passwords).passwords.get()
             let notes = (1...2).map { index in
                 CapsuleRailEntry(id: UUID(), kind: .note, title: "笔记 \(index)", preview: "测试内容",
-                    updatedAt: Date(), payload: "测试内容 \(index)", searchText: "笔记")
+                    updatedAt: Date(), payload: "## 服务器\n- IP：10.0.0.\(index)\n- 账号：root\n一行说明 \(index)",
+                    searchText: "笔记", headerFields: [CapsuleField(label: "机房", value: "杭州")])
             }
             var reads = 0
             let library = CapsuleRailLibrary(loader: { (.success(notes), .success(entries)) }, passwordReader: { entry in
@@ -82,10 +84,15 @@ enum CapsuleInteractionSmoke {
             lockedHoverCopy.performClick(nil)
             try require(!pane.hasPasswordInteraction && reads == 0 && pasteboard.string(forType: .string) == nil,
                         "generic copy cannot authenticate or copy a password")
-            try require(pane.activateSelectedItems(), "card starts native authentication")
+            try require(pane.activateSelectedItems(), "Return opens the password detail and starts authentication")
             pane.layoutSubtreeIfNeeded()
             try require(reads == 0, "no decryption before authentication")
+            guard let lockedDetail = pane.openDetailForSmoke else { throw Failure("password detail opens") }
+            try require(lockedDetail.mode == .password && !lockedDetail.isUnlocked
+                        && lockedDetail.rowCopyTextsForSmoke.isEmpty,
+                        "a locked detail holds no rows")
             let verifier = descendants(pane).compactMap { $0 as? CapsuleInlinePasscodeView }.first!
+            try require(verifier.isDescendant(of: lockedDetail), "verification lives in the detail")
             let slots = descendants(verifier).compactMap { $0 as? NSTextField }.filter {
                 $0.identifier?.rawValue.hasPrefix("capsule-passcode-slot-") == true
             }
@@ -93,33 +100,53 @@ enum CapsuleInteractionSmoke {
             try require(slots.map(\.stringValue) == emptySlots && verifier.capture.feedback == .idle,
                         "verification starts waiting with four empty progress slots")
             try require(descendants(verifier).filter { $0 is CapsuleRevealChordCaptureView }.count == 1
-                        && descendants(verifier).filter { $0 is NSTextField }.count == 4,
-                        "verification shows only four masked slots and one native input")
+                        && slots.count == 4,
+                        "verification shows four masked slots and one native input")
+            let back = descendants(lockedDetail).compactMap { $0 as? NSButton }.first {
+                $0.identifier?.rawValue == "capsule-detail-back"
+            }
+            try require(back != nil, "locked password detail has a visible return button")
+            if let back {
+                let point = lockedDetail.convert(NSPoint(x: back.bounds.midX, y: back.bounds.midY), from: back)
+                let hitPoint = lockedDetail.convert(point, to: lockedDetail.superview)
+                try require(!back.isHidden && lockedDetail.hitTest(hitPoint) === back,
+                            "password return button receives clicks")
+            }
+            let statusBar = descendants(verifier).first {
+                $0.identifier?.rawValue == "capsule-passcode-status-bar"
+            }
+            try require(statusBar != nil, "verification has a compact keyboard status bar")
+            if let statusBar {
+                let frame = lockedDetail.convert(statusBar.bounds, from: statusBar)
+                let rightCenter = (ClipboardHistoryWindowMetrics.cardWidth + lockedDetail.bounds.maxX) / 2
+                try require(frame.width <= 482 && abs(frame.midX - rightCenter) < 20,
+                            "passcode module is centered in the right detail pane")
+            }
             for view in (slots as [NSView]) + [verifier.capture] {
                 try require(verifier.bounds.contains(verifier.convert(view.bounds, from: view)),
-                            "password input and all four slots fit inside the card")
+                            "password input and all four slots fit inside the detail")
             }
-            let concealedCopy = descendants(pane).compactMap { $0 as? NSButton }.first {
-                $0.identifier?.rawValue == "capsule-password-copy"
-            }!
-            try require(lockedHoverCopy.isHidden && concealedCopy.isHidden,
-                        "both copy actions stay hidden during verification")
-            let lockedCard = descendants(pane).compactMap { $0 as? CapsuleCardPasswordView }.first!
-            try require(!lockedCard.copyRevealedSecret(), "locked card refuses explicit copy")
+            try require(lockedHoverCopy.isHidden, "no card copy action during verification")
             let hint = descendants(pane).first { $0.identifier?.rawValue == "capsule-rail-hint" }!
             let hintRect = pane.convert(hint.bounds, from: hint)
             let bottomGap = pane.isFlipped ? pane.bounds.maxY - hintRect.maxY : hintRect.minY - pane.bounds.minY
             try require((6...16).contains(bottomGap), "rail has no empty bottom row")
             let plainKey = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "a", charactersIgnoringModifiers: "a", isARepeat: false, keyCode: 0)!
             let copyKey = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "c", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: 8)!
+            func key(_ code: Int, _ characters: String = "") -> NSEvent {
+                NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: UInt16(code))!
+            }
             try require(!pane.handleStandaloneKeyEquivalent(plainKey), "native password keys are not swallowed by rail shortcuts")
-            try require(pane.handleStandaloneKeyEquivalent(copyKey), "password blocks clipboard shortcuts")
-            try render(pane, to: output?.appendingPathComponent("password-card-locked.png"))
+            try require(pane.handleStandaloneKeyEquivalent(copyKey) && pasteboard.string(forType: .string) == nil,
+                        "a locked password blocks clipboard shortcuts")
+            try render(pane, to: output?.appendingPathComponent("rail-password-detail-locked.png"))
             send([[0], [0], [0], [0]], to: window)
             try require(reads == 0, "wrong code cannot decrypt")
             try require(verifier.capture.feedback == .failure && slots.map(\.stringValue) == emptySlots,
                         "wrong code clears all slots and preserves retry feedback after release")
-            try render(pane, to: output?.appendingPathComponent("password-card-retry.png"))
+            try require(verifier.railErrorVisibleForSmoke,
+                        "wrong code shows an inline error without a full-width red input")
+            try render(pane, to: output?.appendingPathComponent("rail-password-detail-error.png"))
             send([chords[0], [36]], to: window)
             try require(reads == 0 && verifier.capture.feedback == .failure && slots.map(\.stringValue) == emptySlots,
                         "invalid physical key discards the partial attempt")
@@ -130,49 +157,44 @@ enum CapsuleInteractionSmoke {
             try require(verifier.capture.feedback == .input && reads == 0,
                         "partially released chord still waits for all keys")
             sendKey(chords[0][1], type: .keyUp, to: window)
-            try require(verifier.capture.feedback == .idle && slots.map(\.stringValue) == ["●", "2", "3", "4"],
+            try require(verifier.capture.feedback == .idle && slots.map(\.stringValue) == ["✓", "2", "3", "4"],
                         "released first group returns to waiting and keeps completed progress")
-            try render(pane, to: output?.appendingPathComponent("password-card-waiting.png"))
             for index in 1..<3 {
                 send([chords[index]], to: window)
-                let expected = (0..<4).map { $0 <= index ? "●" : String($0 + 1) }
+                let expected = (0..<4).map { $0 <= index ? "✓" : String($0 + 1) }
                 try require(verifier.capture.feedback == .idle && slots.map(\.stringValue) == expected && reads == 0,
                             "each intermediate group returns to waiting without early verification")
-                try require(lockedHoverCopy.isHidden && concealedCopy.isHidden,
-                            "partial verification never offers copy")
             }
             send([chords[3]], to: window)
-            try require(verifier.capture.feedback == .success && slots.allSatisfy { $0.stringValue == "●" },
-                        "complete matching code succeeds with all four slots filled")
-            try require(reads == 1, "verified card decrypts once")
-            try require(descendants(pane).compactMap { $0 as? CapsuleCardPasswordView }.contains { $0.isRevealed }, "password revealed in card")
-            try require(!pane.copySelectedItems(), "general card copy cannot bypass the explicit password action")
-            let copyButton = descendants(pane).compactMap { $0 as? NSButton }.first {
-                $0.identifier?.rawValue == "capsule-password-copy"
-            }!
-            try require(!copyButton.isHidden, "revealed password copy is always visible")
-            try require(!copyButton.acceptsFirstResponder, "password copy preserves native reveal focus")
-            pane.layoutSubtreeIfNeeded()
-            let copyHit = pane.convert(NSPoint(x: copyButton.bounds.midX, y: copyButton.bounds.midY), from: copyButton)
-            try require(pane.hitTest(pane.convert(copyHit, to: pane.superview)) === copyButton,
-                        "password copy button receives real hit testing")
+            try require(reads == 1, "verified detail decrypts once")
+            guard let passwordDetail = pane.openDetailForSmoke, passwordDetail.isUnlocked else {
+                throw Failure("verified password opens its rows")
+            }
+            try require(passwordDetail.rowCopyTextsForSmoke == ["demo", "fixture-secret-body", "备注一行"],
+                        "the body divides into a field per row plus its free line")
+            try require(passwordDetail.renderedValuesForSmoke == ["demo", "••••••••", "备注一行"],
+                        "secret values stay masked after verification")
+            try require(!pane.copySelectedItems(), "card copy cannot bypass the row actions")
             try require(pasteboard.string(forType: .string) == nil, "verification never automatically copies")
-            copyButton.performClick(nil)
-            try require(pasteboard.string(forType: .string) == "fixture-secret-body", "explicit button copies the verified body")
+            _ = pane.handleKeyDown(key(kVK_DownArrow))
+            try require(passwordDetail.selectedIndexForSmoke == 1, "arrow keys move between rows")
+            try require(pane.handleStandaloneKeyEquivalent(copyKey), "⌘C copies the selected row")
+            try require(pasteboard.string(forType: .string) == "fixture-secret-body", "only the selected value is copied")
+            try require(passwordDetail.renderedValuesForSmoke[1] == "••••••••", "copying a secret does not show it")
             try require(pasteboard.types?.contains(.init("org.nspasteboard.ConcealedType")) == true,
                         "password copy carries a confidential marker")
             do {
                 _ = try ClipboardPasteboardArchive.capture(from: pasteboard)
                 throw Failure("password copy must not be archived")
             } catch ClipboardPasteboardArchive.ArchiveError.confidentialContent { }
+            _ = pane.handleKeyDown(key(kVK_Space, " "))
+            try require(passwordDetail.renderedValuesForSmoke[1] == "fixture-secret-body", "space shows the selected secret")
             try require(entries.allSatisfy { $0.payload == nil && !$0.searchText.contains("fixture-secret-body") }, "projection remains redacted")
-            try render(pane, to: output?.appendingPathComponent("password-card-revealed.png"))
+            try render(pane, to: output?.appendingPathComponent("password-detail-revealed.png"))
             pane.selectTab(.saved(.note))
-            try require(!pane.hasPasswordInteraction, "tab switch conceals")
+            try require(!pane.hasPasswordInteraction && pane.openDetailForSmoke == nil, "tab switch closes the detail")
+            try require(passwordDetail.rowCopyTextsForSmoke.isEmpty, "a closed passwordDetail keeps no plaintext rows")
             pasteboard.clearContents()
-            try require(!lockedCard.copyRevealedSecret() && pasteboard.string(forType: .string) == nil,
-                        "retired card cannot copy stale plaintext")
-            try require(concealedCopy.isHidden, "concealing also removes the verified copy action")
             pane.layoutSubtreeIfNeeded()
             let menus = descendants(pane).compactMap { $0 as? NSButton }.filter { $0.identifier?.rawValue == "capsule-card-menu" }
             let copies = descendants(pane).compactMap { $0 as? NSButton }.filter { $0.identifier?.rawValue == "capsule-card-copy" }
@@ -196,12 +218,72 @@ enum CapsuleInteractionSmoke {
             try require(copiedNotes == [notes[1].id] && pane.capsuleRailSnapshotForSmoke().selectedEntryID == selectedBeforeCopy,
                         "hover copy targets that card, not the selection, and preserves selection")
             try render(pane, to: output?.appendingPathComponent("cards-selected-hover.png"))
+
+            // The left filter column shows the current module's filters.
+            if CapsuleNavigationPolicy.usesModules {
+                try require(pane.filterColumnTitlesForSmoke == ["全部", "Bullet", "富文本", "其他"],
+                            "notes show their filters in the left column")
+                pane.selectFilter(.bullet)
+                try require(pane.capsuleRailSnapshotForSmoke().cardCount == 0
+                            && pane.activeFilterForSmoke == .bullet,
+                            "a filter narrows the cards to that classification")
+                let upKey = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: UInt16(kVK_UpArrow))!
+                try require(pane.handleKeyDown(upKey) && pane.activeFilterForSmoke == .all
+                            && pane.capsuleRailSnapshotForSmoke().cardCount == 2,
+                            "↑ steps back to 全部 and every card returns")
+                pane.selectTab(.saved(.password))
+                try require(pane.filterColumnTitlesForSmoke == ["全部", "登录", "密钥", "其他"],
+                            "passwords show their own filters")
+                pane.selectTab(.saved(.note))
+            }
+
+            // Notes: a double-click opens the detail; Return still inserts the
+            // whole note from the card band.
+            var insertedRows = [String]()
+            var copiedRows = [String]()
+            var activatedNotes = [UUID]()
+            pane.onInsertSegment = { insertedRows.append($0); return true }
+            pane.onCopySegment = { copiedRows.append($0); return true }
+            pane.onActivateSaved = { activatedNotes.append($0.id); return true }
+            try require(pane.handleSavedCardInteraction(id: notes[0].id, clickCount: 2), "double-click opens a note")
+            guard let noteDetail = pane.openDetailForSmoke, noteDetail.mode == .note else {
+                throw Failure("note detail opens")
+            }
+            try require(activatedNotes.isEmpty, "double-click no longer inserts the whole note")
+            try require(noteDetail.rowCopyTextsForSmoke == ["杭州", "10.0.0.1", "root", "一行说明 1"],
+                        "header property, fields and line each become a row")
+            try require(noteDetail.noticeForSmoke.isEmpty, "an ordinary note has no credential notice")
+            _ = pane.handleKeyDown(key(kVK_DownArrow))
+            try require(pane.handleKeyDown(copyKey) && copiedRows == ["10.0.0.1"], "⌘C copies only the selected value")
+            _ = pane.handleKeyDown(key(kVK_Return, "\r"))
+            try require(insertedRows == ["10.0.0.1"], "Return inserts only the selected row")
+            try render(pane, to: output?.appendingPathComponent("note-detail.png"))
+            let noteBack = descendants(noteDetail).compactMap { $0 as? NSButton }.first {
+                $0.identifier?.rawValue == "capsule-detail-back"
+            }
+            try require(noteBack != nil, "note detail has a visible return button")
+            if let noteBack {
+                let point = noteDetail.convert(NSPoint(x: noteBack.bounds.midX, y: noteBack.bounds.midY), from: noteBack)
+                let hitPoint = noteDetail.convert(point, to: noteDetail.superview)
+                try require(!noteBack.isHidden && noteDetail.hitTest(hitPoint) === noteBack,
+                            "note return button receives clicks")
+            }
+            noteBack?.performClick(nil)
+            try require(pane.openDetailForSmoke == nil, "return button goes back to the cards")
+            try require(pane.handleSavedCardInteraction(id: notes[0].id, clickCount: 2),
+                        "note detail reopens after returning")
+            _ = pane.handleKeyDown(key(kVK_Escape))
+            try require(pane.openDetailForSmoke == nil, "Escape returns to the cards")
+            try require(pane.activateSelectedItems() && activatedNotes == [notes[0].id],
+                        "Return on a card still inserts the whole note")
+
             pane.selectTab(.saved(.password))
-            try require(pane.activateSelectedItems(), "card can authenticate again")
+            try require(pane.activateSelectedItems(), "detail can authenticate again")
             send(chords, to: window)
+            try require(pane.openDetailForSmoke?.isUnlocked == true, "re-verified")
             NotificationCenter.default.post(name: .capsuleRevealPasscodeDidChange, object: nil)
             try require(!pane.hasPasswordInteraction, "credential change revokes plaintext")
-            try require(pane.activateSelectedItems(), "card reopens after revocation")
+            try require(pane.activateSelectedItems(), "detail reopens after revocation")
             send(chords, to: window)
             model.update(windowVisible: true, captureEnabled: true, protection: [.secureInput])
             try require(!pane.hasPasswordInteraction, "protection removes plaintext")
@@ -220,12 +302,12 @@ enum CapsuleInteractionSmoke {
             try require(!descendants(editor.view).contains { ($0 as? NSTextView)?.isFieldEditor == false }, "wrong detail passcode stays concealed")
             send(chords, to: detail)
             let revealedEditors = descendants(editor.view).compactMap { $0 as? NSTextView }.filter { !$0.isFieldEditor }
-            try require(revealedEditors.count == 1 && revealedEditors.first?.string == "fixture-secret-body", "detail authenticates and shows the selected body")
+            try require(revealedEditors.count == 1 && revealedEditors.first?.string == secretBody, "detail authenticates and shows the selected body")
             let detailCopy = descendants(editor.view).compactMap { $0 as? NSButton }.first {
                 $0.identifier?.rawValue == "capsule-password-detail-copy"
             }!
             detailCopy.performClick(nil)
-            try require(pasteboard.string(forType: .string) == "fixture-secret-body", "detail explicit copy uses its verified body")
+            try require(pasteboard.string(forType: .string) == secretBody, "detail explicit copy uses its verified body")
             pasteboard.clearContents()
             editor.concealPasswordPlaintext()
             detailCopy.performClick(nil)

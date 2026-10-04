@@ -1,0 +1,46 @@
+CC-CEDICT offline dictionary
+
+# CC-CEDICT
+# Community maintained free Chinese-English dictionary.
+# 
+# Published by MDBG
+# 
+# License:
+# Creative Commons Attribution-ShareAlike 4.0 International License
+# https://creativecommons.org/licenses/by-sa/4.0/
+# 
+# Referenced works:
+# CEDICT - Copyright (C) 1997, 1998 Paul Andrew Denisowski
+# 
+# CC-CEDICT can be downloaded from:
+# https://www.mdbg.net/chinese/dictionary?page=cc-cedict
+# 
+# Additions and corrections can be sent through:
+# https://cc-cedict.org/editor/editor.php
+# 
+# For more information about CC-CEDICT see:
+# https://cc-cedict.org/wiki/
+# 
+#! version=1
+#! subversion=0
+#! format=ts
+#! charset=UTF-8
+#! entries=125166
+#! publisher=MDBG
+#! license=https://creativecommons.org/licenses/by-sa/4.0/
+#! date=2026-10-01T23:26:37Z
+#! time=1790897197
+
+Published by MDBG and the CC-CEDICT contributors.
+Source: https://www.mdbg.net/chinese/dictionary?page=cedict
+Snapshot: 2026-10-01T23:26:37Z
+Source and derived dictionary data: CC BY-SA 4.0.
+https://creativecommons.org/licenses/by-sa/4.0/
+Modifications by RIMES: deterministic gloss selection, reverse English gloss
+aliases, verified common-word sense choices, reference resolution and
+UTF-16 radix trie/UTF-8 pool indexing.
+This is word/phrase lookup, not contextual or neural sentence translation.
+The pinned source archive and reproducible converter are distributed in
+platforms/android/resources/dictionary/. No endorsement by MDBG is implied.
+The dictionary is supplied without warranties; see the complete packaged
+CC-CEDICT-CC-BY-SA-4.0.txt license. Application code has its separate license.

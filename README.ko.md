@@ -56,10 +56,16 @@
 
 | 플러그인 | ID | 버전 | 기본 설치 | 기본 상태 |
 |---|---|---:|---|---|
-| AI 생성 | `builtin.ai-text` | 2.1 | RIMES에 포함 | 사용 |
-| 실시간 번역 | `builtin.apple-translation` | 2.1 | RIMES에 포함 | 사용 |
+| ChatGPT | `builtin.codex-cli` | 1.1 | RIMES에 포함 | 사용 |
+| Claude | `builtin.claude-code-cli` | 1.1 | RIMES에 포함 | 사용 |
+| AI API | `builtin.openai-compatible` | 1.0 | RIMES에 포함 | 사용 |
+| Reference | `builtin.scholay` | 0.1 | RIMES에 포함 | 사용 |
+| Polisher | `builtin.polisher` | 0.1 | RIMES에 포함 | 사용 |
+| LaTeX | `builtin.latex` | 0.1 | RIMES에 포함 | 사용 |
+| 실시간 번역 | `builtin.apple-translation` | 2.2 | RIMES에 포함 | 사용 |
 | 의식의 흐름 입력 | `builtin.stream-input` | 1.4 | RIMES에 포함 | 사용 |
 | 전자 음악 | `builtin.music` | 0.2.3 | RIMES에 포함 | 사용 |
+| 모스 부호 | `builtin.morse` | 0.1.0 | RIMES에 포함 | 사용 |
 
 표의 플러그인은 모두 RIMES에 포함되며, 새로 설치하면 기본적으로 켜집니다.
 
@@ -73,7 +79,7 @@
 
 ## 설치
 
-macOS, iOS, Windows, Android, Linux는 모두 개발이 진행 중이며 완성도는 다릅니다. 각 플랫폼 설치 파일의 다운로드 주소는 곧 제공합니다. 그전까지는 소스를 받아 이 컴퓨터에서 빌드하십시오.
+macOS, iOS, Android, Windows는 다음 정식 버전 **1.0.0**을 준비하고 있으며 Linux는 현재 상태를 유지합니다. iOS [TestFlight 공개 초대](https://testflight.apple.com/join/Kdj9RB4q)를 이용할 수 있고 현재 외부 테스트 빌드는 **0.1.0 (32)**입니다. Windows 1.0.0은 서명되지 않은 EXE 설치 파일로 제공하며, 다른 플랫폼은 각자의 서명 요건을 유지합니다. 정식 다운로드는 최종 검증 후 제공합니다. 소스를 받아 로컬에서 빌드할 수도 있습니다.
 
 ```bash
 git clone https://github.com/scholay/rimes.git
@@ -141,4 +147,8 @@ cd rimes
 
 ## 라이선스와 제3자
 
-RIMES 자체의 코드는 [MIT License](LICENSE)입니다. 함께 담은 Rime 방안, 사전, Lua/OpenCC 데이터는 각자의 GPL/LGPL/CC 라이선스와 표기를 유지합니다. 경계 전체는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)와 `rime-data/licenses/`에 있습니다.
+RIMES 자체 코드는 [Apache License 2.0](LICENSE)을 따릅니다. 적용 범위와 기존 MIT 허가는 [LICENSING.md](LICENSING.md)를 참고하십시오. 핵심 유지관리자는 [学术海](https://pm.scholay.com)입니다.
+
+중국어 입력은 [Rime 입력 엔진(librime)](https://github.com/rime/librime)을 사용합니다. 출처 정보는 [NOTICE](NOTICE), 권장 표시 예시는 [ATTRIBUTION.md](ATTRIBUTION.md)에 있습니다. 표시 권고는 추가 라이선스 조건이 아닙니다.
+
+제3자 구성 요소, 방안, 사전, Lua/OpenCC 데이터는 각자의 라이선스와 저작권 표시를 유지합니다. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [LICENSES](LICENSES/), `rime-data/licenses/`를 참고하십시오. 공식 무료 플러그인은 [rimes-plugins](https://github.com/scholay/rimes-plugins)에서 관리합니다.

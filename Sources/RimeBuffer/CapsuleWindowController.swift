@@ -125,6 +125,7 @@ struct CapsulePaneLayoutSnapshot {
     let toolbarTop: CGFloat
     let editorTop: CGFloat
     let tabStripFrame: NSRect
+    let moduleFrame: NSRect
     let listFrame: NSRect
     let editorFrame: NSRect
     let actionsFrame: NSRect
@@ -207,7 +208,7 @@ enum CapsuleFilePasteboardWriter {
         let url = URL(fileURLWithPath: path).standardizedFileURL
 
         switch kind {
-        case .skill:
+        case .skill, .resource:
             var info = stat()
             guard lstat(url.path, &info) == 0,
                   (info.st_mode & S_IFMT) == S_IFDIR
@@ -570,7 +571,7 @@ final class CapsuleMediaPreviewLoader {
                 return .unavailable
             }
             return .pdf(image: image, pageCount: document.numberOfPages)
-        case .password, .skill, .note:
+        case .password, .skill, .resource, .note:
             return .unavailable
         }
     }
@@ -590,6 +591,7 @@ struct CapsulePasswordEditorSnapshot: Equatable {
 /// Password details remain outside list/search projections. A row is safe to
 /// render, log in a smoke failure, or expose as an accessibility label.
 struct CapsuleWindowEntryRow: Equatable, Identifiable {
+    enum Origin: Equatable { case saved, clipboard, capture }
     let id: UUID
     let kind: CapsuleEntryKind
     let title: String
@@ -597,6 +599,9 @@ struct CapsuleWindowEntryRow: Equatable, Identifiable {
     let updatedAt: Date
     let revision: String
     let fileURL: URL
+    var origin: Origin = .saved
+    var payload: String? = nil
+    var classification: CapsuleModuleFilter = .other
 
     var accessibilitySummary: String {
         if kind == .password {
@@ -663,10 +668,12 @@ enum CapsuleWindowDraftError: LocalizedError, Equatable {
     case missingContent
     case missingPassword
     case relativeSkillPath
+    case relativeResourcePath
     case invalidURL
     case relativeAssetPath(String)
     case unsupportedAssetType(String)
     case unavailableAsset(String)
+    case projectionConflict
 
     var errorDescription: String? {
         switch self {
@@ -678,6 +685,8 @@ enum CapsuleWindowDraftError: LocalizedError, Equatable {
             return "请填写密码"
         case .relativeSkillPath:
             return "Skill 必须使用电脑中的绝对路径"
+        case .relativeResourcePath:
+            return "资源必须使用电脑中的绝对路径"
         case .invalidURL:
             return "URL 必须是包含协议的完整网址"
         case let .relativeAssetPath(kind):
@@ -686,6 +695,8 @@ enum CapsuleWindowDraftError: LocalizedError, Equatable {
             return "所选文件不是受支持的 \(kind)"
         case let .unavailableAsset(kind):
             return "\(kind) 文件不存在、不是普通文件或使用了符号链接"
+        case .projectionConflict:
+            return "Obsidian 已修改 Markdown 副本；请先显式导入，再保存富文本"
         }
     }
 }
@@ -708,17 +719,43 @@ struct CapsuleWindowDraft: Equatable {
     /// Every kind — passwords included — carries its payload here. A password
     /// entry holds free-form Markdown that happens to be encrypted at rest.
     var content: String
+    /// Notes and passwords: the one-line summary shown on the card. For a
+    /// password it is plaintext and must never hold a secret.
+    var summary: String
+    var reference: CapsuleReference
+    var noteFormat: CapsuleNoteFormat
+    var resourceType: CapsuleResourceType
+    var passwordCategory: CapsulePasswordCategory
+    var richTextData: Data?
+    var projectionConflict: Bool
+    var conflictedProjection: String?
     var loadedRevision: String?
 
     init(id: UUID? = nil,
          kind: CapsuleEntryKind,
          title: String,
          content: String,
+         summary: String = "",
+         reference: CapsuleReference = CapsuleReference(),
+         noteFormat: CapsuleNoteFormat = .other,
+         resourceType: CapsuleResourceType = .other,
+         passwordCategory: CapsulePasswordCategory = .other,
+         richTextData: Data? = nil,
+         projectionConflict: Bool = false,
+         conflictedProjection: String? = nil,
          loadedRevision: String? = nil) {
         self.id = id
         self.kind = kind
         self.title = title
         self.content = content
+        self.summary = summary
+        self.reference = reference
+        self.noteFormat = noteFormat
+        self.resourceType = resourceType
+        self.passwordCategory = passwordCategory
+        self.richTextData = richTextData
+        self.projectionConflict = projectionConflict
+        self.conflictedProjection = conflictedProjection
         self.loadedRevision = loadedRevision
     }
 
@@ -740,17 +777,36 @@ struct CapsuleWindowDraft: Equatable {
         guard !normalized.title.isEmpty else {
             throw CapsuleWindowDraftError.missingTitle
         }
+        if kind == .note && noteFormat == .richText && projectionConflict {
+            throw CapsuleWindowDraftError.projectionConflict
+        }
+        if kind == .password || kind == .note && noteFormat != .richText {
+            normalized.content = CapsuleEntryGrammar.removingEmptyFields(content)
+        }
+        let content = normalized.content
         switch kind {
         case .note:
             guard !content.isEmpty else {
                 throw CapsuleWindowDraftError.missingContent
             }
-        case .skill:
+        case .skill, .resource:
             guard !content.isEmpty else {
                 throw CapsuleWindowDraftError.missingContent
             }
             guard NSString(string: content).isAbsolutePath else {
-                throw CapsuleWindowDraftError.relativeSkillPath
+                throw kind == .resource
+                    ? CapsuleWindowDraftError.relativeResourcePath
+                    : CapsuleWindowDraftError.relativeSkillPath
+            }
+            if kind == .resource {
+                let url = URL(fileURLWithPath: content).standardizedFileURL
+                let values = try? url.resourceValues(forKeys: [
+                    .isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey,
+                ])
+                guard values?.isSymbolicLink != true,
+                      values?.isRegularFile == true || values?.isDirectory == true else {
+                    throw CapsuleWindowDraftError.unavailableAsset("资源")
+                }
             }
         case .image, .pdf, .video:
             guard !content.isEmpty else {
@@ -800,11 +856,17 @@ struct CapsuleWindowDraft: Equatable {
 final class CapsuleWindowRepository {
     private let contentStore: CapsuleContentStore
     private let passwordStore: CapsulePasswordStore
+    private let clipboardStore: ClipboardHistoryStore?
+    private let captureStore: CaptureStore?
 
     init(contentStore: CapsuleContentStore = .shared,
-         passwordStore: CapsulePasswordStore = .shared) {
+         passwordStore: CapsulePasswordStore = .shared,
+         clipboardStore: ClipboardHistoryStore? = nil,
+         captureStore: CaptureStore? = nil) {
         self.contentStore = contentStore
         self.passwordStore = passwordStore
+        self.clipboardStore = clipboardStore
+        self.captureStore = captureStore
     }
 
     func list(kind: CapsuleEntryKind, query: String = "") throws
@@ -813,37 +875,151 @@ final class CapsuleWindowRepository {
         switch kind {
         case .password:
             return try passwordStore.listSummaries().filter { summary in
-                Self.matches(terms: terms, text: summary.title)
+                Self.matches(terms: terms, text: summary.title + "\n" + (summary.summaryText ?? ""))
             }.map { summary in
                 CapsuleWindowEntryRow(
                     id: summary.id,
                     kind: .password,
                     title: summary.title,
-                    preview: summary.maskedPassword,
+                    preview: summary.summaryText ?? summary.maskedPassword,
                     updatedAt: summary.updatedAt,
                     revision: try Self.fileRevision(summary.fileURL),
-                    fileURL: summary.fileURL
+                    fileURL: summary.fileURL,
+                    classification: {
+                        switch summary.category {
+                        case .login: return .login
+                        case .key: return .key
+                        case .other: return .other
+                        }
+                    }()
                 )
             }
-        case .skill, .note, .image, .pdf, .video:
+        case .skill, .note, .image, .pdf, .video, .resource:
             return try contentStore.listRecords().filter { record in
-                record.summary.type == kind
+                let referenceText = record.reference.map {
+                    [$0.authors, $0.year, $0.container, $0.publisher,
+                     $0.doi, $0.isbn].joined(separator: "\n")
+                } ?? ""
+                return record.summary.type == kind
                     && Self.matches(
                         terms: terms,
-                        text: record.summary.title + "\n" + record.content
+                        text: record.summary.title + "\n" + record.content + "\n" + referenceText
                     )
             }.map { record in
                 CapsuleWindowEntryRow(
                     id: record.summary.id,
                     kind: record.summary.type,
                     title: record.summary.title,
-                    preview: record.snippet,
+                    preview: record.cardSummary,
                     updatedAt: record.summary.updatedAt,
                     revision: try Self.fileRevision(record.summary.fileURL),
-                    fileURL: record.summary.fileURL
+                    fileURL: record.summary.fileURL,
+                    classification: CapsuleModuleClassification.content(record)
                 )
             }
         }
+    }
+
+    /// A single read projection over the existing stores. It never rewrites
+    /// legacy IDs or files. Saved capture twins are suppressed by collection
+    /// ID (and then by canonical path for older imported media).
+    func list(module: CapsuleModuleID, filter: CapsuleModuleFilter,
+              query: String = "") throws -> [CapsuleWindowEntryRow] {
+        let terms = Self.searchTerms(query)
+        let includes: (CapsuleModuleFilter) -> Bool = {
+            filter == .all || filter == $0
+        }
+        switch module {
+        case .temporary:
+            return try (clipboardStore ?? ClipboardHistoryStore()).loadAllMetadata()
+                .filter { includes(CapsuleModuleClassification.clipboard($0)) }
+                .filter { Self.matches(terms: terms,
+                    text: [$0.displayText, $0.searchText].compactMap { $0 }.joined(separator: "\n")) }
+                .map { item in
+                    CapsuleWindowEntryRow(
+                        id: item.id,
+                        kind: CapsuleModuleClassification.clipboard(item) == .image
+                            ? .image : .note,
+                        title: item.displayText ?? item.kind.rawValue,
+                        preview: item.sourceApplicationName ?? "临时剪切板",
+                        updatedAt: item.capturedAt, revision: "",
+                        fileURL: URL(fileURLWithPath: "/"), origin: .clipboard,
+                        payload: item.canonicalText ?? item.displayText
+                    )
+                }
+        case .capture:
+            let captureStore = try self.captureStore ?? CaptureStore.shared.get()
+            let captures = try captureStore.records()
+            let collectionIDs = Set(captures.compactMap(\.collectionID))
+            let capturePaths = Set(captures.map {
+                captureStore.url($0).standardizedFileURL.path
+            })
+            var projected = captures.filter {
+                includes(CapsuleModuleClassification.capture($0))
+                    && Self.matches(terms: terms,
+                        text: $0.title + "\n" + $0.text + "\n" + $0.source
+                            + "\n" + ($0.source.contains("导入") ? "导入" : "捕获"))
+            }.map { record in
+                CapsuleWindowEntryRow(
+                    id: record.id, kind: record.kind.capsuleKind,
+                    title: record.title,
+                    preview: (record.source.contains("导入") ? "导入" : "捕获")
+                        + " · " + record.kind.label,
+                    updatedAt: record.createdAt, revision: "",
+                    fileURL: captureStore.url(record), origin: .capture,
+                    payload: captureStore.url(record).path
+                )
+            }
+            for record in try contentStore.listRecords()
+            where record.summary.type == .image || record.summary.type == .video {
+                guard !collectionIDs.contains(record.summary.id),
+                      !capturePaths.contains(URL(fileURLWithPath: record.content)
+                        .standardizedFileURL.path),
+                      includes(CapsuleModuleClassification.content(record)),
+                      Self.matches(terms: terms,
+                        text: record.summary.title + "\n" + record.cardSummary + "\n导入")
+                      else { continue }
+                projected.append(CapsuleWindowEntryRow(
+                    id: record.summary.id, kind: record.summary.type,
+                    title: record.summary.title,
+                    preview: "导入 · " + record.cardSummary,
+                    updatedAt: record.summary.updatedAt,
+                    revision: try Self.fileRevision(record.summary.fileURL),
+                    fileURL: record.summary.fileURL, payload: record.content
+                ))
+            }
+            return projected.sorted { $0.updatedAt > $1.updatedAt }
+        case .notes, .resources, .passwords:
+            let kinds: [CapsuleEntryKind]
+            switch module {
+            case .notes: kinds = [.note]
+            case .resources: kinds = [.pdf, .skill, .resource]
+            case .passwords: kinds = [.password]
+            default: kinds = []
+            }
+            return try kinds.flatMap { try list(kind: $0, query: query) }
+                .filter { filter == .all || $0.classification == filter }
+                .sorted { $0.updatedAt > $1.updatedAt }
+        }
+    }
+
+    func captureRecord(id: UUID) throws -> CaptureRecord {
+        try (captureStore ?? CaptureStore.shared.get()).record(id)
+    }
+
+    func removeCaptureRecord(id: UUID) throws {
+        try (captureStore ?? CaptureStore.shared.get()).remove(id)
+    }
+
+    func clipboardArchive(id: UUID) throws -> ClipboardPasteboardArchive? {
+        guard let data = try (clipboardStore ?? ClipboardHistoryStore())
+            .payload(for: id)?.opaquePayload else { return nil }
+        return try ClipboardPasteboardArchive.decodeRawDeflate(data)
+    }
+
+    func clipboardImageData(id: UUID) throws -> Data? {
+        guard let archive = try clipboardArchive(id: id) else { return nil }
+        return CapsuleRailSaveRules.imageData(in: archive)?.0
     }
 
     func draft(for row: CapsuleWindowEntryRow) throws -> CapsuleWindowDraft {
@@ -860,9 +1036,11 @@ final class CapsuleWindowRepository {
                 kind: .password,
                 title: record.summary.title,
                 content: record.secret.body,
+                summary: record.summary.summaryText ?? "",
+                passwordCategory: record.summary.category,
                 loadedRevision: after
             )
-        case .skill, .note, .image, .pdf, .video:
+        case .skill, .note, .image, .pdf, .video, .resource:
             let before = try Self.fileRevision(row.fileURL)
             let record = try contentStore.record(id: row.id)
             let after = try Self.fileRevision(record.summary.fileURL)
@@ -876,7 +1054,16 @@ final class CapsuleWindowRepository {
                 id: record.summary.id,
                 kind: record.summary.type,
                 title: record.summary.title,
+                // A note that could not be parsed opens with its raw text, so
+                // saving it writes a clean document.
                 content: record.content,
+                summary: record.formatIssue == nil ? (record.summaryText ?? "") : "",
+                reference: record.reference ?? CapsuleReference(),
+                noteFormat: record.noteFormat,
+                resourceType: record.resourceType,
+                richTextData: record.richTextData,
+                projectionConflict: record.projectionConflict,
+                conflictedProjection: record.projectionConflict ? record.content : nil,
                 loadedRevision: after
             )
         }
@@ -897,7 +1084,9 @@ final class CapsuleWindowRepository {
                     CapsulePasswordWriteRequest(
                         id: draft.id,
                         title: draft.title,
-                        body: draft.content
+                        body: draft.content,
+                        summaryText: draft.summary,
+                        category: draft.passwordCategory
                     ),
                     expectedRevision: draft.loadedRevision
                 )
@@ -908,12 +1097,19 @@ final class CapsuleWindowRepository {
                 id: summary.id,
                 kind: .password,
                 title: summary.title,
-                preview: summary.maskedPassword,
+                preview: summary.summaryText ?? summary.maskedPassword,
                 updatedAt: summary.updatedAt,
                 revision: try Self.fileRevision(summary.fileURL),
-                fileURL: summary.fileURL
+                fileURL: summary.fileURL,
+                classification: {
+                    switch summary.category {
+                    case .login: return .login
+                    case .key: return .key
+                    case .other: return .other
+                    }
+                }()
             )
-        case .skill, .note, .image, .pdf, .video:
+        case .skill, .note, .image, .pdf, .video, .resource:
             let summary: CapsuleContentSummary
             do {
                 summary = try contentStore.put(
@@ -921,7 +1117,12 @@ final class CapsuleWindowRepository {
                         id: draft.id,
                         type: draft.kind,
                         title: draft.title,
-                        content: draft.content
+                        content: draft.content,
+                        summaryText: draft.summary,
+                        reference: draft.kind == .pdf ? draft.reference : nil,
+                        noteFormat: draft.kind == .note ? draft.noteFormat : nil,
+                        resourceType: draft.kind == .resource ? draft.resourceType : nil,
+                        richTextData: draft.kind == .note ? draft.richTextData : nil
                     ),
                     expectedRevision: draft.loadedRevision
                 )
@@ -933,10 +1134,11 @@ final class CapsuleWindowRepository {
                 id: summary.id,
                 kind: summary.type,
                 title: summary.title,
-                preview: record.snippet,
+                preview: record.cardSummary,
                 updatedAt: summary.updatedAt,
                 revision: try Self.fileRevision(summary.fileURL),
-                fileURL: summary.fileURL
+                fileURL: summary.fileURL,
+                classification: CapsuleModuleClassification.content(record)
             )
         }
         publishChange()
@@ -955,7 +1157,7 @@ final class CapsuleWindowRepository {
                     id: row.id,
                     expectedRevision: expectedRevision
                 )
-            case .skill, .note, .image, .pdf, .video:
+            case .skill, .note, .image, .pdf, .video, .resource:
                 try contentStore.remove(
                     id: row.id,
                     expectedRevision: expectedRevision
@@ -989,6 +1191,7 @@ final class CapsuleWindowRepository {
         guard source.loadedRevision == row.revision else {
             throw CapsuleWindowRepositoryError.staleRecord
         }
+        // The note's summary may describe a secret it held, so it is not carried over.
         let destination = try save(CapsuleWindowDraft(kind: .password,
                                                      title: source.title, content: source.content))
         do {
@@ -1269,6 +1472,11 @@ final class CapsulePaneViewController: NSViewController,
     private let titleLabel = NSTextField(labelWithString: "Capsule")
     private let countLabel = NSTextField(labelWithString: "")
     private let tabStrip = CapsuleRailTabStrip()
+    private let moduleScrollView = NSScrollView()
+    private let moduleStack = NSStackView()
+    private let pluginsButton = RimePointingHandButton(
+        title: "Capsule 插件…", target: nil, action: nil
+    )
     private let railButton = RimePointingHandButton(title: "", target: nil, action: nil)
     private let closeButton = RimePointingHandButton(title: "", target: nil, action: nil)
     private let hintLabel = NSTextField(labelWithString: "⌘S SAVE   ESC BACK TO RAIL")
@@ -1314,13 +1522,23 @@ final class CapsulePaneViewController: NSViewController,
     )
 
     private var rows: [CapsuleWindowEntryRow] = []
+    private var selectedModule: CapsuleModuleID = .notes
+    private var selectedFilter: CapsuleModuleFilter = .all
     private var selectedKind: CapsuleEntryKind = .note
     private var draft = CapsuleWindowDraft.empty(kind: .note)
     private var titleField: NSTextField?
+    private var summaryField: NSTextField?
     private var contentTextView: NSTextView?
     private var skillPathField: NSTextField?
     private var urlContentField: NSTextField?
     private var assetPathField: NSTextField?
+    private var referenceFields: [String: NSTextField] = [:]
+    private var referenceTypeButton: NSPopUpButton?
+    private var noteFormatButton: NSPopUpButton?
+    private var resourceTypeButton: NSPopUpButton?
+    private var passwordCategoryButton: NSPopUpButton?
+    private var referenceStyleButton: NSPopUpButton?
+    private var referencePreviewLabel: NSTextField?
     private weak var assetPreviewContainer: NSView?
     private var imagePreviewView: NSImageView?
     private weak var titleFormRow: NSView?
@@ -1347,6 +1565,8 @@ final class CapsulePaneViewController: NSViewController,
     private var applyingSelection = false
     private var editorDirty = false
     private var storeObserver: NSObjectProtocol?
+    private var moduleObserver: NSObjectProtocol?
+    private var captureObserver: NSObjectProtocol?
     private var cloudSyncObserver: NSObjectProtocol?
     private var revealPasscodeObserver: NSObjectProtocol?
     private var applicationPrivacyObservers: [NSObjectProtocol] = []
@@ -1376,6 +1596,12 @@ final class CapsulePaneViewController: NSViewController,
         if let storeObserver {
             NotificationCenter.default.removeObserver(storeObserver)
         }
+        if let moduleObserver {
+            NotificationCenter.default.removeObserver(moduleObserver)
+        }
+        if let captureObserver {
+            NotificationCenter.default.removeObserver(captureObserver)
+        }
         if let cloudSyncObserver {
             NotificationCenter.default.removeObserver(cloudSyncObserver)
         }
@@ -1393,6 +1619,7 @@ final class CapsulePaneViewController: NSViewController,
     override func loadView() {
         let root = NSView()
         root.wantsLayer = true
+        let usesModules = CapsuleNavigationPolicy.usesModules
 
         titleLabel.font = .monospacedSystemFont(ofSize: 15, weight: .bold)
         titleLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
@@ -1425,6 +1652,14 @@ final class CapsulePaneViewController: NSViewController,
         syncManageButton.action = #selector(manageCloudSync)
         syncManageButton.setAccessibilityLabel("管理 Capsule iCloud 同步")
 
+        pluginsButton.bezelStyle = .inline
+        pluginsButton.font = MailboxTerminalTypography.font(
+            ofSize: 9, weight: .semibold
+        )
+        pluginsButton.target = self
+        pluginsButton.action = #selector(openCapsulePlugins)
+        pluginsButton.setAccessibilityLabel("管理 Capsule 插件")
+
         // The manager is the rail grown upward: the rail's header, with the
         // gear lit to show this is the manage view.
         railButton.image = RimeUI.symbol("gearshape", pointSize: 12, weight: .semibold)
@@ -1451,8 +1686,10 @@ final class CapsulePaneViewController: NSViewController,
             closeButton.heightAnchor.constraint(equalToConstant: 16),
         ])
         let header = NSStackView(views: [
-            titleLabel, countLabel, tabStrip, NSView(),
-            syncStatusLabel, syncNowButton, syncManageButton,
+            titleLabel, countLabel,
+        ] + (usesModules ? [] : [tabStrip]) + [
+            NSView(),
+            syncStatusLabel, syncNowButton, syncManageButton, pluginsButton,
             railButton, closeButton,
         ])
         header.orientation = .horizontal
@@ -1460,6 +1697,28 @@ final class CapsulePaneViewController: NSViewController,
         header.spacing = 9
         headerStack = header
         tabStrip.select(.saved(selectedKind))
+
+        moduleStack.orientation = .vertical
+        moduleStack.alignment = .leading
+        moduleStack.spacing = 3
+        moduleStack.edgeInsets = NSEdgeInsets(top: 10, left: 8, bottom: 10, right: 8)
+        moduleStack.translatesAutoresizingMaskIntoConstraints = false
+        moduleScrollView.documentView = moduleStack
+        NSLayoutConstraint.activate([
+            moduleStack.widthAnchor.constraint(
+                equalTo: moduleScrollView.contentView.widthAnchor),
+            moduleStack.heightAnchor.constraint(
+                greaterThanOrEqualTo: moduleScrollView.contentView.heightAnchor),
+        ])
+        moduleScrollView.drawsBackground = false
+        moduleScrollView.hasVerticalScroller = true
+        moduleScrollView.autohidesScrollers = true
+        moduleScrollView.wantsLayer = true
+        moduleScrollView.layer?.cornerRadius = 6
+        moduleScrollView.layer?.borderWidth = 1
+        moduleScrollView.translatesAutoresizingMaskIntoConstraints = false
+        moduleScrollView.isHidden = !usesModules
+        renderModuleSidebar()
 
         searchField.placeholderString = "搜索标题或内容"
         searchField.sendsSearchStringImmediately = true
@@ -1534,6 +1793,7 @@ final class CapsulePaneViewController: NSViewController,
         hintLabel.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(header)
         root.addSubview(toolbar)
+        root.addSubview(moduleScrollView)
         root.addSubview(listContainer)
         root.addSubview(divider)
         root.addSubview(editorContainer)
@@ -1544,14 +1804,22 @@ final class CapsulePaneViewController: NSViewController,
             header.topAnchor.constraint(equalTo: root.topAnchor, constant: 12),
             header.heightAnchor.constraint(equalToConstant: 30),
 
-            toolbar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
+            toolbar.leadingAnchor.constraint(equalTo: listContainer.leadingAnchor),
             toolbar.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 14),
             toolbar.widthAnchor.constraint(equalTo: listContainer.widthAnchor),
 
-            listContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
+            moduleScrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
+            moduleScrollView.topAnchor.constraint(equalTo: toolbar.topAnchor),
+            moduleScrollView.bottomAnchor.constraint(equalTo: listContainer.bottomAnchor),
+            moduleScrollView.widthAnchor.constraint(
+                equalToConstant: usesModules ? 118 : 0),
+
+            listContainer.leadingAnchor.constraint(
+                equalTo: moduleScrollView.trailingAnchor,
+                constant: usesModules ? 10 : 0),
             listContainer.topAnchor.constraint(equalTo: toolbar.bottomAnchor, constant: 12),
             listContainer.bottomAnchor.constraint(equalTo: hintLabel.topAnchor, constant: -8),
-            listContainer.widthAnchor.constraint(greaterThanOrEqualToConstant: 200),
+            listContainer.widthAnchor.constraint(greaterThanOrEqualToConstant: 170),
             listContainer.widthAnchor.constraint(lessThanOrEqualToConstant: 286),
 
             divider.leadingAnchor.constraint(equalTo: listContainer.trailingAnchor, constant: 12),
@@ -1563,7 +1831,7 @@ final class CapsulePaneViewController: NSViewController,
             editorContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -14),
             editorContainer.topAnchor.constraint(equalTo: toolbar.topAnchor),
             editorContainer.bottomAnchor.constraint(equalTo: listContainer.bottomAnchor),
-            editorContainer.widthAnchor.constraint(greaterThanOrEqualToConstant: 280),
+            editorContainer.widthAnchor.constraint(greaterThanOrEqualToConstant: 250),
 
             hintLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
             hintLabel.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -14),
@@ -1571,7 +1839,7 @@ final class CapsulePaneViewController: NSViewController,
         ]
         let preferredListWidth = listContainer.widthAnchor.constraint(
             equalTo: root.widthAnchor,
-            multiplier: 0.31
+            multiplier: 0.24
         )
         preferredListWidth.priority = .defaultHigh
         libraryLayout.append(preferredListWidth)
@@ -1595,6 +1863,24 @@ final class CapsulePaneViewController: NSViewController,
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        moduleObserver = NotificationCenter.default.addObserver(
+            forName: .pluginRegistryDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            if !CapsuleModuleAvailability.enabled.contains(self.selectedModule) {
+                self.selectedModule = CapsuleModuleAvailability.enabled.first ?? .notes
+                self.selectedFilter = .all
+                self.searchField.stringValue = ""
+            }
+            self.renderModuleSidebar()
+            self.reloadFromStore()
+        }
+        captureObserver = NotificationCenter.default.addObserver(
+            forName: .capsuleCapturesDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard self?.selectedModule == .capture else { return }
+            self?.reloadFromStore()
+        }
         storeObserver = NotificationCenter.default.addObserver(
             forName: .capsuleStoreDidChange,
             object: nil,
@@ -1659,6 +1945,91 @@ final class CapsulePaneViewController: NSViewController,
         scheduleReload(after: 0)
     }
 
+    private func renderModuleSidebar() {
+        for view in moduleStack.arrangedSubviews {
+            moduleStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        for module in CapsuleModuleAvailability.enabled {
+            let header = RimePointingHandButton(
+                title: module.title, target: self, action: #selector(modulePressed(_:))
+            )
+            header.identifier = NSUserInterfaceItemIdentifier("module:\(module.rawValue)")
+            header.image = RimeUI.symbol(module.symbolName, pointSize: 11, weight: .medium)
+            header.imagePosition = .imageLeading
+            header.bezelStyle = .inline
+            header.font = .systemFont(ofSize: 12, weight: module == selectedModule ? .bold : .medium)
+            header.setAccessibilityLabel("Capsule \(module.title)模块")
+            moduleStack.addArrangedSubview(header)
+            guard module == selectedModule else { continue }
+            for filter in module.filters {
+                let button = RimePointingHandButton(
+                    title: filter.title, target: self, action: #selector(filterPressed(_:))
+                )
+                button.identifier = NSUserInterfaceItemIdentifier("filter:\(filter.rawValue)")
+                button.bezelStyle = .inline
+                button.font = .systemFont(ofSize: 10,
+                    weight: filter == selectedFilter ? .semibold : .regular)
+                button.contentTintColor = filter == selectedFilter
+                    ? RimeUI.accentTextColor : RimeUI.textSecondary
+                button.setAccessibilityLabel("\(module.title) · \(filter.title)")
+                moduleStack.addArrangedSubview(button)
+            }
+        }
+    }
+
+    @objc private func modulePressed(_ sender: NSButton) {
+        guard let raw = sender.identifier?.rawValue.split(separator: ":").last,
+              let module = CapsuleModuleID(rawValue: String(raw)),
+              module != selectedModule,
+              confirmDiscardChangesIfNeeded() else { return }
+        selectedModule = module
+        selectedFilter = .all
+        newButton.isEnabled = module != .temporary
+        searchField.stringValue = ""
+        selectedKind = defaultKind(for: module)
+        draft = .empty(kind: selectedKind)
+        editorDirty = false
+        renderModuleSidebar()
+        renderEditor()
+        reloadFromStore()
+    }
+
+    @objc private func filterPressed(_ sender: NSButton) {
+        guard let raw = sender.identifier?.rawValue.split(separator: ":").last,
+              let filter = CapsuleModuleFilter(rawValue: String(raw)),
+              filter != selectedFilter,
+              confirmDiscardChangesIfNeeded() else { return }
+        selectedFilter = filter
+        selectedKind = defaultKind(for: selectedModule)
+        draft = .empty(kind: selectedKind)
+        editorDirty = false
+        renderModuleSidebar()
+        renderEditor()
+        reloadFromStore()
+    }
+
+    private func defaultKind(for module: CapsuleModuleID) -> CapsuleEntryKind {
+        switch module {
+        case .temporary, .notes: return .note
+        case .capture: return .image
+        case .resources:
+            if selectedFilter == .skills { return .skill }
+            if selectedFilter == .reference || selectedFilter == .all { return .pdf }
+            return .resource
+        case .passwords: return .password
+        }
+    }
+
+    private func module(for kind: CapsuleEntryKind) -> CapsuleModuleID {
+        switch kind {
+        case .note: return .notes
+        case .password: return .passwords
+        case .pdf, .skill, .resource: return .resources
+        case .image, .video: return .capture
+        }
+    }
+
     /// Starts a new entry of `kind` filled in from the rail. It stays unsaved
     /// until the user saves it; closing asks, as for any unsaved draft.
     func beginDraft(kind: CapsuleEntryKind, title: String, content: String) {
@@ -1666,13 +2037,22 @@ final class CapsulePaneViewController: NSViewController,
         concealPasswordPlaintext()
         guard confirmDiscardChangesIfNeeded() else { return }
         selectedKind = kind
+        selectedModule = module(for: kind)
+        selectedFilter = .all
+        renderModuleSidebar()
         tabStrip.select(.saved(kind))
         searchField.placeholderString = kind == .password
             ? "仅搜索密码标题"
             : "搜索标题或内容"
         searchField.stringValue = ""
         cancelPendingReload()
-        draft = CapsuleWindowDraft(kind: kind, title: title, content: content)
+        draft = CapsuleWindowDraft(
+            kind: kind,
+            title: title,
+            content: kind == .password && content.isEmpty
+                ? CapsuleEntryGrammar.passwordTemplate
+                : content
+        )
         newPasswordEditable = true
         editorDirty = true
         renderEditor()
@@ -1687,6 +2067,9 @@ final class CapsulePaneViewController: NSViewController,
         guard draft.id != id || draft.kind != kind else { return }
         guard confirmDiscardChangesIfNeeded() else { return }
         selectedKind = kind
+        selectedModule = module(for: kind)
+        selectedFilter = .all
+        renderModuleSidebar()
         tabStrip.select(.saved(kind))
         searchField.placeholderString = kind == .password
             ? "仅搜索密码标题"
@@ -1712,7 +2095,7 @@ final class CapsulePaneViewController: NSViewController,
         isCompactDetail = compact
         NSLayoutConstraint.deactivate(compact ? libraryLayout : detailLayout)
         NSLayoutConstraint.activate(compact ? detailLayout : libraryLayout)
-        [countLabel, tabStrip, syncStatusLabel, syncNowButton, syncManageButton,
+        [countLabel, tabStrip, moduleScrollView, syncStatusLabel, syncNowButton, syncManageButton, pluginsButton,
          listContainer, hintLabel].forEach { $0.isHidden = compact }
         toolbarStack?.isHidden = compact
         listDivider?.isHidden = compact
@@ -1801,6 +2184,8 @@ final class CapsulePaneViewController: NSViewController,
         countLabel.textColor = RimeUI.textMuted
         hintLabel.textColor = RimeUI.textMuted
         tabStrip.applyAppearance()
+        moduleScrollView.layer?.backgroundColor = RimeUI.surface2.cgColor
+        moduleScrollView.layer?.borderColor = RimeUI.border.cgColor
         railButton.contentTintColor = RimeUI.textPrimary
         railButton.layer?.backgroundColor = RimeUI.clipboardSelectedBackground.cgColor
         closeButton.contentTintColor = RimeUI.textSecondary
@@ -1915,7 +2300,7 @@ final class CapsulePaneViewController: NSViewController,
         guard let cloudSyncController else { return }
         let panel = NSOpenPanel()
         panel.title = "选择 Capsule iCloud Drive 文件夹"
-        panel.message = "请在 iCloud Drive 中新建或选择一个空文件夹。Prompt、Memory、Note、URL、Image 与 PDF 会同步；Password、Skill 路径与主密钥不会上传。"
+        panel.message = "请在 iCloud Drive 中新建或选择一个空文件夹。笔记（含富文本资产）、图片与文献同步；密码、Skills 路径、项目与其他本机资源不会上传。"
         panel.prompt = "使用此文件夹"
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -2027,6 +2412,7 @@ final class CapsulePaneViewController: NSViewController,
         let headerFrame = headerStack.map { $0.convert($0.bounds, to: view) } ?? .zero
         let toolbarFrame = toolbarStack.map { $0.convert($0.bounds, to: view) } ?? .zero
         let tabStripFrame = tabStrip.convert(tabStrip.bounds, to: view)
+        let moduleFrame = moduleScrollView.convert(moduleScrollView.bounds, to: view)
         let listFrame = listContainer.convert(listContainer.bounds, to: view)
         let editorFrame = editorContainer.convert(editorContainer.bounds, to: view)
         let actionsFrame = editorActions.map {
@@ -2102,6 +2488,7 @@ final class CapsulePaneViewController: NSViewController,
             toolbarTop: toolbarTop,
             editorTop: editorTop,
             tabStripFrame: tabStripFrame,
+            moduleFrame: moduleFrame,
             listFrame: listFrame,
             editorFrame: editorFrame,
             actionsFrame: actionsFrame,
@@ -2225,6 +2612,10 @@ final class CapsulePaneViewController: NSViewController,
                 in: .whitespacesAndNewlines
             ).isEmpty
         }
+        if draft.kind == .pdf,
+           field === titleField || referenceFields.values.contains(where: { $0 === field }) {
+            refreshReferencePreview()
+        }
         guard field === assetPathField,
               draft.kind == .image || draft.kind == .pdf || draft.kind == .video,
               let preview = assetPreviewContainer else { return }
@@ -2245,12 +2636,16 @@ final class CapsulePaneViewController: NSViewController,
         reloadGeneration &+= 1
         let generation = reloadGeneration
         let kind = selectedKind
+        let module = selectedModule
+        let filter = selectedFilter
         let query = searchField.stringValue
         let preferredID = draft.id
         let begin = { [weak self] in
             self?.performReload(
                 generation: generation,
                 kind: kind,
+                module: module,
+                filter: filter,
                 query: query,
                 preferredID: preferredID
             )
@@ -2268,14 +2663,24 @@ final class CapsulePaneViewController: NSViewController,
     private func performReload(
         generation: UInt64,
         kind: CapsuleEntryKind,
+        module: CapsuleModuleID,
+        filter: CapsuleModuleFilter,
         query: String,
         preferredID: UUID?
     ) {
+        guard !CapsuleNavigationPolicy.usesModules
+            || CapsuleModuleAvailability.enabled.contains(module) else {
+            applyReloadResult(.success([]), kind: kind, preferredID: nil)
+            return
+        }
         setStatus(query.isEmpty ? "正在读取本地 Capsule" : "正在本地搜索")
         let repository = self.repository
         reloadQueue.async { [weak self] in
             let result = Result {
-                try repository.list(kind: kind, query: query)
+                if CapsuleNavigationPolicy.usesModules {
+                    return try repository.list(module: module, filter: filter, query: query)
+                }
+                return try repository.list(kind: kind, query: query)
             }
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.reloadGeneration == generation else { return }
@@ -2298,7 +2703,7 @@ final class CapsulePaneViewController: NSViewController,
             self.rows = rows
             countLabel.stringValue = CapsuleRailCountText.items(rows.count)
             tableView.reloadData()
-            if editorDirty, draft.kind == kind {
+            if editorDirty {
                 if let id = draft.id,
                    let index = rows.firstIndex(where: { $0.id == id }) {
                     selectTableRow(index)
@@ -2331,7 +2736,7 @@ final class CapsulePaneViewController: NSViewController,
             }
             setStatus(
                 rows.isEmpty
-                    ? "暂无 \(kind.displayName) 条目"
+                    ? "暂无 \(selectedModule.title)条目"
                     : "\(rows.count) 条本地记录"
             )
         case let .failure(error):
@@ -2444,6 +2849,7 @@ final class CapsulePaneViewController: NSViewController,
     }
 
     private func renderEditor(scrollToTop: Bool = true) {
+        editorActions?.isHidden = false
         guard isViewLoaded else { return }
         // Callers capture the draft before rebuilding. Scrub the detached
         // secret control as well, including AppKit's undo storage.
@@ -2459,10 +2865,18 @@ final class CapsulePaneViewController: NSViewController,
             view.removeFromSuperview()
         }
         titleField = nil
+        summaryField = nil
         contentTextView = nil
         skillPathField = nil
         urlContentField = nil
         assetPathField = nil
+        referenceFields = [:]
+        referenceTypeButton = nil
+        noteFormatButton = nil
+        resourceTypeButton = nil
+        passwordCategoryButton = nil
+        referenceStyleButton = nil
+        referencePreviewLabel = nil
         assetPreviewContainer = nil
         imagePreviewView = nil
         titleFormRow = nil
@@ -2535,20 +2949,87 @@ final class CapsulePaneViewController: NSViewController,
         title.delegate = self
         titleField = title
         titleFormRow = addField(label: "标题", field: title)
+        if draft.kind == .note || draft.kind == .password {
+            let summary = NSTextField(string: draft.summary)
+            summary.placeholderString = draft.kind == .password
+                ? "一句话说明，显示在卡片上（不要写密码）"
+                : "一句话说明，显示在卡片上（可选）"
+            summary.font = MailboxTerminalTypography.font(ofSize: 12)
+            summary.setAccessibilityLabel("摘要")
+            summary.delegate = self
+            summaryField = summary
+            // Title and summary are one header block; details start below it.
+            titleFormRow = addField(label: "摘要", field: summary)
+        }
 
         switch draft.kind {
         case .note:
-            let textView = makeContentTextView(text: draft.content)
+            let popup = RimeFixedAccentPopUpButton()
+            popup.addItems(withTitles: ["其他", "Bullet", "富文本"])
+            popup.selectItem(at: CapsuleNoteFormat.allCases.firstIndex(of: draft.noteFormat) ?? 0)
+            popup.target = self
+            popup.action = #selector(classificationChanged)
+            noteFormatButton = popup
+            addField(label: "笔记类型", field: popup)
+            let textView = makeContentTextView(
+                text: draft.content,
+                bullet: draft.noteFormat == .bullet,
+                richTextData: draft.noteFormat == .richText ? draft.richTextData : nil
+            )
             contentTextView = textView
+            if draft.projectionConflict {
+                let warning = NSTextField(wrappingLabelWithString:
+                    "Obsidian 修改了 Markdown 副本。富文本原稿仍在；请显式导入副本后再保存。")
+                warning.textColor = .systemOrange
+                addFormRow(warning)
+                let importButton = RimePointingHandButton(
+                    title: "导入 Markdown 副本", target: self,
+                    action: #selector(importMarkdownProjection)
+                )
+                importButton.bezelStyle = .rounded
+                addFormRow(importButton)
+            }
+            if draft.noteFormat == .richText {
+                let formatBar = NSStackView()
+                formatBar.orientation = .horizontal
+                formatBar.spacing = 6
+                for (title, action) in [
+                    ("粗体", #selector(toggleRichBold)),
+                    ("斜体", #selector(toggleRichItalic)),
+                    ("链接", #selector(insertRichLink)),
+                    ("图片…", #selector(insertRichImage)),
+                ] {
+                    let button = RimePointingHandButton(title: title, target: self, action: action)
+                    button.bezelStyle = .inline
+                    formatBar.addArrangedSubview(button)
+                }
+                addFormRow(formatBar)
+            } else if draft.noteFormat == .bullet {
+                let add = RimePointingHandButton(
+                    title: "＋ 清单项", target: self, action: #selector(addBulletItem)
+                )
+                add.bezelStyle = .inline
+                addFormRow(add)
+            }
             firstDetailFormRow = addTextArea(
                 label: "内容",
                 textView: textView
             )
-        case .skill:
+            addWritingHint()
+        case .skill, .resource:
+            if draft.kind == .resource {
+                let popup = RimeFixedAccentPopUpButton()
+                popup.addItems(withTitles: ["文档", "项目", "其他"])
+                popup.selectItem(at: CapsuleResourceType.allCases.firstIndex(of: draft.resourceType) ?? 2)
+                popup.target = self
+                popup.action = #selector(classificationChanged)
+                resourceTypeButton = popup
+                addField(label: "资源类型", field: popup)
+            }
             let pathField = NSTextField(string: draft.content)
-            pathField.placeholderString = "/Users/name/path/to/skill"
+            pathField.placeholderString = "/Users/name/path/to/resource"
             pathField.font = MailboxTerminalTypography.font(ofSize: 11)
-            pathField.setAccessibilityLabel("Skill 绝对路径")
+            pathField.setAccessibilityLabel("资源绝对路径")
             pathField.delegate = self
             pathField.setContentCompressionResistancePriority(
                 .defaultLow,
@@ -2565,7 +3046,7 @@ final class CapsulePaneViewController: NSViewController,
             chooseButton.setContentHuggingPriority(.required, for: .horizontal)
             let copyButton = makeFileCopyButton(
                 title: "复制文件/文件夹",
-                accessibilityLabel: "复制 Skill 文件或文件夹"
+                accessibilityLabel: "复制本机文件或文件夹"
             )
             let row = NSStackView(views: [
                 pathField,
@@ -2576,9 +3057,18 @@ final class CapsulePaneViewController: NSViewController,
             row.alignment = .centerY
             row.spacing = 8
             firstDetailFormRow = addField(label: "ABSOLUTE PATH", field: row)
-        case .image, .pdf, .video:
+        case .image, .video:
             addAssetFields(kind: draft.kind)
+        case .pdf:
+            addAssetFields(kind: .pdf)
         case .password:
+            let popup = RimeFixedAccentPopUpButton()
+            popup.addItems(withTitles: ["登录", "密钥", "其他"])
+            popup.selectItem(at: CapsulePasswordCategory.allCases.firstIndex(of: draft.passwordCategory) ?? 2)
+            popup.target = self
+            popup.action = #selector(classificationChanged)
+            passwordCategoryButton = popup
+            addField(label: "密码类型", field: popup)
             addPasswordFields()
         }
 
@@ -2595,6 +3085,162 @@ final class CapsulePaneViewController: NSViewController,
                       generation == self.mediaPreviewGeneration,
                       self.isViewLoaded else { return }
                 self.scrollEditorToTop()
+            }
+        }
+    }
+
+    private func renderReadOnlyDetail(_ row: CapsuleWindowEntryRow) {
+        for view in formStack.arrangedSubviews {
+            formStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        editorActions?.isHidden = true
+        titleLabel.stringValue = "Capsule"
+        let heading = NSTextField(labelWithString: row.title)
+        heading.font = .systemFont(ofSize: 15, weight: .semibold)
+        heading.textColor = RimeUI.textPrimary
+        heading.lineBreakMode = .byWordWrapping
+        heading.maximumNumberOfLines = 0
+        addFormRow(heading)
+        let subtitle = NSTextField(labelWithString: row.preview)
+        subtitle.font = .systemFont(ofSize: 11)
+        subtitle.textColor = RimeUI.textSecondary
+        addFormRow(subtitle)
+        if let payload = row.payload, !payload.isEmpty {
+            let body = NSTextField(wrappingLabelWithString: payload)
+            body.font = .systemFont(ofSize: 11)
+            body.textColor = RimeUI.textPrimary
+            body.maximumNumberOfLines = 0
+            addFormRow(body)
+        }
+        if row.origin == .clipboard && row.kind == .image {
+            let imageView = NSImageView()
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            imageView.wantsLayer = true
+            imageView.layer?.cornerRadius = 8
+            imageView.layer?.masksToBounds = true
+            imageView.heightAnchor.constraint(equalToConstant: 220).isActive = true
+            addFormRow(imageView)
+            let id = row.id
+            let generation = mediaPreviewGeneration
+            fileCopyQueue.async { [weak self, weak imageView] in
+                guard let self,
+                      let data = try? self.repository.clipboardImageData(id: id),
+                      data.count <= CapsuleMediaPreviewLoader.maximumImageBytes,
+                      let source = CGImageSourceCreateWithData(data as CFData, nil),
+                      let thumbnail = CGImageSourceCreateThumbnailAtIndex(
+                        source, 0,
+                        [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                         kCGImageSourceThumbnailMaxPixelSize: 1000] as CFDictionary
+                      ) else { return }
+                DispatchQueue.main.async { [weak self, weak imageView] in
+                    guard let self, generation == self.mediaPreviewGeneration,
+                          self.rows.indices.contains(self.tableView.selectedRow),
+                          self.rows[self.tableView.selectedRow].id == id else { return }
+                    imageView?.image = NSImage(cgImage: thumbnail, size: .zero)
+                }
+            }
+        }
+        if row.origin == .clipboard || row.origin == .capture {
+            let action = RimePointingHandButton(
+                title: row.origin == .capture ? "在 Finder 中显示" : "复制内容",
+                target: self, action: #selector(readOnlyAction(_:))
+            )
+            action.identifier = NSUserInterfaceItemIdentifier("read-only:\(row.id.uuidString)")
+            action.bezelStyle = .rounded
+            addFormRow(action)
+        }
+        if row.origin == .capture {
+            let actions = NSStackView()
+            actions.orientation = .horizontal
+            actions.spacing = 8
+            var commands: [(String, Selector)] = [
+                ("编辑", #selector(editCaptureRow(_:))),
+                ("收藏", #selector(collectCaptureRow(_:))),
+            ]
+            if (try? repository.captureRecord(id: row.id).collectionID) == nil {
+                commands.append(("删除", #selector(deleteCaptureRow(_:))))
+            }
+            for (title, action) in commands {
+                let button = RimePointingHandButton(
+                    title: title, target: self, action: action
+                )
+                button.identifier = NSUserInterfaceItemIdentifier(
+                    "capture-action:\(row.id.uuidString)")
+                button.bezelStyle = .rounded
+                actions.addArrangedSubview(button)
+            }
+            addFormRow(actions)
+        }
+    }
+
+    @objc private func readOnlyAction(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue.split(separator: ":").last,
+              let row = rows.first(where: { $0.id.uuidString == id }) else { return }
+        if row.origin == .capture {
+            guard let payload = row.payload else { return }
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: payload)])
+        } else if row.origin == .clipboard {
+            let expectedChangeCount = NSPasteboard.general.changeCount
+            fileCopyQueue.async { [weak self] in
+                let result = Result { try self?.repository.clipboardArchive(id: row.id) }
+                DispatchQueue.main.async { [weak self] in
+                    guard let self,
+                          self.rows.contains(where: { $0.id == row.id }) else { return }
+                    do {
+                        if let archive = try result.get() {
+                            try archive.write(expectedChangeCount: expectedChangeCount)
+                        } else if let payload = row.payload,
+                                  NSPasteboard.general.changeCount == expectedChangeCount {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(payload, forType: .string)
+                        }
+                        self.setStatus("已复制到剪切板")
+                    } catch {
+                        self.setStatus(error.localizedDescription, isError: true)
+                    }
+                }
+            }
+        }
+    }
+
+    @objc private func editCaptureRow(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue.split(separator: ":").last,
+              let uuid = UUID(uuidString: String(id)),
+              let record = try? repository.captureRecord(id: uuid) else { return }
+        CaptureCoordinator.shared.edit(record)
+    }
+
+    @objc private func collectCaptureRow(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue.split(separator: ":").last,
+              let uuid = UUID(uuidString: String(id)),
+              let record = try? repository.captureRecord(id: uuid) else { return }
+        guard record.collectionID == nil else {
+            setStatus("已收藏到 Capsule")
+            return
+        }
+        CaptureCoordinator.shared.collect(record)
+    }
+
+    @objc private func deleteCaptureRow(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue.split(separator: ":").last,
+              let uuid = UUID(uuidString: String(id)),
+              let record = try? repository.captureRecord(id: uuid),
+              record.collectionID == nil,
+              let window = view.window else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "删除这条捕获？"
+        alert.informativeText = "这会移除未收藏的捕获文件。"
+        alert.addButton(withTitle: "删除")
+        alert.addButton(withTitle: "取消")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn, let self else { return }
+            do {
+                try self.repository.removeCaptureRecord(id: uuid)
+                self.reloadFromStore()
+            } catch {
+                self.setStatus(error.localizedDescription, isError: true)
             }
         }
     }
@@ -2658,6 +3304,18 @@ final class CapsulePaneViewController: NSViewController,
             label: draft.id == nil ? "密码内容 · 保存时加密" : "密码内容 · 15 秒后隐藏",
             textView: textView
         )
+        addWritingHint()
+    }
+
+    /// The one grammar notes and passwords share; the rail's detail view
+    /// divides the body by it into rows that copy on their own.
+    private func addWritingHint() {
+        let hint = NSTextField(wrappingLabelWithString:
+            "写法：「- 标签：值」是字段，复制时只复制值；「## 标题」分组；其余每行单独复制。")
+        hint.font = MailboxTerminalTypography.font(ofSize: 10)
+        hint.textColor = RimeUI.textMuted
+        hint.setAccessibilityLabel("书写规则")
+        addFormRow(hint)
     }
 
     /// Stands in for the body while it is concealed. It shows that a secret
@@ -2788,6 +3446,7 @@ final class CapsulePaneViewController: NSViewController,
         pathRow.alignment = .centerY
         pathRow.spacing = 8
         firstDetailFormRow = addField(label: "ABSOLUTE PATH", field: pathRow)
+        if kind == .pdf { addReferenceFields() }
 
         let preview = NSView()
         preview.wantsLayer = true
@@ -2810,6 +3469,134 @@ final class CapsulePaneViewController: NSViewController,
 
         loadAssetPreview(kind: kind, path: draft.content, in: preview)
         addBoundedPreviewField(preview)
+    }
+
+    private func addReferenceFields() {
+        let typeButton = RimeFixedAccentPopUpButton()
+        for kind in CapsuleReference.Kind.allCases {
+            typeButton.addItem(withTitle: kind.title)
+        }
+        typeButton.selectItem(at: CapsuleReference.Kind.allCases.firstIndex(of: draft.reference.kind) ?? 0)
+        typeButton.target = self
+        typeButton.action = #selector(referenceTypeChanged)
+        typeButton.setAccessibilityLabel("文献类型")
+        referenceTypeButton = typeButton
+        addField(label: "文献类型", field: typeButton)
+
+        let fields: [(String, String, String)] = [
+            ("authors", "作者", "按文献顺序填写，多个作者用 ; 分隔"),
+            ("year", "年份", "例如 2024"),
+            ("container", "期刊 / 会议", "期刊名或会议名"),
+            ("publisher", "出版社 / 机构", "图书、报告必填"),
+            ("volume", "卷", "可选"),
+            ("issue", "期", "可选"),
+            ("pages", "页码", "例如 12–25"),
+            ("doi", "DOI", "例如 10.1000/xyz"),
+            ("url", "URL", "可选"),
+            ("isbn", "ISBN", "可选"),
+        ]
+        for (key, label, hint) in fields {
+            let value: String
+            switch key {
+            case "authors": value = draft.reference.authors
+            case "year": value = draft.reference.year
+            case "container": value = draft.reference.container
+            case "publisher": value = draft.reference.publisher
+            case "volume": value = draft.reference.volume
+            case "issue": value = draft.reference.issue
+            case "pages": value = draft.reference.pages
+            case "doi": value = draft.reference.doi
+            case "url": value = draft.reference.url
+            default: value = draft.reference.isbn
+            }
+            let field = NSTextField(string: value)
+            field.placeholderString = hint
+            field.font = MailboxTerminalTypography.font(ofSize: 11)
+            field.setAccessibilityLabel(label)
+            field.delegate = self
+            referenceFields[key] = field
+            addField(label: label, field: field)
+        }
+
+        let styleButton = RimeFixedAccentPopUpButton()
+        for style in ScholayCitationStyle.allCases { styleButton.addItem(withTitle: style.title) }
+        styleButton.selectItem(at: ScholayCitationStyle.allCases.firstIndex(of: CapsuleReferencePreferences.style) ?? 0)
+        styleButton.target = self
+        styleButton.action = #selector(referenceStyleChanged)
+        styleButton.setAccessibilityLabel("参考文献格式")
+        referenceStyleButton = styleButton
+        addField(label: "引用格式", field: styleButton)
+
+        let preview = NSTextField(wrappingLabelWithString: "")
+        preview.font = MailboxTerminalTypography.font(ofSize: 11)
+        preview.textColor = RimeUI.textSecondary
+        preview.setAccessibilityLabel("参考文献预览")
+        referencePreviewLabel = preview
+        addField(label: "预览", field: preview)
+        let copy = RimePointingHandButton(title: "复制参考文献", target: self,
+                                          action: #selector(copyReferenceCitation))
+        copy.bezelStyle = .rounded
+        addFormRow(copy)
+        refreshReferencePreview()
+    }
+
+    private func captureReferenceFields() {
+        guard draft.kind == .pdf else { return }
+        if let selected = referenceTypeButton?.indexOfSelectedItem,
+           CapsuleReference.Kind.allCases.indices.contains(selected) {
+            draft.reference.kind = CapsuleReference.Kind.allCases[selected]
+        }
+        draft.reference.authors = referenceFields["authors"]?.stringValue ?? draft.reference.authors
+        draft.reference.year = referenceFields["year"]?.stringValue ?? draft.reference.year
+        draft.reference.container = referenceFields["container"]?.stringValue ?? draft.reference.container
+        draft.reference.publisher = referenceFields["publisher"]?.stringValue ?? draft.reference.publisher
+        draft.reference.volume = referenceFields["volume"]?.stringValue ?? draft.reference.volume
+        draft.reference.issue = referenceFields["issue"]?.stringValue ?? draft.reference.issue
+        draft.reference.pages = referenceFields["pages"]?.stringValue ?? draft.reference.pages
+        draft.reference.doi = referenceFields["doi"]?.stringValue ?? draft.reference.doi
+        draft.reference.url = referenceFields["url"]?.stringValue ?? draft.reference.url
+        draft.reference.isbn = referenceFields["isbn"]?.stringValue ?? draft.reference.isbn
+    }
+
+    private func refreshReferencePreview() {
+        captureReferenceFields()
+        guard let preview = referencePreviewLabel else { return }
+        if let citation = CapsuleReferenceFormatter.bibliography(
+            title: titleField?.stringValue ?? draft.title,
+            reference: draft.reference, style: CapsuleReferencePreferences.style
+        ) {
+            preview.stringValue = citation
+        } else {
+            let missing = draft.reference.missingFields
+            preview.stringValue = "补齐\(missing.isEmpty ? "标题" : missing.joined(separator: "、"))后可生成引用"
+        }
+    }
+
+    @objc private func referenceTypeChanged() {
+        editorDirty = true
+        refreshReferencePreview()
+    }
+
+    @objc private func referenceStyleChanged() {
+        let index = referenceStyleButton?.indexOfSelectedItem ?? 0
+        guard ScholayCitationStyle.allCases.indices.contains(index) else { return }
+        CapsuleReferencePreferences.style = ScholayCitationStyle.allCases[index]
+        refreshReferencePreview()
+    }
+
+    @objc private func copyReferenceCitation() {
+        refreshReferencePreview()
+        guard let text = CapsuleReferenceFormatter.bibliography(
+            title: titleField?.stringValue ?? draft.title,
+            reference: draft.reference, style: CapsuleReferencePreferences.style
+        ) else {
+            setStatus("书目信息未补齐", isError: true)
+            return
+        }
+        NSPasteboard.general.clearContents()
+        if NSPasteboard.general.setString(text, forType: .string) {
+            setStatus("已复制 \(CapsuleReferencePreferences.style.title) 参考文献")
+        } else { setStatus("复制失败", isError: true) }
     }
 
     private func addBoundedPreviewField(_ preview: NSView) {
@@ -3074,10 +3861,20 @@ final class CapsulePaneViewController: NSViewController,
         return field
     }
 
-    private func makeContentTextView(text: String) -> NSTextView {
-        let textView = NSTextView(frame: .zero)
-        textView.string = text
-        textView.isRichText = false
+    private func makeContentTextView(text: String,
+                                     bullet: Bool = false,
+                                     richTextData: Data? = nil) -> NSTextView {
+        let textView: NSTextView = bullet
+            ? CapsuleBulletTextView(frame: .zero)
+            : NSTextView(frame: .zero)
+        textView.isRichText = richTextData != nil || draft.noteFormat == .richText
+        if let richTextData,
+           let attributed = NSAttributedString(rtfd: richTextData,
+                documentAttributes: nil) {
+            textView.textStorage?.setAttributedString(attributed)
+        } else {
+            textView.string = text
+        }
         textView.allowsUndo = true
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
@@ -3094,13 +3891,38 @@ final class CapsulePaneViewController: NSViewController,
 
     private func captureDraftFromFields() {
         draft.title = titleField?.stringValue ?? draft.title
+        draft.summary = summaryField?.stringValue ?? draft.summary
+        if let index = noteFormatButton?.indexOfSelectedItem,
+           CapsuleNoteFormat.allCases.indices.contains(index) {
+            draft.noteFormat = CapsuleNoteFormat.allCases[index]
+        }
+        if let index = resourceTypeButton?.indexOfSelectedItem,
+           CapsuleResourceType.allCases.indices.contains(index) {
+            draft.resourceType = CapsuleResourceType.allCases[index]
+        }
+        if let index = passwordCategoryButton?.indexOfSelectedItem,
+           CapsulePasswordCategory.allCases.indices.contains(index) {
+            draft.passwordCategory = CapsulePasswordCategory.allCases[index]
+        }
         switch draft.kind {
         case .note:
-            draft.content = contentTextView?.string ?? draft.content
-        case .skill:
+            draft.content = draft.noteFormat == .richText
+                ? contentTextView.map {
+                    CapsuleRichTextProjection.markdown(from: $0.attributedString())
+                  } ?? draft.content
+                : contentTextView?.string ?? draft.content
+            if draft.noteFormat == .richText, let contentTextView {
+                draft.richTextData = contentTextView.attributedString().rtfd(
+                    from: NSRange(location: 0,
+                                  length: contentTextView.textStorage?.length ?? 0),
+                    documentAttributes: [:]
+                )
+            }
+        case .skill, .resource:
             draft.content = skillPathField?.stringValue ?? draft.content
         case .image, .pdf, .video:
             draft.content = assetPathField?.stringValue ?? draft.content
+            if draft.kind == .pdf { captureReferenceFields() }
         case .password:
             // Only read back a body the user could actually see; a concealed
             // editor has no text view and must not blank the stored secret.
@@ -3108,6 +3930,97 @@ final class CapsulePaneViewController: NSViewController,
                 draft.content = passwordSecretTextView.string
             }
         }
+    }
+
+    @objc private func classificationChanged() {
+        let oldFormat = draft.noteFormat
+        captureDraftFromFields()
+        editorDirty = true
+        if draft.kind == .note, oldFormat != draft.noteFormat {
+            if draft.noteFormat != .richText { draft.richTextData = nil }
+            renderEditor()
+        }
+    }
+
+    @objc private func addBulletItem() {
+        guard let textView = contentTextView else { return }
+        let range = textView.selectedRange()
+        let prefix = textView.string.isEmpty || textView.string.hasSuffix("\n") ? "" : "\n"
+        textView.insertText(prefix + "- [ ] ", replacementRange: range)
+        editorDirty = true
+    }
+
+    @objc private func toggleRichBold() { applyRichTrait(.boldFontMask) }
+    @objc private func toggleRichItalic() { applyRichTrait(.italicFontMask) }
+
+    private func applyRichTrait(_ trait: NSFontTraitMask) {
+        guard let textView = contentTextView,
+              let storage = textView.textStorage else { return }
+        let range = textView.selectedRange()
+        let manager = NSFontManager.shared
+        if range.length == 0 {
+            let font = textView.typingAttributes[.font] as? NSFont
+                ?? NSFont.systemFont(ofSize: 12)
+            textView.typingAttributes[.font] = manager.convert(font, toHaveTrait: trait)
+        } else {
+            var changes: [(NSRange, NSFont)] = []
+            storage.enumerateAttribute(.font, in: range) { value, subrange, _ in
+                let font = value as? NSFont ?? NSFont.systemFont(ofSize: 12)
+                changes.append((subrange, manager.convert(font, toHaveTrait: trait)))
+            }
+            for (subrange, font) in changes {
+                storage.addAttribute(.font, value: font, range: subrange)
+            }
+        }
+        editorDirty = true
+    }
+
+    @objc private func insertRichLink() {
+        guard let textView = contentTextView,
+              textView.selectedRange().length > 0 else { return }
+        let input = NSTextField(string: "https://")
+        let alert = NSAlert()
+        alert.messageText = "添加链接"
+        alert.accessoryView = input
+        alert.addButton(withTitle: "添加")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn,
+              let url = URL(string: input.stringValue),
+              let scheme = url.scheme,
+              ["https", "http", "mailto"].contains(scheme) else { return }
+        textView.textStorage?.addAttribute(.link, value: url,
+                                           range: textView.selectedRange())
+        editorDirty = true
+    }
+
+    @objc private func insertRichImage() {
+        guard let textView = contentTextView,
+              let window = view.window else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.canChooseDirectories = false
+        panel.beginSheetModal(for: window) { [weak self, weak textView] response in
+            guard response == .OK,
+                  let url = panel.url,
+                  let image = NSImage(contentsOf: url),
+                  let textView else { return }
+            let attachment = NSTextAttachment()
+            attachment.image = image
+            textView.insertText(NSAttributedString(attachment: attachment),
+                                replacementRange: textView.selectedRange())
+            self?.editorDirty = true
+        }
+    }
+
+    @objc private func importMarkdownProjection() {
+        guard draft.projectionConflict, let textView = contentTextView else { return }
+        guard let projection = draft.conflictedProjection else { return }
+        textView.textStorage?.setAttributedString(NSAttributedString(string: projection))
+        draft.content = projection
+        draft.projectionConflict = false
+        draft.conflictedProjection = nil
+        editorDirty = true
+        setStatus("已导入 Markdown 副本；保存后更新富文本原稿")
     }
 
     private func schedulePasswordAutoConceal() {
@@ -3137,8 +4050,16 @@ final class CapsulePaneViewController: NSViewController,
     private func selectRow(at index: Int) -> Bool {
         guard rows.indices.contains(index) else { return false }
         concealPasswordPlaintext()
+        let row = rows[index]
+        if row.origin != .saved {
+            draft = .empty(kind: row.kind)
+            editorDirty = false
+            renderReadOnlyDetail(row)
+            setStatus("已加载\(row.origin == .capture ? "捕获" : "临时")条目")
+            return true
+        }
         do {
-            let loadedDraft = try repository.draft(for: rows[index])
+            let loadedDraft = try repository.draft(for: row)
             draft = loadedDraft
             newPasswordEditable = false
             editorDirty = false
@@ -3178,6 +4099,10 @@ final class CapsulePaneViewController: NSViewController,
             return
         }
         selectedKind = requestedKind
+        selectedModule = module(for: requestedKind)
+        selectedFilter = .all
+        searchField.stringValue = ""
+        renderModuleSidebar()
         tabStrip.select(.saved(selectedKind))
         searchField.placeholderString = selectedKind == .password
             ? "仅搜索密码标题"
@@ -3203,6 +4128,10 @@ final class CapsulePaneViewController: NSViewController,
         onReturnToRail?(.saved(selectedKind))
     }
 
+    @objc private func openCapsulePlugins() {
+        SettingsWindowController.shared.showCapsulePlugins()
+    }
+
     @objc private func closePressed() {
         view.window?.performClose(nil)
     }
@@ -3219,20 +4148,41 @@ final class CapsulePaneViewController: NSViewController,
     }
 
     @objc private func createNew() {
+        guard !CapsuleNavigationPolicy.usesModules
+            || (selectedModule != .temporary
+                && PluginRegistry.shared.isEnabled(selectedModule.pluginKey)) else { return }
         concealPasswordPlaintext()
         guard confirmDiscardChangesIfNeeded() else { return }
         cancelPendingReload()
         tableView.deselectAll(nil)
+        if CapsuleNavigationPolicy.usesModules {
+            selectedKind = defaultKind(for: selectedModule)
+        }
         draft = .empty(kind: selectedKind)
+        if selectedModule == .notes {
+            draft.noteFormat = selectedFilter == .bullet ? .bullet
+                : selectedFilter == .richText ? .richText : .other
+        } else if selectedModule == .resources {
+            draft.resourceType = selectedFilter == .document ? .document
+                : selectedFilter == .project ? .project : .other
+        } else if selectedModule == .passwords {
+            draft.passwordCategory = selectedFilter == .login ? .login
+                : selectedFilter == .key ? .key : .other
+        }
         newPasswordEditable = true
         editorDirty = false
-        setCompactDetail(true)
+        setCompactDetail(false)
         renderEditor()
         setStatus("新建 \(selectedKind.displayName) 条目")
         view.window?.makeFirstResponder(titleField)
     }
 
     @objc private func saveCurrent() {
+        if draft.kind == .password, draft.id != nil,
+           !passwordRevealState.isPlaintextVisible {
+            setStatus("请先输入口令，再保存密码分类或内容", isError: true)
+            return
+        }
         concealPasswordPlaintext()
         captureDraftFromFields()
         do {
@@ -3253,6 +4203,10 @@ final class CapsulePaneViewController: NSViewController,
     }
 
     @objc private func deleteCurrent() {
+        if draft.kind == .password, !passwordRevealState.isPlaintextVisible {
+            setStatus("请先输入口令，再删除密码条目", isError: true)
+            return
+        }
         concealPasswordPlaintext()
         guard let id = draft.id,
               let expectedRevision = draft.loadedRevision,
@@ -3291,7 +4245,8 @@ final class CapsulePaneViewController: NSViewController,
     @objc private func chooseSkillFolder() {
         guard let window = view.window else { return }
         let panel = NSOpenPanel()
-        panel.title = "选择 Skill 文件或文件夹"
+        panel.title = draft.kind == .resource
+            ? "选择本机资源文件或目录" : "选择 Skill 文件或文件夹"
         panel.message = "Capsule 会保存所选项目在当前电脑中的绝对路径。"
         panel.prompt = "选择"
         panel.canChooseDirectories = true
@@ -3303,7 +4258,7 @@ final class CapsulePaneViewController: NSViewController,
             self?.skillPathField?.stringValue = path
             self?.fileCopyButton?.isEnabled = true
             self?.editorDirty = true
-            self?.setStatus("Skill 路径尚未保存")
+            self?.setStatus("本机路径尚未保存")
         }
     }
 
@@ -3339,7 +4294,8 @@ final class CapsulePaneViewController: NSViewController,
     @objc private func copyCurrentFile() {
         captureDraftFromFields()
         let kind = draft.kind
-        guard kind == .image || kind == .pdf || kind == .video || kind == .skill else {
+        guard kind == .image || kind == .pdf || kind == .video
+            || kind == .skill || kind == .resource else {
             setStatus(
                 CapsuleFilePasteboardError.unsupportedKind.localizedDescription,
                 isError: true
@@ -3376,8 +4332,8 @@ final class CapsulePaneViewController: NSViewController,
                             self.setStatus("已复制视频文件")
                         case .pdf:
                             self.setStatus("已复制 PDF 文件")
-                        case .skill:
-                            self.setStatus("已复制 Skill 文件或文件夹")
+                        case .skill, .resource:
+                            self.setStatus("已复制本机文件或文件夹")
                         case .password, .note:
                             break
                         }

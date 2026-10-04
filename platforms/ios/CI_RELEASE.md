@@ -1,7 +1,9 @@
 # iOS GitHub Actions release
 
+Current target: **1.0.0**, local build **34**. The public [TestFlight invitation](https://testflight.apple.com/join/Kdj9RB4q) currently offers 0.1.0 (32). A public beta link is separate from a 1.0 App Store release. Existing review state is preserved.
+
 `ios.yml` runs unsigned builds, shared tests and hosted iOS tests on matching
-pull requests and pushes to main / codex/ios-* branches. `ios-release.yml` runs
+pull requests targeting main and matching pushes to main. `ios-release.yml` runs
 only for stable tags `ios-vMAJOR.MINOR.PATCH`, using macos-26 / Xcode 26.6 and
 Fastlane 2.240.1. It does not use the maintainer's interactive Apple login.
 
@@ -31,11 +33,13 @@ The implementation is not evidence that credentialed CI publication has run.
 
 ## Publish a new version
 
-1. Commit the intended iOS source changes and add real three-locale update notes
-   in `AppStore/release-notes/<version>.json`. Run checks on that commit.
-2. Create and push its exact version tag, e.g. `ios-v0.1.1`. Never tag an older
+1. Integrate the intended iOS source changes into `origin/main` and add real
+   three-locale update notes in `AppStore/release-notes/<version>.json`. Run checks
+   on that commit. Local main-only maintenance is not permission to push or tag.
+2. Create and push its exact version tag, e.g. `ios-v1.0.0`. Never tag an older
    commit while the intended app changes remain uncommitted in a worktree.
-3. Actions validates the tag, notes and Secrets, builds/tests, imports signing
+3. Actions requires the tagged commit to be in `origin/main` history, validates
+   the tag, notes and Secrets, builds/tests, imports signing
    material into an ephemeral keychain and signs both targets. Marketing version
    comes from the tag. Build number is `(run_number + 100).run_attempt.0`.
 4. It uploads the IPA, waits up to 40 minutes for Apple processing, selects that
@@ -51,8 +55,10 @@ upload succeeds but processing times out, inspect Apple state before retrying;
 rerunning creates a different build number. Signing material is removed on failure
 as well as success; only GitHub-hosted disposable runners are supported.
 
-Current 0.1.0 (10) review is unchanged. The strict manual distribution checklist
-remains an evidence record; CI does not mark outstanding real-device checks passed.
+The existing 0.1.0 (10) review record is historical evidence, not live Apple status.
+Read App Store Connect before describing a version as approved or available.
+The strict manual distribution checklist remains an evidence record; CI does not
+mark outstanding real-device checks passed.
 The owner-authorized tag is the release action. Review licensing/privacy and actual
 device results when the relevant functionality or bundled content changes.
 

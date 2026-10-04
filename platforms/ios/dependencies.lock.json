@@ -4,6 +4,16 @@
     "tag": "1.17.0",
     "commit": "33e78140250125871856cdc5b42ddc6a5fcd3cd4"
   },
+  "librimeLua": {
+    "url": "https://github.com/hchunhui/librime-lua.git",
+    "commit": "6f30968058a3ca83c47949308ef0ddc51a11a264",
+    "patch": "platforms/ios/scripts/prepare-lua.py"
+  },
+  "lua": {
+    "version": "5.4.9",
+    "url": "https://www.lua.org/ftp/lua-5.4.9.tar.gz",
+    "sha256": "2335b6c582a52654f94612bf10d2f4672805d05329aa6568b1d8cd9e5c6fb8e6"
+  },
   "submodules": {
     "leveldb": "99b3c03b3284f5886f9ef9a4ef703d57373e61be",
     "marisa-trie": "3e87d53b78e15f2f43783d5e376561a8c9722051",
@@ -43,8 +53,94 @@
   "localInputs": [
     {
       "path": "chord-keymaps/Isaac2025.json",
-      "revision": "20651da",
-      "sha256": "f2d1c551a99b9758041736786f97ba104108bdedeb9d6d7d9872338d68e6fc22"
+      "revision": "20651da + dvuo→niang (2026-09-28)",
+      "sha256": "07ff458e7165946401cce5c6fa66a9d19d3845f39ecfdb6e1988849c2600b8e2"
+    }
+  ],
+  "animatedEmoji": [
+    {
+      "codepoint": "1f407",
+      "source": "https://fonts.gstatic.com/s/e/notoemoji/latest/1f407/512.webp",
+      "sha256": "97a573219abb21325c8c1e3c34fea614d2ce3e07c548241df0033ab5fd479db5",
+      "shipped": "platforms/ios/Resources/Pets/noto-1f407.png",
+      "shippedSha256": "9ea38bf723d218e854f4ed29af2992572a9e327c9fee94f9f0135d6f7a3b9477"
+    },
+    {
+      "codepoint": "1f415",
+      "source": "https://fonts.gstatic.com/s/e/notoemoji/latest/1f415/512.webp",
+      "sha256": "8b2bd2766283df6947ba79c03b1ae0c56ddb680db702b637622bb25a144d2600",
+      "shipped": "platforms/ios/Resources/Pets/noto-1f415.png",
+      "shippedSha256": "8bf77e5c22ccc3b280be9ef64e2a4be71b9a445837cd6b28b7b26a9ca529a3b0"
+    },
+    {
+      "codepoint": "1f416",
+      "source": "https://fonts.gstatic.com/s/e/notoemoji/latest/1f416/512.webp",
+      "sha256": "a842a605f42be60174ddda048779b66727320926eda26ce790b1837ff46cceb1",
+      "shipped": "platforms/ios/Resources/Pets/noto-1f416.png",
+      "shippedSha256": "8184ff6a09190f7af658c9415d8ef50ce709bf40ca82bc90cf34f060bdf482e7"
+    },
+    {
+      "codepoint": "1f419",
+      "source": "https://fonts.gstatic.com/s/e/notoemoji/latest/1f419/512.webp",
+      "sha256": "350125ea2d42c39f7fca7acb028adb979351fc7e6b197cf5e4e484c99b1d5e2b",
+      "shipped": "platforms/ios/Resources/Pets/noto-1f419.png",
+      "shippedSha256": "4aaf35c5dac137384fb63bfc682b9ddef7ca8a4c29637b574d74f728bbd3e410"
+    },
+    {
+      "codepoint": "1f422",
+      "source": "https://fonts.gstatic.com/s/e/notoemoji/latest/1f422/512.webp",
+      "sha256": "135eee69a2549622203004894c4b162e66d29a35092e15a5f9f657cc3091ef92",
+      "shipped": "platforms/ios/Resources/Pets/noto-1f422.png",
+      "shippedSha256": "87afe576add54803dd2d2c076e75f7b48046db0c1eb952ded9ddc003b4fce16f"
+    },
+    {
+      "codepoint": "1f423",
+      "source": "https://fonts.gstatic.com/s/e/notoemoji/latest/1f423/512.webp",
+      "sha256": "7fac7c9198430c0ba1e6b6dc76d6dc369ea4dfa24cb31a2a27f416ca89f656d8",
+      "shipped": "platforms/ios/Resources/Pets/noto-1f423.png",
+      "shippedSha256": "797dd2aed50c94cd7e6aa0c5709a52128c742f62da78032a6d1ebc0d6bf488cd"
+    },
+    {
+      "codepoint": "1f427",
+      "source": "https://fonts.gstatic.com/s/e/notoemoji/latest/1f427/512.webp",
+      "sha256": "636b75de0f8b050399afa5319773d98234d9272de7f3f961ee38d22ea6775655",
+      "shipped": "platforms/ios/Resources/Pets/noto-1f427.png",
+      "shippedSha256": "922344545b3fcc6d1fc782c675736cb2fd520d6edd2461fcee702bcc0bea6d79"
+    },
+    {
+      "codepoint": "1f429",
+      "source": "https://fonts.gstatic.com/s/e/notoemoji/latest/1f429/512.webp",
+      "sha256": "0a0d67a53de70f02da03b91aac5e0766c56fb07f48f12825a26de7615c531c3f",
+      "shipped": "platforms/ios/Resources/Pets/noto-1f429.png",
+      "shippedSha256": "726b8c4df37e5ff3fca68fe1b11b6a5fe22e78746f4553407511c9536c4d805e"
+    },
+    {
+      "codepoint": "1f438",
+      "source": "https://fonts.gstatic.com/s/e/notoemoji/latest/1f438/512.webp",
+      "sha256": "156e69b0e9cf571119b5f2fcdbe21c67f7d309f8d91882c34b249a721dfe4276",
+      "shipped": "platforms/ios/Resources/Pets/noto-1f438.png",
+      "shippedSha256": "4ad85d52747186d085d5d3c580d3e1bae7918d8e1c1608c39989c12bcaa17a5e"
+    },
+    {
+      "codepoint": "1f43c",
+      "source": "https://fonts.gstatic.com/s/e/notoemoji/latest/1f43c/512.webp",
+      "sha256": "9a7d6408161d2545487276c405c9722f681b93676263a5f7d47cb246625ef1d4",
+      "shipped": "platforms/ios/Resources/Pets/noto-1f43c.png",
+      "shippedSha256": "2b56cb534c50848556560b88a8e5f037c2f73fe7efcb273eb73fae866e66a029"
+    },
+    {
+      "codepoint": "1f980",
+      "source": "https://fonts.gstatic.com/s/e/notoemoji/latest/1f980/512.webp",
+      "sha256": "477bb903cbdacd0edf0b2d56b8c7754f8bb8aeb34575173dcfb84b8a24fa5610",
+      "shipped": "platforms/ios/Resources/Pets/noto-1f980.png",
+      "shippedSha256": "bed6bddf98a470903a5d44eeed1b83a1228979ba0701be54f656efc5430c8ee8"
+    },
+    {
+      "codepoint": "1f98a",
+      "source": "https://fonts.gstatic.com/s/e/notoemoji/latest/1f98a/512.webp",
+      "sha256": "e793f95ebe1c383d7f2cb9389ebe41d90738b2283e8f86ff0354fe42d51ec614",
+      "shipped": "platforms/ios/Resources/Pets/noto-1f98a.png",
+      "shippedSha256": "d9a4e2d027721a7c7aeb4e7f988cdab58ec2674d6d025b6e02e0b732daad7247"
     }
   ]
 }

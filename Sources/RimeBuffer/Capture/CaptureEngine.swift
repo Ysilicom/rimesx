@@ -15,11 +15,17 @@ enum CaptureEngine {
     static func content() async throws -> SCShareableContent {
         try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
     }
-    static func filter(_ target: CaptureTarget, content: SCShareableContent) -> SCContentFilter {
+    /// Leaves out only `chrome`, the capture tool's own windows. Every other
+    /// window, RIMES's Buffer, Capsule, Mailbox, Settings and candidates
+    /// included, is captured exactly as it appears on screen. Only windows
+    /// listed in `content` can be excluded, so chrome must already be on
+    /// screen when that snapshot is taken.
+    static func filter(_ target: CaptureTarget, content: SCShareableContent,
+                       excluding chrome: Set<CGWindowID>) -> SCContentFilter {
         if let window = target.window { return SCContentFilter(desktopIndependentWindow: window) }
-        return SCContentFilter(display: target.display,
-            excludingApplications: content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier },
-            exceptingWindows: [])
+        let display = content.displays.first { $0.displayID == target.display.displayID } ?? target.display
+        return SCContentFilter(display: display,
+            excludingWindows: content.windows.filter { chrome.contains($0.windowID) })
     }
     static func configuration(_ target: CaptureTarget, scale: CGFloat = 2) -> SCStreamConfiguration {
         let config = SCStreamConfiguration()
@@ -33,8 +39,9 @@ enum CaptureEngine {
         if #available(macOS 14.0, *) { config.ignoreShadowsSingleWindow = true; config.shouldBeOpaque = false }
         return config
     }
-    static func image(_ target: CaptureTarget, content: SCShareableContent, scale: CGFloat? = nil) async throws -> CGImage {
-        let filter = filter(target, content: content)
+    static func image(_ target: CaptureTarget, content: SCShareableContent,
+                      excluding chrome: Set<CGWindowID>, scale: CGFloat? = nil) async throws -> CGImage {
+        let filter = filter(target, content: content, excluding: chrome)
         let config = configuration(target, scale: scale ?? nativeScale(target))
         if #available(macOS 14.0, *) {
             return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)

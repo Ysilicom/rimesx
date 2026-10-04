@@ -1,0 +1,57 @@
+[
+  {
+    "file": "librime-BSD.txt",
+    "source": "https://raw.githubusercontent.com/rime/librime/33e78140250125871856cdc5b42ddc6a5fcd3cd4/LICENSE",
+    "sha256": "f67d27a6d2d586fcfed4b4c886a83747095396a39b6641e18e855086be2ec400"
+  },
+  {
+    "file": "OpenCC-Apache.txt",
+    "source": "https://raw.githubusercontent.com/BYVoid/OpenCC/ver.1.1.9/LICENSE",
+    "sha256": "b534e465949558eec2597b04f5092b5e161236a68dfbfd04d547592ac3964308"
+  },
+  {
+    "file": "Boost-license.txt",
+    "source": "https://raw.githubusercontent.com/boostorg/boost/boost-1.88.0/LICENSE_1_0.txt",
+    "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+  },
+  {
+    "file": "LevelDB-BSD.txt",
+    "source": "https://raw.githubusercontent.com/google/leveldb/1.23/LICENSE",
+    "sha256": "ccc19f1da0798ed666609b65a5b44dd8b3abe6fc08b9c0592eb76e82e174db19"
+  },
+  {
+    "file": "glog-BSD.txt",
+    "source": "https://raw.githubusercontent.com/google/glog/v0.7.1/COPYING",
+    "sha256": "136d48dea7a681413691f3db3098f6cf5ffaa3119d96d97bb83b8cff3ce38c4a"
+  },
+  {
+    "file": "yaml-cpp-MIT.txt",
+    "source": "https://raw.githubusercontent.com/jbeder/yaml-cpp/0.8.0/LICENSE",
+    "sha256": "aa6fcc27be034e41e21dd832f9175bfe694a48491d9e14ff0fa278e19ad14f1b"
+  },
+  {
+    "file": "marisa-BSD.txt",
+    "source": "https://raw.githubusercontent.com/s-yata/marisa-trie/v0.3.1/COPYING.md",
+    "sha256": "edf58dab34c3dc239ba4ba2d5d3d844d8c5b442aa4dd1149fac81b2d8c6cb8d1"
+  },
+  {
+    "file": "librime-lua-BSD.txt",
+    "source": "https://raw.githubusercontent.com/hchunhui/librime-lua/ec52e48/LICENSE",
+    "sha256": "c6bd4f58b13ae9d45c5e53adddeea5049114a25862797c6c6f64920431eea249"
+  },
+  {
+    "file": "Lua-license.html",
+    "source": "https://www.lua.org/license.html",
+    "sha256": "9fa02db000d8178643a592032fab2e1d2ba6d9e2f609f149fc113d30d32dbea2"
+  },
+  {
+    "file": "librime-octagram-LICENSE",
+    "source": "https://raw.githubusercontent.com/lotem/librime-octagram/dfcc151/LICENSE",
+    "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+  },
+  {
+    "file": "librime-predict-LICENSE",
+    "source": "https://raw.githubusercontent.com/rime/librime-predict/920bd41/LICENSE",
+    "sha256": "9b1bbdf15a381884b47dfd9422e68f6382170b2841c476afc076f2d448c7a59f"
+  }
+]

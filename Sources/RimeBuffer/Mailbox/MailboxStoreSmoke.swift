@@ -231,6 +231,31 @@ func runMailboxStoreSmokeTest() -> Bool {
             storageRoot: root,
             dateProvider: { now }
         )
+        let imageRoot = root.appendingPathComponent("image-attachment",
+                                                    isDirectory: true)
+        let imageStore = try MailboxStore(storageRoot: imageRoot)
+        let imageHandle = try imageStore.beginAIConversation(
+            source: .codexCLI(), prompt: "画一个圆"
+        )
+        guard let png = Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="
+        ) else { return fail("image fixture") }
+        _ = try imageStore.completeImageGeneration(
+            imageHandle, response: "图片已生成。", pngData: png
+        )
+        let reopenedImageStore = try MailboxStore(storageRoot: imageRoot)
+        guard let imageMessage = reopenedImageStore.thread(id: imageHandle.threadID)?
+                .messages.last,
+              imageMessage.imageFileName != nil,
+              reopenedImageStore.imageData(for: imageMessage) == png,
+              reopenedImageStore.thread(id: imageHandle.threadID)?
+                .generation?.phase == .succeeded else {
+            return fail("durable image attachment")
+        }
+        try reopenedImageStore.deleteThread(id: imageHandle.threadID)
+        guard reopenedImageStore.imageData(for: imageMessage) == nil else {
+            return fail("deleted image attachment was retained")
+        }
         var events: [MailboxStoreChange] = []
         let observation = store.observe { events.append($0.change) }
         guard events == [.initial] else {

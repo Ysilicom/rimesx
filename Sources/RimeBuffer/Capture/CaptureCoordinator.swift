@@ -61,6 +61,14 @@ final class CaptureCoordinator {
         observers.append(NotificationCenter.default.addObserver(forName: .capsuleCapturesDidChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.refreshVisibleAssets() }
         })
+        // Chrome shown mid-recording, such as a screenshot taken while
+        // recording, joins the video's exclusions once it is on screen.
+        observers.append(NotificationCenter.default.addObserver(forName: .captureChromeDidPresent, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.recorder?.isRecording == true else { return }
+                self.recorder?.refreshExclusions(self.chromeWindowIDs())
+            }
+        })
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 if let self, self.preparingCapture || !self.selectors.isEmpty { self.cancelSelection(self.generation) }
@@ -140,6 +148,15 @@ final class CaptureCoordinator {
         IMELog.write("capture protection entered")
     }
 
+    /// Window IDs a capture leaves out: the capture tool's own chrome and the
+    /// result cards. Buffer, Capsule, Mailbox, Settings, candidates, pins and
+    /// editors are ordinary screen content that users record.
+    func chromeWindowIDs() -> Set<CGWindowID> {
+        let chrome = NSApp.windows.filter { ($0 as? CapturePanel)?.excludedFromCapture == true }
+            + (recorder?.chromeWindows ?? [])
+        return Set(chrome.compactMap { $0.windowNumber > 0 ? CGWindowID($0.windowNumber) : nil })
+    }
+
     private var managedPanels: [NSWindow] {
         Array(pins.values) + editors.values.map(\.panel) + otherPanels
     }
@@ -157,7 +174,9 @@ final class CaptureCoordinator {
             panel.orderFrontRegardless()
         }
         temporarilyHidden.removeAll()
-        setResultOverlaysSuspended(false)
+        // Result cards sit out an entire recording, including any screenshot
+        // taken during it; the recorder's end restores them.
+        setResultOverlaysSuspended(recorder?.isRecording == true)
     }
 
     func setResultOverlaysSuspended(_ suspended: Bool) {
@@ -178,14 +197,15 @@ final class CaptureCoordinator {
     }
 
     func showLauncher() {
+        guard PluginRegistry.shared.isEnabled(CapsuleModuleID.capture.pluginKey) else { return }
         guard !sessionProtected, !IsSecureEventInputEnabled() else { NSSound.beep(); return }
         if countdown != nil || preparingCapture || !selectors.isEmpty { cancelSelection(generation); return }
         if NSWorkspace.shared.frontmostApplication?.processIdentifier != ProcessInfo.processInfo.processIdentifier { sourceApplication = NSWorkspace.shared.frontmostApplication }
         sourceName = sourceApplication?.localizedName ?? ""
-        ClipboardHistoryWindowController.shared.hide()
         if let launcher, launcher.isVisible { launcher.makeKeyAndOrderFront(nil); return }
         let panel = CapturePanel(size: NSSize(width: 766, height: 68), surface: .transparent)
         panel.captureChrome = true
+        panel.excludedFromCapture = true
         panel.styleMask = [.borderless]
         panel.isOpaque = false; panel.backgroundColor = .clear
         let strip = CaptureLauncherView(frame: .zero)
@@ -208,6 +228,7 @@ final class CaptureCoordinator {
 
     func begin(_ mode: String, delay: Int = 0, ratio: CGFloat? = nil, size: CGSize? = nil, freeze: Bool = true,
                requestedAt: TimeInterval? = nil) {
+        guard PluginRegistry.shared.isEnabled(CapsuleModuleID.capture.pluginKey) else { return }
         guard !sessionProtected, !IsSecureEventInputEnabled() else { return }
         if countdown != nil { cancelSelection(generation); return }
         guard !CapturePermissionGuide.shared.presentExisting(), !preparingCapture else { return }
@@ -223,14 +244,13 @@ final class CaptureCoordinator {
         // Keep the launcher focus lease until the replacement selector exists.
         // Closing first queues an external-app activation that races the mask.
         launcher?.orderOut(nil)
-        if isolatedStore == nil { ClipboardHistoryWindowController.shared.hide() }
         // Result overlays used to be closed here, which is why only ever one
         // was on screen: each capture destroyed the stack it was about to
-        // add to. They are hidden for the duration like every other panel
-        // and restored with them, so the results accumulate.
-        rememberVisiblePanels()
+        // add to. They are hidden for the duration and restored afterwards,
+        // so the results accumulate. They are the only RIMES surface a
+        // capture hides: Buffer, Capsule, Mailbox, Settings, clipboard
+        // history, pins and editors stay on screen, since users record them.
         setResultOverlaysSuspended(true)
-        temporarilyHidden.forEach { $0.orderOut(nil) }
         let countdownLabel = delay > 0 ? presentCountdown(seconds: delay, request: token) : nil
         if delay > 0 { launcher?.close() }
         preparationTask = Task {
@@ -305,6 +325,7 @@ final class CaptureCoordinator {
     private func presentCountdown(seconds: Int, request: UUID) -> NSTextField {
         let panel = CapturePanel(size: NSSize(width: 280, height: 100))
         panel.captureChrome = true
+        panel.excludedFromCapture = true
         let label = CaptureUI.label("\(seconds) 秒后截图 · Esc 取消", size: 16)
         CaptureUI.fill(CaptureUI.column([label, CaptureButton("取消") { [weak self] in self?.cancelSelection(request) }]), in: panel.contentView!)
         panel.closed = { [weak self, weak panel] in
@@ -372,6 +393,7 @@ final class CaptureCoordinator {
         for screen in NSScreen.screens {
             guard let id = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value else { continue }
             let panel = CapturePanel(size: screen.frame.size, nonactivating: true, surface: .transparent)
+            panel.excludedFromCapture = true
             panel.styleMask = [.borderless, .nonactivatingPanel]; panel.level = .screenSaver; panel.isMovableByWindowBackground = false
             panel.backgroundColor = .clear; panel.isOpaque = false; panel.hasShadow = false
             panel.acceptsMouseMovedEvents = true; panel.escapeCloses = false
@@ -402,9 +424,15 @@ final class CaptureCoordinator {
     }
 
     private func chooseWindow(_ content: SCShareableContent, surfaces: [SelectionSurface], mode: String, request: UUID) throws {
+        // RIMES windows are pickable like any other; its Buffer and clipboard
+        // surfaces float, so its own floating layer is admitted as well.
+        let chrome = chromeWindowIDs()
+        let floatingLayer = Int(CGWindowLevelForKey(.floatingWindow))
         let eligible = content.windows.filter {
-            $0.isOnScreen && $0.owningApplication?.processID != ProcessInfo.processInfo.processIdentifier
-                && $0.frame.width > 50 && $0.frame.height > 40 && $0.windowLayer == 0
+            let ownFloating = $0.owningApplication?.processID == ProcessInfo.processInfo.processIdentifier
+                && $0.windowLayer == floatingLayer
+            return $0.isOnScreen && !chrome.contains($0.windowID)
+                && $0.frame.width > 50 && $0.frame.height > 40 && ($0.windowLayer == 0 || ownFloating)
         }
         let byID = Dictionary(uniqueKeysWithValues: eligible.map { ($0.windowID, $0) })
         // Fetch z-order once, not on every mouse move. Only windows admitted
@@ -435,13 +463,15 @@ final class CaptureCoordinator {
 
     private func select(_ content: SCShareableContent, mode: String, ratio: CGFloat?, size: CGSize?, freeze: Bool,
                         request: UUID, started: TimeInterval) async throws {
-        // Never photograph a visible selector. App exclusion is not enough for
-        // IME/nonactivating windows: a captured border becomes immovable pixels.
-        // Capture every display first, then publish the entire selection UI.
+        // Never photograph a visible selector. Exclusion only covers windows
+        // listed in the content snapshot, which predates the selectors: a
+        // captured border becomes immovable pixels. Capture every display
+        // first, then publish the entire selection UI.
         guard !NSApp.windows.contains(where: { $0.isVisible && $0.contentView is CaptureSelectionView }) else {
             throw CaptureError.message("旧选区仍在显示，请取消后重试")
         }
         logPreparation("clean-background-no-selectors", started: started)
+        let chrome = chromeWindowIDs()
         let screens = NSScreen.screens
         let frames = try await withThrowingTaskGroup(of: (CGDirectDisplayID, CGImage).self) { group in
             for screen in screens {
@@ -449,7 +479,7 @@ final class CaptureCoordinator {
                       let display = content.displays.first(where: { $0.displayID == id }) else { continue }
                 let scale = screen.backingScaleFactor
                 let target = CaptureTarget(display: display, window: nil, rect: nil)
-                group.addTask { (id, try await CaptureEngine.image(target, content: content, scale: scale)) }
+                group.addTask { (id, try await CaptureEngine.image(target, content: content, excluding: chrome, scale: scale)) }
             }
             var images: [CGDirectDisplayID: CGImage] = [:]
             for try await (id, image) in group {
@@ -486,19 +516,28 @@ final class CaptureCoordinator {
     private func finish(target: CaptureTarget, content: SCShareableContent, mode: String, snapshot: CGImage?) async throws {
         if IsSecureEventInputEnabled() { setProtection(.secureInput, active: true); return }
         guard !sessionProtected else { return }
-        restoreHiddenPanels()
         previousTarget = target
+        if mode == "record" {
+            // The result cards stay hidden until the recording ends.
+            guard let recorder else { restoreHiddenPanels(); return }
+            recorder.start(target: target, content: content); return
+        }
         if mode == "scroll" {
-            scrollSession = CaptureScrollSession(target: target, content: content, sourceApplication: sourceApplication) { [weak self] image, incomplete in self?.save(image, kind: .scrolling, incomplete: incomplete) }
+            restoreHiddenPanels()
+            scrollSession = CaptureScrollSession(target: target, content: content, sourceApplication: sourceApplication,
+                                                 excludedWindows: { [weak self] in self?.chromeWindowIDs() ?? [] }) { [weak self] image, incomplete in self?.save(image, kind: .scrolling, incomplete: incomplete) }
             scrollSession?.show(); return
         }
-        if mode == "record" { recorder?.start(target: target, content: content); return }
+        // Photograph before the result cards return: they are not in the
+        // content snapshot, so exclusion could not keep them out of the shot.
+        defer { restoreHiddenPanels() }
         let image: CGImage
-        if let snapshot { image = snapshot } else { image = try await CaptureEngine.image(target, content: content) }
+        if let snapshot { image = snapshot } else { image = try await CaptureEngine.image(target, content: content, excluding: chromeWindowIDs()) }
         save(image, recognize: mode == "ocr")
     }
 
     func save(_ image: CGImage, kind: CaptureKind = .image, incomplete: Bool = false, recognize: Bool = false) {
+        guard PluginRegistry.shared.isEnabled(CapsuleModuleID.capture.pluginKey) else { return }
         let source = sourceName
         queue.async {
             let result = Result { try CaptureStore.shared.get().importImage(image, kind: kind, source: source, incomplete: incomplete) }
@@ -735,6 +774,7 @@ final class CaptureCoordinator {
         }
     }
     func collect(_ record: CaptureRecord) {
+        guard PluginRegistry.shared.isEnabled(CapsuleModuleID.capture.pluginKey) else { return }
         queue.async {
             do { _ = try CaptureStore.shared.get().collect(record.id) }
             catch { DispatchQueue.main.async { CaptureUI.error(error) } }
@@ -796,7 +836,7 @@ final class CaptureCoordinator {
                     if entry.kind == .image, FileManager.default.fileExists(atPath: package.path) {
                         imported = try store.importProject(package, title: entry.title, collectionID: entry.id)
                     } else {
-                        imported = try store.importFile(URL(fileURLWithPath: path), kind: entry.kind == .video ? (URL(fileURLWithPath: path).pathExtension.lowercased() == "gif" ? .gif : .video) : .image, title: entry.title)
+                        imported = try store.importFile(URL(fileURLWithPath: path), kind: entry.kind == .video ? (URL(fileURLWithPath: path).pathExtension.lowercased() == "gif" ? .gif : .video) : .image, title: entry.title, source: "导入")
                         imported.collectionID = entry.id
                     }
                     try store.update(imported); record = imported
@@ -855,9 +895,14 @@ final class CaptureCoordinator {
         pins[record.id] = panel; panel.present()
     }
     func showRecorder() {
+        guard PluginRegistry.shared.isEnabled(CapsuleModuleID.capture.pluginKey) else { return }
         guard !sessionProtected, !IsSecureEventInputEnabled() else { return }
         if recorder?.isRecording == true { recorder?.showControls(); return }
-        recorder = CaptureRecorderController { [weak self] in self?.begin("record", freeze: false) } completed: { [weak self] record in self?.showOverlay(record) }
+        recorder = CaptureRecorderController(
+            requestTarget: { [weak self] in self?.begin("record", freeze: false) },
+            completed: { [weak self] record in self?.showOverlay(record) },
+            ended: { [weak self] in self?.restoreHiddenPanels() },
+            excludedWindows: { [weak self] in self?.chromeWindowIDs() ?? [] })
         recorder?.showSettings()
     }
     func showOptions() {

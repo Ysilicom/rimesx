@@ -9,21 +9,37 @@ enum CapsuleRailTab: Hashable {
 
     /// Most-used first. Password requires in-place authentication; copying
     /// is a separate explicit action available only during its reveal lease.
-    static let ordered: [CapsuleRailTab] = [
-        .recent,
-        .captures,
-        .saved(.note),
-        .saved(.image),
-        .saved(.video),
-        .saved(.pdf),
-        .saved(.skill),
-        .saved(.password),
-    ]
+    static var ordered: [CapsuleRailTab] {
+        if !CapsuleNavigationPolicy.usesModules {
+            return [
+                .recent, .captures, .saved(.note), .saved(.image),
+                .saved(.video), .saved(.pdf), .saved(.skill), .saved(.password),
+            ]
+        }
+        return CapsuleModuleAvailability.enabled.map { module -> CapsuleRailTab in
+            switch module {
+            case .temporary: return .recent
+            case .capture: return .captures
+            case .notes: return .saved(.note)
+            case .resources: return .saved(.resource)
+            case .passwords: return .saved(.password)
+            }
+        }
+    }
 
     var label: String {
+        if !CapsuleNavigationPolicy.usesModules {
+            switch self {
+            case .saved(.image): return "图库"
+            case .saved(.video): return "影集"
+            case .saved(.skill): return "技能"
+            default: break
+            }
+        }
         switch self {
         case .recent: return "临时"
         case .captures: return "捕获"
+        case .saved(.resource): return "资源"
         case let .saved(kind): return kind.tabLabel
         }
     }
@@ -36,7 +52,8 @@ enum CapsuleRailTab: Hashable {
     /// The tab `offset` steps away, wrapping at both ends.
     func cycled(by offset: Int) -> CapsuleRailTab {
         let tabs = Self.ordered
-        guard let index = tabs.firstIndex(of: self) else { return .recent }
+        guard let index = tabs.firstIndex(of: self) else { return tabs.first ?? .recent }
+        guard !tabs.isEmpty else { return .recent }
         let count = tabs.count
         return tabs[((index + offset) % count + count) % count]
     }
@@ -52,8 +69,17 @@ struct CapsuleRailEntry: Equatable, Identifiable {
     /// Note text, or the absolute path of an Image, PDF or Skill. Always nil
     /// for a password: its secret stays encrypted on disk.
     let payload: String?
-    /// Title plus body for ordinary entries; only the title for a password.
+    /// Title plus body for ordinary entries; title and summary for a password.
     let searchText: String
+    /// Note header properties shown as the first fields in the detail view.
+    var headerFields: [CapsuleField] = []
+    /// Set for a note whose file could not be read as a Capsule document.
+    var formatIssue: String? = nil
+    /// Structured bibliographic metadata for PDF-backed literature items.
+    var reference: CapsuleReference? = nil
+    /// The module filter this entry belongs to (the same classification the
+    /// Capsule manager uses), for the rail's left filter column.
+    var classification: CapsuleModuleFilter = .other
 }
 
 enum CapsuleRailActivationRules {
@@ -69,7 +95,7 @@ enum CapsuleRailActivationRules {
     static func action(for kind: CapsuleEntryKind) -> Action {
         switch kind {
         case .note: return .insertText
-        case .image, .pdf, .skill, .video: return .pasteFile
+        case .image, .pdf, .skill, .video, .resource: return .pasteFile
         case .password: return .revealInPlace
         }
     }
@@ -171,6 +197,11 @@ final class CapsuleRailLibrary {
 
     func entries(for kind: CapsuleEntryKind) -> [CapsuleRailEntry] {
         dispatchPrecondition(condition: .onQueue(.main))
+        if kind == .resource {
+            return ([.pdf, .skill, .resource] as [CapsuleEntryKind])
+                .flatMap { byKind[$0] ?? [] }
+                .sorted { $0.updatedAt > $1.updatedAt }
+        }
         return byKind[kind] ?? []
     }
 
@@ -260,10 +291,20 @@ final class CapsuleRailLibrary {
                     id: record.summary.id,
                     kind: record.summary.type,
                     title: record.summary.title,
-                    preview: record.snippet,
+                    preview: record.cardSummary,
                     updatedAt: record.summary.updatedAt,
                     payload: record.content,
-                    searchText: record.summary.title + "\n" + record.content
+                    searchText: ([record.summary.title, record.summaryText ?? "", record.content]
+                        + (record.reference.map { [
+                            $0.authors, $0.year, $0.container, $0.publisher,
+                            $0.doi, $0.isbn,
+                        ] } ?? [])
+                        + record.headerFields.map { "\($0.label) \($0.value)" })
+                        .joined(separator: "\n"),
+                    headerFields: record.headerFields,
+                    formatIssue: record.formatIssue,
+                    reference: record.reference,
+                    classification: CapsuleModuleClassification.content(record)
                 )
             }.sorted { $0.updatedAt > $1.updatedAt }
         }
@@ -273,10 +314,11 @@ final class CapsuleRailLibrary {
                     id: summary.id,
                     kind: .password,
                     title: summary.title,
-                    preview: summary.maskedPassword,
+                    preview: summary.summaryText ?? summary.maskedPassword,
                     updatedAt: summary.updatedAt,
                     payload: nil,
-                    searchText: summary.title
+                    searchText: summary.title + "\n" + (summary.summaryText ?? ""),
+                    classification: CapsuleModuleClassification.password(summary.category)
                 )
             }.sorted { $0.updatedAt > $1.updatedAt }
         }

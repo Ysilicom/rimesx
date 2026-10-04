@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Fast, macOS-free checks of the release rules: tags are the only version
-  # source, commits follow Conventional Commits (release notes are generated
+  # Fast, macOS-free checks of the release rules: product anchors match the release
+  # tags, commits follow Conventional Commits (release notes are generated
   # from them), and the version tooling behaves as documented in RELEASE.md.
   release-tooling:
     name: Release tooling
@@ -34,8 +34,10 @@ jobs:
           bash -n scripts/sign-macos-app.sh
           scripts/rehearse-release-pkg.sh --help
 
-      - name: Info.plist carries no committed version
-        run: python3 scripts/release/release_tool.py check-plist
+      - name: Info.plist matches the product version anchor
+        run: |
+          python3 scripts/release/release_tool.py check-plist
+          python3 scripts/release/check-product-versions.py
 
       - name: Conventional commit messages
         if: github.event_name == 'pull_request'
@@ -586,6 +588,7 @@ jobs:
             buffer-smoke
             buffer-window-smoke
             buffer-music-smoke
+            morse-smoke
             buffer-music-audio-smoke
             buffer-music-view-smoke
             buffer-music-panel-smoke
@@ -619,6 +622,7 @@ jobs:
             ai-text-smoke
             ai-text-mailbox-smoke
             capsule-smoke
+            capsule-structure-smoke
             stream-input-smoke
             settings-routing-smoke
             status-menu-smoke
@@ -677,13 +681,12 @@ jobs:
             dimensions="$(sips -g pixelWidth -g pixelHeight "$OUTPUT"/*.png | \
               awk '/pixelWidth:/{w=$2}/pixelHeight:/{print w"x"$2}' | sort -u)"
             echo "mode=$MODE pngs=$png_count routes=$route_count dimensions=$dimensions"
-            # A clean profile renders the 20 always-available routes (statistics
-            # test results and maintenance permissions were added, the Clipboard
-            # page folded into Capsule). The optional Chording extension adds
-            # four more only after enablement.
+            # A clean profile renders 17 core subpages (including Mailbox and
+            # its plugin-management tab), 3 statistics pages, and 2 typing-speed
+            # pages. The optional Chording extension adds four after enablement.
             test "$png_count" = "$route_count"
-            test "$png_count" = '20'
-            test "$route_count" = '20'
+            test "$png_count" = '22'
+            test "$route_count" = '22'
             test "$translation_route_count" = '0'
             # bitmapImageRepForCachingDisplay follows the hosted runner's
             # backing scale. A headless 1x runner and a Retina 2x runner both

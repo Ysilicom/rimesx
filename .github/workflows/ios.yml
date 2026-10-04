@@ -1,10 +1,11 @@
 name: iOS checks
 on:
   pull_request:
-    paths: ['Shared/**', 'platforms/ios/**', 'Sources/RimeBuffer/ChordOutputEncoding.swift', 'chord-keymaps/**', '.github/workflows/ios*.yml']
+    branches: [main]
+    paths: ['Shared/**', 'platforms/ios/**', 'Sources/RimeBuffer/ChordOutputEncoding.swift', 'chord-keymaps/**', 'rime-data/**', '.github/workflows/ios*.yml']
   push:
-    branches: [main, "codex/ios-*"]
-    paths: ["Shared/**", "platforms/ios/**", "Sources/RimeBuffer/ChordOutputEncoding.swift", "chord-keymaps/**", ".github/workflows/ios*.yml"]
+    branches: [main]
+    paths: ["Shared/**", "platforms/ios/**", "Sources/RimeBuffer/ChordOutputEncoding.swift", "chord-keymaps/**", "rime-data/**", ".github/workflows/ios*.yml"]
   workflow_dispatch:
 permissions:
   contents: read

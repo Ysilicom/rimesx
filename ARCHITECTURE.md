@@ -1,5 +1,7 @@
 # RimeBuffer P1/P2 历史架构（交接版 v2）
 
+> **2026-09-26 唤出周边即切换 RIMES 覆盖（当前，覆盖 2026-09-04 周边跨输入法覆盖中的“不得切换输入源”与“设置只从 RIMES 打开”）**：当前输入源不属于 RIMES 时，用全局快捷键、截图快捷键或 Mailbox 通知唤出任一周边（Buffer、Capsule 底栏、Mailbox、设置、截图/录屏）会先经 `RimeInputSourceSelection` 选中 RIMES 的键盘模式，再以完整 RIMES authority 打开该周边：最多等待 350 ms，直到 RIMES 成为当前输入源；Buffer 与 Capsule 底栏还要等 RIMES 接管前台的聚焦输入框，超时（如前台没有可编辑焦点）则照常打开。关闭周边从不切换输入源，也不恢复之前的输入法；用户随后自行切到其他输入法会被尊重、不再被切回，周边随之按原有规则降级。设置快捷键因此在任意输入源下注册。周边内部的按钮与入口不触发切换。
+
 > **2026-09-22 候选框与 Capsule 交互覆盖（当前）**：候选条移除设置齿轮、尾部分隔线及其宽度预留，设置仍从系统输入法菜单进入。面板根据当前可见候选、矩阵行与 preedit 计算实际宽度；旧 `baseWidth` 偏好保留但作为「最大宽度」，同时受当前屏幕限制。分页始终按稳定的宽度上限计算，不能因末页收缩改变分页；测量预留选中字号，避免高亮切换造成裁切和跳宽。Capsule 分类改为「临时／图库／影集」，存储标识不变；卡片选中显示右上角菜单、普通卡片悬停显示右下角复制，各菜单操作带图标。密码卡片锁定及验证期间不显示复制。查看密码沿用原四组物理并击凭据，呈现四个脱敏槽位与一个输入区；每组全部松开后输入区回到等待态，整组验证显示成功或错误并支持原地重试。验证后允许显式敏感复制，不自动投递，15 秒与失焦/保护遮蔽规则不变。详见 `CAPSULE.md` 页首；下文禁止显式密码复制的旧描述由本条覆盖。
 
 > **2026-09-09 Buffer 电音演奏覆盖（当前）**：内置 `builtin.music` 0.2.3（AudioKit 5.7.2），按需挂载四排各十键的 E1–A1–D2–G2 贝斯指板、和声信息、鼓组控制与最多两条 Loop 轨道。面板高度随 0/1/2 轨为 159/193/227pt；工具栏显示录制、停止、移调/八度步进器和状态。使用随包提供的 AVL Black Pearl 五层力度真实架子鼓采样，电音主奏仍由本地原创音色生成，无模型或联网下载。音乐模式保持 nonactivating、不成为主窗口，只在演奏期间允许成为 key panel；原始 keyDown/keyUp 不经 IMK/并击结算，不注册全局演奏热键，不切换输入源。进入前按原精确租约收束组字并暂停文字捕获；失焦/关闭/保护态停止发声并清空临时 Loop，退出音乐恢复被动 Buffer。只有面板获焦时消费演奏键；移调与八度暂不分配快捷键，Cmd+Shift+上下恢复切换 Buffer 插件并沿用现有快捷键配置；BPM 文本编辑与其他系统快捷键保留；音乐禁止自动发送保留文字。音频准备与节拍排程在独立串行队列。现行预置目录为 AI 生成、实时翻译、意识流输入、电音演奏四项，覆盖下文旧三项说明。操作、采样来源和验证见 [BUFFER-MUSIC.md](BUFFER-MUSIC.md)。
@@ -23,7 +25,7 @@
 > **2026-09-04 Buffer 全宽主轨覆盖（当前）**：每个可见 `BufferInlineView` rail 都占满所在正文 row 的可用宽度；普通与 single-exchange 状态只有一个 rail，live source+target 状态有上下两个独立全宽 rail。剪贴板导入、复制并关闭、发送/生成三个动作按固定顺序组成主轨右侧 overlay，作为普通 subview 悬浮在 rail 边界内，绝不作为主 `NSStackView` 的 arranged sibling，也不缩短 rail 外框。单轨时 overlay 与唯一 rail 垂直居中，live 双轨时对齐 target rail；横向 document 必须保留足够的 trailing clearance，使末块、状态、loading 和逻辑 caret 都能滚到 overlay 左侧。剪贴板导入从顶部工具栏移入该操作组，生成结果复制也从返回轨左侧移到发送旁边；detached 模式不得同时出现两个“复制并关闭”动作。顶部工具栏以功能网格按钮起首并打开既有 `Default + 已启用缓冲插件` 选择器，正文 rail 不再放前置插件图标；该入口复用唯一 owner 状态。
 
 >
-> **2026-09-04 周边功能跨输入法覆盖（当前）**：开发安装与发布包各自安装一个不带 `KeepAlive` 的 one-shot Aqua LaunchAgent，在冷登录时只执行一次后台 `open -g`，使同一个 RIMES 进程在当前输入源属于其他输入法时也能提供 Buffer、Clipboard History、Mailbox 与 Capsule 的四个全局快捷键。开发版任务以同目录临时文件校验后原子替换并打开用户 App；系统包在替换 payload 前审计所有本机普通账户，只允许当前 GUI 用户存在可安全退休的开发版，其他账户有同 ID dev App/任务或 home 无法安全核验就 fail-closed。postinstall 退休当前用户开发版并复核全机无冲突后，才以原始 agent 字节/缺席状态快照事务发布系统任务；系统登录 guard 对后来出现的开发版痕迹只作防御性短路。Mailbox 与 Capsule 是正常取得键盘焦点的管理窗口；Clipboard 在非 RIMES 输入源下激活任意条目时只恢复原始 pasteboard、提升到历史首位并静默关闭，由用户自行按 `Command+V`；Buffer 在非 RIMES 输入源下只允许显式剪贴板导入与结果复制，不取得 IMK 捕获或投递 authority。设置窗口仍只允许从 RIMES 输入源打开，其中 Mailbox/Capsule 路由只承载配置与状态，不嵌入实际操作 pane。所有周边路径都不得访问外部 IMK client、切换输入源、合成粘贴或其他按键、调用 Accessibility/Post Event，或读取、提交、取消其他输入法的组字。
+> **2026-09-04 周边功能跨输入法覆盖（输入源切换与设置入口已由页首 2026-09-26 覆盖）**：开发安装与发布包各自安装一个不带 `KeepAlive` 的 one-shot Aqua LaunchAgent，在冷登录时只执行一次后台 `open -g`，使同一个 RIMES 进程在当前输入源属于其他输入法时也能提供 Buffer、Clipboard History、Mailbox 与 Capsule 的四个全局快捷键。开发版任务以同目录临时文件校验后原子替换并打开用户 App；系统包在替换 payload 前审计所有本机普通账户，只允许当前 GUI 用户存在可安全退休的开发版，其他账户有同 ID dev App/任务或 home 无法安全核验就 fail-closed。postinstall 退休当前用户开发版并复核全机无冲突后，才以原始 agent 字节/缺席状态快照事务发布系统任务；系统登录 guard 对后来出现的开发版痕迹只作防御性短路。Mailbox 与 Capsule 是正常取得键盘焦点的管理窗口；Clipboard 在非 RIMES 输入源下激活任意条目时只恢复原始 pasteboard、提升到历史首位并静默关闭，由用户自行按 `Command+V`；Buffer 在非 RIMES 输入源下只允许显式剪贴板导入与结果复制，不取得 IMK 捕获或投递 authority。设置窗口仍只允许从 RIMES 输入源打开，其中 Mailbox/Capsule 路由只承载配置与状态，不嵌入实际操作 pane。所有周边路径都不得访问外部 IMK client、切换输入源、合成粘贴或其他按键、调用 Accessibility/Post Event，或读取、提交、取消其他输入法的组字。
 
 > **2026-09-04 Capsule 密码查看口令覆盖（当前）**：Password 的「查看明文」必须先验证顺序固定的四组原生物理字母键并击，界面用四个槽位显示进度；每组直接汇总 native `keyDown`/`keyUp` 的物理键码，全部松开才结算，不使用输入法产生的字符或组字。默认序列是 `RH / WO / CVN / QU`。设置新口令和恢复默认都必须先验证当前凭据；新口令需完整输入两次。自定义原始 chord 永不进入 UserDefaults、日志、pasteboard、Capsule Markdown 或 iCloud，只落一个包含版本、24-byte 随机盐与 SHA-256 摘要的本机凭据；损坏的自定义凭据 fail-closed，不能回退到公开默认值。验证成功仅打开最多 15 秒的只读明文期，窗口/应用失焦、保护态、切换条目及任何保存/删除/重载/关闭生命周期都会提前遮蔽。
 
@@ -86,7 +88,7 @@
 | 项 | 内容 |
 |---|---|
 | 定位 | 从零做的现代 macOS 输入法：**librime 引擎 + 自绘 UI + 常驻缓冲区(buffer)**，终点是替代 Squirrel 成为用户日常主力 |
-| 仓库 | `~/Documents/05-dev/apps/rime-buffer`（SwiftPM：C++ 桥 target + Swift executable） |
+| 仓库 | `~/Documents/05-dev/apps/rimes`（SwiftPM：C++ 桥 target + Swift executable） |
 | 进程模型 | **内部单进程**。IMK、librime、候选窗、buffer、网关、菜单都在同一进程；禁止把内部 UI/状态拆成依赖轮询或 IPC 的伴随进程。MCP/HTTP 与配对传字是明确的外部接口，不在此禁令内 |
 | 引擎 | 优先 dlopen app 自带的 `librime.1.dylib` + lua/octagram/predict 插件；开发态才回退 Squirrel 路径；用户数据独立在 `~/Library/RIMES` |
 | 上屏 | 只经 `client.insertText`（IMK 一等公民通道，网页/Electron/原生通吃） |
@@ -397,9 +399,9 @@ chord 缓冲排除一切带 Ctrl/Opt/Cmd 的键。
 ## 8. 构建 · 安装 · 调试手册
 
 ```bash
-cd ~/Documents/05-dev/apps/rime-buffer
-./build_install.sh                 # 构建+签名+安装+注册（幂等）
-# 启用（一次性）：系统设置→键盘→输入法→编辑→＋→简体中文→RimeBuffer→添加
+cd ~/Documents/05-dev/apps/rimes
+RB_KEEP_USERDB=1 ./build_install.sh  # 保留用户数据，构建+签名+替换旧版+注册
+# 启用（一次性）：系统设置→键盘→输入法→编辑→＋→简体中文→RIMES→添加
 tail -f ~/rimebuffer.log           # 行为日志
 .build/release/RimeBuffer smoke    # 五个普通方案/可选飞耀方案/F4/中文/英文引擎自检
 .build/release/RimeBuffer schema-smoke  # 设置页 schema_list 读写自检
@@ -409,8 +411,8 @@ tail -f ~/rimebuffer.log           # 行为日志
 .build/release/RimeBuffer plugin-configuration-smoke # 配置 schema、迁移、0600 与脱敏边界
 .build/release/RimeBuffer remarkable-plugin-smoke # Remarkable PDF/本地 OCR、SSH 状态机与凭据边界
 # 需要 reseed 时直接重跑上面的 build_install.sh；脚本会保留 ai/、plugins/ 等产品状态
-pkill -x RimeBuffer                # 系统会按需重新拉起
-# 卸载：rm -rf ~/Library/Input\ Methods/RimeBuffer.app && 输入源列表移除
+pkill -x RIMES                     # 系统会按需重新拉起
+# 卸载：先从输入源列表移除，再移除 ~/Library/Input Methods/RIMES.app；保留 ~/Library/RIMES 用户数据
 ```
 
 已踩坑速查：本地 `build_install.sh` 仍用 ad-hoc；正式 tag 由一次性 keychain 完成 Developer ID + hardened runtime + app/pkg 公证，不可降级回未签名 · 我方 Bash 沙盒里 `open` GUI app 会假失败，装完由系统拉起或用户双击 · smoke 若 0 候选先查五个普通方案及已启用的可选飞耀方案是否部署，以及 userdb LOCK。

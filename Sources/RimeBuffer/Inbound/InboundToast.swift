@@ -247,7 +247,9 @@ final class InboundToast: NSObject {
     @objc private func openMailbox() {
         let threadID = targetThreadID
         hide(reason: "opened")
-        MailboxWindowController.shared.show(selecting: threadID)
+        RimeInputSourceSelection.open("Mailbox", awaitsFocus: false) {
+            MailboxWindowController.shared.show(selecting: threadID)
+        }
     }
 
     /// Receives clicks without activating the toast panel itself. Only opening
@@ -339,7 +341,7 @@ func runMailboxToastSmokeTest() -> Bool {
         threadID: threadID,
         snapshot: alreadyRead
     )
-    guard label == "Codex 已回复 · 点击查看" else {
+    guard label == "ChatGPT 已回复 · 点击查看" else {
         fputs("mailbox-toast-smoke: completion label mismatch\n", stderr)
         return false
     }

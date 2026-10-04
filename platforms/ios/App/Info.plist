@@ -27,6 +27,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save the typing statistics image you choose to your photo library. RIMES does not read your photos.</string>
 	<key>RIMESAppGroup</key>
 	<string>$(RIMES_APP_GROUP)</string>
 	<key>RIMESKeychainGroup</key>

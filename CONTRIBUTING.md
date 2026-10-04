@@ -3,6 +3,9 @@
 感谢你帮助改进 RIMES。提交代码前，请先在最新 `main` 上复现问题，并确认没有把用户输入正文、
 API 密钥、剪贴板内容或本机路径放进 Issue、日志和测试夹具。
 
+统一分支、各平台独立构建和发布的日常约定见 [MAINTENANCE.md](MAINTENANCE.md)。
+本地整合可以领先 `origin/main`；没有明确授权时，不推送、不创建发布 tag、不安装。
+
 ## 报告问题
 
 - Bug 请使用 GitHub 的 Bug 表单，写清 macOS、RIMES 版本/commit、宿主应用、输入方案、
@@ -39,7 +42,7 @@ python3 -m unittest discover -s scripts/platform-preview -p 'test_*.py'
 ## Pull Request
 
 - 一个 PR 聚焦一个可审查的目标；说明风险、验证证据和仍未验证的真实宿主场景。
-- 不要修改冻结的输入源身份、`ETInput.app` 安装路径或 `Delivery.insert` 投递边界，除非同时提供
+- 不要修改冻结的输入源身份、当前 `RIMES.app` 安装路径或 `Delivery.insert` 投递边界，除非同时提供
   明确迁移方案和回归矩阵。
 - 新增/更新预置 Buffer 插件时，同步 `Catalog/buffer-plugins.json`、生成文件和 README 版本表。
 - 不要从 fork、旧 tag 或本地重打包直接发布 Release。

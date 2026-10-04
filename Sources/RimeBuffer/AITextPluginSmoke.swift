@@ -62,6 +62,10 @@ private final class AITextSmokeProvider: AITextProvider {
                                                                message: message)))
     }
 
+    func emitReasoning(_ summary: String, request index: Int) {
+        eventCallbacks[index](.reasoningSnapshot(summary))
+    }
+
     func finish(_ result: Result<[AITextProviderBlock], AITextProviderError>,
                 request index: Int) {
         completions[index](result)
@@ -796,8 +800,8 @@ private enum AITextPluginSmoke {
             print("AI text smoke failed: OpenAI streaming")
             return false
         }
-        guard connectorSelectionAndUnifiedWorkspace() else {
-            print("AI text smoke failed: connector workspace")
+        guard channelPluginsOwnTheirBackends() else {
+            print("AI text smoke failed: channel plug-ins")
             return false
         }
         guard workspaceGatesAndDelivery() else {
@@ -1251,6 +1255,46 @@ private enum AITextPluginSmoke {
         let codexArguments = CodexCLITextProvider.appServerArguments(
             workspaceURL: codexWorkspace
         )
+        let imageArguments = CodexCLITextProvider.appServerArguments(
+            workspaceURL: codexWorkspace,
+            allowImageGeneration: true
+        )
+        let skillWorkspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rimes-image-skill-smoke-\(UUID().uuidString)",
+                                   isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: skillWorkspace) }
+        do {
+            try FileManager.default.createDirectory(
+                at: skillWorkspace, withIntermediateDirectories: false,
+                attributes: [.posixPermissions: 0o700]
+            )
+            let mounted = try AITextSkillMounting.mount(
+                .imagegen, for: .codexCLI, in: skillWorkspace
+            )
+            guard FileManager.default.fileExists(atPath: mounted.path),
+                  mounted.name == "imagegen",
+                  AITextSkillCatalog.available(for: .claudeCodeCLI).isEmpty,
+                  AITextSkillCatalog.available(for: .openAICompatible).isEmpty,
+                  imageArguments.indices.contains(where: { index in
+                    index > 0 && imageArguments[index - 1] == "--enable"
+                        && imageArguments[index] == "code_mode_host"
+                  }),
+                  imageArguments.indices.contains(where: { index in
+                    index > 0 && imageArguments[index - 1] == "--enable"
+                        && imageArguments[index] == "image_generation"
+                  }),
+                  codexArguments.indices.contains(where: { index in
+                    index > 0 && codexArguments[index - 1] == "--disable"
+                        && codexArguments[index] == "code_mode_host"
+                  }),
+                  !imageArguments.contains("--sandbox") else {
+                print("AI text CLI smoke failed: image skill mount")
+                return false
+            }
+        } catch {
+            print("AI text CLI smoke failed: image skill mount \(error)")
+            return false
+        }
         let codexEnvironment = AITextCLIExecutableLocator.sanitizedEnvironment(
             for: .codexCLI,
             from: [
@@ -1832,6 +1876,28 @@ private enum AITextPluginSmoke {
         claudeRunner.succeed(request: 0, chunks: [claudeData])
         guard case let .success(blocks)? = claudeResultValue,
               blocks.first?.text == "claude ok" else { return false }
+        guard AITextClaudeInferenceArguments.make(
+            model: "sonnet", effort: "high"
+        ) == ["--model", "sonnet", "--effort", "high"],
+        AITextClaudeInferenceArguments.make(
+            model: "claude-opus-5-5", effort: "medium"
+        ) == ["--model", "claude-opus-5-5", "--effort", "medium"],
+        AITextClaudeInferenceArguments.make(
+            model: "untrusted", effort: "invalid"
+        ).isEmpty else { return false }
+        _ = claude.generate(
+            AITextProviderRequest(
+                requestID: UUID(), sourceText: "configured",
+                modelID: "sonnet", reasoningEffort: "high"
+            ),
+            onEvent: { _ in }, completion: { _ in }
+        )
+        guard claudeRunner.specs.count == 2,
+              claudeRunner.specs[1].arguments.suffix(4)
+                == ["--model", "sonnet", "--effort", "high"] else {
+            return false
+        }
+        claudeRunner.succeed(request: 1, chunks: [claudeData])
         var preparedClaudeResult: Result<[AITextProviderBlock], AITextProviderError>?
         _ = claude.generate(
             AITextProviderRequest(
@@ -1842,10 +1908,10 @@ private enum AITextPluginSmoke {
             onEvent: { _ in },
             completion: { preparedClaudeResult = $0 }
         )
-        guard claudeRunner.specs.count == 2,
-              String(data: claudeRunner.specs[1].standardInput, encoding: .utf8)
+        guard claudeRunner.specs.count == 3,
+              String(data: claudeRunner.specs[2].standardInput, encoding: .utf8)
                 == "prepared-claude-prompt" else { return false }
-        claudeRunner.succeed(request: 1, chunks: [claudeData])
+        claudeRunner.succeed(request: 2, chunks: [claudeData])
         guard case .success? = preparedClaudeResult,
               AITextCLIExecutableLocator.bundledChatGPTCodexPath
                 == "/Applications/ChatGPT.app/Contents/Resources/codex",
@@ -2281,8 +2347,11 @@ private enum AITextPluginSmoke {
         return predicate()
     }
 
-    private static func connectorSelectionAndUnifiedWorkspace() -> Bool {
-        let defaultsName = "RimeBuffer.AIConnectorSmoke.\(UUID().uuidString)"
+    /// Codex CLI, Claude Code and the AI API are three Buffer channel
+    /// plug-ins. Each sends the source buffer as-is to its own backend, and
+    /// switching the shared connector (Mailbox, Connectors) never touches them.
+    private static func channelPluginsOwnTheirBackends() -> Bool {
+        let defaultsName = "RimeBuffer.AIChannelPluginSmoke.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: defaultsName) else { return false }
         defer { defaults.removePersistentDomain(forName: defaultsName) }
 
@@ -2290,50 +2359,79 @@ private enum AITextPluginSmoke {
         let codex = AITextSmokeProvider(kind: .codexCLI)
         let claude = AITextSmokeProvider(kind: .claudeCodeCLI)
         let openAI = AITextSmokeProvider(kind: .openAICompatible)
-        let registry = AITextConnectorRegistry(
-            selectionStore: selection,
+        let bufferSelection = BufferPluginSelectionStore(defaults: defaults)
+        let source = BufferModel()
+        source.stageExternal("整理一下下载文件夹", origin: .rime)
+        let runtime = AITextPluginRuntimeRegistry(
+            sourceModel: source,
+            selectionStore: bufferSelection,
+            connectorSelectionStore: selection,
             providers: [codex, claude, openAI]
         )
-        guard selection.selectedKind == .codexCLI,
-              registry.selectedKind == .codexCLI,
-              (registry.selectedProvider as? AITextSmokeProvider) === codex,
-              registry.provider(for: .openAICompatible)?.kind == .openAICompatible else {
+        guard runtime.workspaces.map(\.kind) == AITextProviderKind.allCases,
+              runtime.workspaces.map(\.pluginKey)
+                == AITextProviderKind.allCases.map(\.pluginKey),
+              Set(runtime.workspaces.map(\.deliveryWorkspaceID)).count == 3,
+              runtime.workspace(for: AITextBuiltInPluginID.retiredUnifiedKey) == nil else {
             return false
         }
+        runtime.startAll()
+        defer { runtime.stopAll() }
 
-        let source = BufferModel()
-        source.stageExternal("connector-source", origin: .rime)
-        let workspace = AITextPluginWorkspace(
-            provider: registry,
-            sourceModel: source,
-            pluginKey: AITextBuiltInPluginID.key,
-            isSelected: { true }
-        )
-        workspace.start()
-        defer { workspace.stop() }
-        guard workspace.pluginKey == AITextBuiltInPluginID.key,
-              workspace.deliveryWorkspaceID == "ai-text",
-              workspace.generate(),
-              codex.requests.count == 1 else { return false }
+        func choose(_ kind: AITextProviderKind) -> AITextPluginWorkspace? {
+            let key = kind.pluginKey
+            _ = bufferSelection.select(
+                key,
+                among: [RegisteredPlugin(
+                    descriptor: PluginDescriptor(
+                        key: key, wireID: nil, name: kind.displayName,
+                        symbolName: "sparkles", version: "1.0", summary: "",
+                        source: .builtIn, capabilities: [.bufferAction],
+                        settings: nil, canUninstall: false
+                    ),
+                    isEnabled: true
+                )]
+            )
+            let workspace = runtime.workspace(for: kind)
+            workspace?.selectionDidChange()
+            return workspace
+        }
 
-        guard registry.select(.claudeCodeCLI),
-              codex.cancellations[0].wasCancelled,
-              workspace.outputBlocks.isEmpty,
-              workspace.kind == .claudeCodeCLI,
-              AITextConnectorSelectionStore(defaults: defaults).selectedKind
-                == .claudeCodeCLI,
-              (registry.selectedProvider as? AITextSmokeProvider) === claude,
-              workspace.generate(),
-              claude.requests.count == 1 else { return false }
-        claude.finish(.success([
-            AITextProviderBlock(index: 0, text: "selected connector", title: nil),
+        // Each plug-in reaches only its own backend, carrying the buffer as-is.
+        func sendsAsIs(_ request: AITextProviderRequest) -> Bool {
+            request.sourceText == "整理一下下载文件夹"
+                && request.preparedPrompt?.contains(
+                    "The source field is the user's own request"
+                ) == true
+                && request.preparedPrompt?.contains("Markdown document") == false
+        }
+        guard let codexWorkspace = choose(.codexCLI),
+              runtime.selectedWorkspace === codexWorkspace,
+              codexWorkspace.generate(),
+              codex.requests.count == 1, claude.requests.isEmpty,
+              sendsAsIs(codex.requests[0]) else { return false }
+        codex.finish(.success([
+            AITextProviderBlock(index: 0, text: "open ~/Downloads", title: nil),
         ]), request: 0)
-        guard workspace.phase == .ready,
-              workspace.deliveryPendingBlocks.first?.origin
+
+        // The shared connector choice no longer steers any channel plug-in.
+        _ = selection.select(.claudeCodeCLI)
+        guard codexWorkspace.phase == .ready,
+              codexWorkspace.outputBlocks.first?.text == "open ~/Downloads",
+              codexWorkspace.kind == .codexCLI else { return false }
+
+        guard let claudeWorkspace = choose(.claudeCodeCLI),
+              runtime.selectedWorkspace === claudeWorkspace,
+              claudeWorkspace.generate(),
+              claude.requests.count == 1, codex.requests.count == 1,
+              sendsAsIs(claude.requests[0]) else { return false }
+        claude.finish(.success([
+            AITextProviderBlock(index: 0, text: "整理下载文件夹。", title: nil),
+        ]), request: 0)
+        guard claudeWorkspace.phase == .ready,
+              claudeWorkspace.deliveryPendingBlocks.first?.origin
                 == .processor(id: AITextProviderKind.claudeCodeCLI.processorID,
-                              allowsRemoteMirror: true),
-              AITextProviderError.unavailable("connector detail").localizedDescription
-                == "connector detail" else { return false }
+                              allowsRemoteMirror: true) else { return false }
         return true
     }
 
@@ -2361,8 +2459,12 @@ private enum AITextPluginSmoke {
         guard workspace.statusText.contains("正在认真组织回复"),
               workspace.outputBlocks.isEmpty,
               workspace.phase == .running else { return false }
+        provider.emitReasoning("先确认请求。", request: 0)
+        guard workspace.railSnapshot.transientThought == "先确认请求。",
+              workspace.deliveryPendingBlocks.isEmpty else { return false }
         provider.emit(AITextProviderBlock(index: 0, text: "draft", title: nil), request: 0)
         guard let partialID = workspace.outputBlocks.first?.id,
+              workspace.railSnapshot.transientThought == nil,
               workspace.outputBlocks.first?.incomplete == true,
               workspace.deliveryPendingBlocks.isEmpty,
               workspace.primaryAction == .generating,
@@ -2415,11 +2517,13 @@ private enum AITextPluginSmoke {
               workspace.generate(),
               provider.requests.count == 2 else { return false }
         workspace.reset()
+        provider.emitReasoning("must-ignore", request: 1)
         provider.emit(AITextProviderBlock(index: 0, text: "must-ignore", title: nil), request: 1)
         provider.finish(.success([
             AITextProviderBlock(index: 0, text: "must-ignore", title: nil),
         ]), request: 1)
-        guard workspace.outputBlocks.isEmpty else { return false }
+        guard workspace.outputBlocks.isEmpty,
+              workspace.railSnapshot.transientThought == nil else { return false }
 
         guard workspace.generate(), provider.requests.count == 3 else { return false }
         provider.finish(.failure(.unavailable("retry")), request: 2)

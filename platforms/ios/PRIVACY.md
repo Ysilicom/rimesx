@@ -8,9 +8,14 @@ in public issues. The website contains the complete bilingual public policy.
 
 ## 中文
 
-RIMES 的普通输入在设备本地运行。学习词频只保存在当前设备，不提供账户或云同步。
+灵犀输入法（RIMES）的普通输入在设备本地运行。学习词频只保存在当前设备，不提供账户或云同步。
 我们不收集输入正文日志、广告标识符或使用遥测。Buffer 草稿保存在键盘会话内存中，
 不写入文件；离开键盘会话时清除。
+统计图片在本机生成，只含汇总统计，不含输入正文。主动保存图片时才申请相册添加权限，
+不读取已有照片。App 保留最新一张主动保存的 PNG，不参与备份，可在卡片页面删除；
+相册中的副本在照片 App 中管理。键盘图片导出需要完全访问，不会自动发送到聊天。
+联想学习记录保存在键盘私有目录，不共享给主 App，也不参与备份。可在主 App 的“数据管理”
+中确认清除，下次打开 RIMES 键盘时生效；只删除联想学习记录，保留输入方案、词库和键位配置。
 
 AI 功能可选。你配置自己的 HTTPS 服务地址、模型和 API Key，并在明确同意接收方后
 主动提交当前 Buffer 文本。请求包含这段文本、所选操作的指令、模型 ID 和用于向该
@@ -25,9 +30,18 @@ API Key 保存在本设备 Keychain，不包含在配置导出和备份中。请
 
 ## English
 
-Ordinary typing runs locally. Learned word frequencies stay on this device; there
+Ordinary typing runs locally. Learned word frequencies and learned next-word
+associations stay in the keyboard on this device (never shared with the app, never
+synced, excluded from backup). To clear learned associations, confirm the action
+under Data management in the app; the keyboard applies it on its next presentation,
+keeping input schemes, dictionaries and layouts. There
 are no accounts, cloud sync, advertising identifiers, text logs or usage telemetry.
 Buffer drafts stay in keyboard-session memory and are cleared when the session ends.
+Stats images are generated on-device from aggregates, without typed text. An explicit
+save requests add-only Photos authorization; existing photos are never read. The app
+keeps the latest explicitly saved PNG, excluded from backup and deletable on its card
+page. Photos copies are managed in Photos. Keyboard image export needs Full Access;
+images are never automatically sent to a chat.
 
 AI is optional. You configure an HTTPS provider, model and API key. After consenting
 to the recipient, you explicitly submit the current Buffer text. The request includes

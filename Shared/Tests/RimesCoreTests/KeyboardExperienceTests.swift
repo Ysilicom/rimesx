@@ -5,11 +5,13 @@ final class KeyboardExperienceTests: XCTestCase {
     func testNewLayoutPreferencesMigrateAndPersistEnglishOverride() throws {
         var value = try JSONDecoder().decode(KeyboardPreferences.self, from: Data("{\"scheme\":\"chord\"}".utf8))
         XCTAssertEqual(value.chordLayout, .orthogonal)
-        value.select(.chord); value.chordLayout = .splitOrthogonal; value.hapticStrength = .strongest
+        XCTAssertTrue(value.keySounds)
+        value.select(.chord); value.chordLayout = .splitOrthogonal; value.hapticStrength = .strongest; value.keySounds = false
         value.toggleLanguage()
         var restored = try JSONDecoder().decode(KeyboardPreferences.self, from: JSONEncoder().encode(value))
         XCTAssertEqual(restored.scheme, .chord); XCTAssertTrue(restored.englishInput)
         XCTAssertEqual(restored.chordLayout, .splitOrthogonal); XCTAssertEqual(restored.hapticStrength, .strongest)
+        XCTAssertFalse(restored.keySounds)
         restored.toggleLanguage(); XCTAssertFalse(restored.englishInput)
         restored.select(.english); restored.toggleLanguage(); XCTAssertEqual(restored.scheme, .chord)
         restored.reconcile(scheme: .wubi86, revision: UUID()); XCTAssertFalse(restored.englishInput)

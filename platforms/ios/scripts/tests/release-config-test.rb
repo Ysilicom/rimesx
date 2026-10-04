@@ -4,6 +4,16 @@ require 'fileutils'
 require 'json'
 require_relative '../release-config'
 class ReleaseConfigTest < Minitest::Test
+  def test_release_target_drift_fails_before_signing
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, 'VERSION')
+      File.write(path, "1.0.0\n")
+      assert_equal '1.0.0', RimesRelease.require_target('1.0.0', path)
+      assert_raises(RuntimeError) { RimesRelease.require_target('0.1.0', path) }
+      File.write(path, "1.0.0-preview.1\n")
+      assert_raises(RuntimeError) { RimesRelease.require_target('1.0.0-preview.1', path) }
+    end
+  end
   def test_only_stable_ios_tags_release
     assert_equal '1.2.3', RimesRelease.version('ios-v1.2.3')
     %w[v1.2.3 ios-v1.2 ios-v01.2.3 ios-v1.2.3-beta ios-v1.2.3/evil].each do |tag|

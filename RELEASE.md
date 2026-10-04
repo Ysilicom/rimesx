@@ -1,10 +1,15 @@
 # 发布流程
 
+所有应用代码以 `main` 为集成主线，各平台独立构建、验收、记版本和发布；不要求同时发布。
+分支与本地维护方式见 [MAINTENANCE.md](MAINTENANCE.md)。本地合入 `main` 不会触发远端构建，
+也不等于批准推送、创建 tag、安装或发布。下文的 `release.sh` 和签名包流程主要面向 macOS。
+
 **合并到 main → macOS CI 全绿 → `./scripts/release.sh <渠道>` → tag → 签名暂存 → 真机同路验收 → 第二次批准 → GitHub Release。**
 
-版本号只来自 tag。发布脚本不修改、不提交任何文件，只在 `origin/main` 上创建并推送一个 tag；
-构建、验证、发布说明和 Release 全部由 GitHub Actions 按同一套规则完成。唯一发布中心是
-[`scholay/rimes`](https://github.com/scholay/rimes/releases)。
+当前 macOS、iOS、Android、Windows 统一以 **1.0.0** 为下一正式版本，Linux 不纳入本轮。
+目标与阻断项见 [1.0 发布准备](RELEASE-1.0.0.md)。macOS 的 `VERSION`、`Info.plist` 与正式 tag 必须一致。发布脚本不修改、不提交任何文件，只在 `origin/main` 上创建并推送一个 tag；
+构建、验证、发布说明和 Release 由 GitHub Actions 完成。macOS 与数据预览的发布中心是
+[`scholay/rimes`](https://github.com/scholay/rimes/releases)；iOS 独立走 App Store Connect。
 
 ```mermaid
 flowchart LR
@@ -25,10 +30,14 @@ flowchart LR
 |---|---|---|---|---|
 | macOS 预览版 | `vX.Y.Z-preview.N` | `./scripts/release.sh preview` | 未签名 PKG + `SHA256SUMS`，Pre-release | 手动安装，见 [UNSIGNED-PREVIEW.md](UNSIGNED-PREVIEW.md) |
 | macOS 正式版 | `vX.Y.Z` | `./scripts/release.sh stable` | Developer ID 签名并公证的 PKG + `SHA256SUMS`，Latest | 应用内自动更新 |
+| iOS | `ios-vX.Y.Z` | [iOS 发布流程](platforms/ios/CI_RELEASE.md) | App Store 签名 IPA、独立 build number | App Store |
+| Windows 原生实验版 | 暂无自动发布 tag | [Windows 构建](platforms/windows/native/README.md) | x64 / x86 工程 Artifact；不是签名安装包 | 尚未建立正式分发通道 |
+| Linux 原生实验版 | 暂无自动发布 tag | [Linux 构建](platforms/linux/ime/README.md) | Fcitx5 Artifact；可在 Linux 本地打 `.deb` | 实验性手动部署 |
 | Windows / Linux 数据预览（维护通道） | `platform-preview-vX.Y.Z` | `./scripts/release.sh platform minor` | 数据与脚本包，Pre-release | 手动安装，见 [CROSS-PLATFORM-PREVIEW.md](CROSS-PLATFORM-PREVIEW.md) |
 
-> 当前标准：**macOS 是唯一的产品与正式发布门禁。** Windows / Linux 的数据包与原生基础层保留为
-> 手动/每周维护检查和独立预览，不阻断 main 合并、macOS 预览或正式 macOS Release。
+> GitHub required checks 与 macOS 发布门禁暂不改变。iOS、Windows IME、Linux IME 按相关路径分别运行
+> PR / main 检查；旧数据预览与 Windows Foundation 保留每周/手动检查。它们不阻断无关的 macOS
+> 发布，但受影响平台自身有失败或真机验收缺口时，不得把它标记为可发布。
 
 > Developer Program 资格或一张 Developer ID 证书本身不能把预览版变成正式版。首个正式
 > `vX.Y.Z` 必须同时具备同一 Team 的 **Developer ID Application + Developer ID Installer** 证书及私钥、
@@ -43,7 +52,8 @@ flowchart LR
    `feat(scope): …`、`fix: …`、`perf:`、`refactor:`、`docs:`、`test:`、`build:`、`ci:`、`chore:`、`style:`、`revert:`。
    发布说明由提交信息生成，CI 的「Release tooling」会拒绝不合规的提交。
 2. **不直接推送 main。** main 受 ruleset 保护：合并必须经过 PR，且必需的 macOS CI 检查通过。
-3. **每合并一个用户可见的功能或修复，就发布一个预览版；最迟每周一次。** 发布本身不需要改任何文件。
+3. **按平台整理用户可见变更，独立安排预览版。** 合并代码不自动创建版本，纯 Windows/Linux/iOS 改动
+   不要求发布 macOS 预览版；实际发布仍需维护者授权。
 4. 一条预览线经过真机验证后，只有完整的正式发布前提都满足时才能用 `stable` 转正；Developer ID
    可用并不单独构成发布授权。
 
@@ -69,7 +79,7 @@ git switch main && git pull --ff-only
 - `origin` 的 fetch / push 地址都指向 `scholay/rimes`；
 - 当前在 `main`，工作区干净，`HEAD` 等于 `origin/main`；
 - `origin/main` 这个提交的 `CI` 已通过（其中包含 macOS build/runtime smoke 与发布工具校验）；
-- Windows / Linux workflow 只在手动或每周维护运行；其结果不阻断 macOS preview/stable tag；
+- Windows / Linux 的独立 workflow 结果不阻断 macOS preview/stable tag；
 - 新 tag 不存在，并高于同渠道已发布的版本；
 - `Info.plist` 版本仍是占位值，预置插件 catalog 已同步；
 - 正式版还要求 `macos-release` 与 `macos-publish` 都存在；二者都要有非空 required reviewers、禁止
@@ -144,8 +154,8 @@ Release 的同一批资产读回校验。signed-stage 只是一道发布权威�
 
 ## 六、版本号规则
 
-- **tag 是唯一来源。** 仓库里的 `Info.plist` 固定为 `0.0.0-dev`，CI 会拒绝提交真实版本号；
-  `build_install.sh` 的开发安装用 `git describe` 命名（如 `0.5.0-preview.1-73-ge4490c8`）。
+- **VERSION 是产品目标，tag 是发布身份。** `Info.plist` 与 `VERSION` 必须一致；正式 tag 也必须匹配。
+  `stable` 默认选择该目标。开发安装使用 `1.0.0-dev.<commit>[.dirty]`，继续退出正式自动更新通道。
 - 排序：`X.Y.Z-preview.N` 低于 `X.Y.Z`；预览号从 1 开始递增，禁止回退。
 - 应用内更新只认严格的 `X.Y.Z`；预览版和开发版不会收到更新提示。
 

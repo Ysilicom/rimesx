@@ -604,37 +604,23 @@ private enum CapsuleCloudDocumentCodec {
         ).map(String.init)
         guard lines.count >= 8,
               lines[0] == "---",
-              let end = lines.dropFirst().firstIndex(of: "---") else {
+              let end = lines.dropFirst().firstIndex(of: "---"),
+              let header = try? CapsuleFrontMatter.parse(lines[1..<end]) else {
             throw CapsuleCloudSyncError.malformedDocument(fileURL.path)
         }
-        var fields: [String: String] = [:]
-        for line in lines[1..<end] {
-            guard let colon = line.firstIndex(of: ":") else {
-                throw CapsuleCloudSyncError.malformedDocument(fileURL.path)
-            }
-            let key = String(line[..<colon])
-                .trimmingCharacters(in: .whitespaces)
-            let value = String(line[line.index(after: colon)...])
-                .trimmingCharacters(in: .whitespaces)
-            guard !key.isEmpty, fields[key] == nil else {
-                throw CapsuleCloudSyncError.malformedDocument(fileURL.path)
-            }
-            fields[key] = value
-        }
-        guard fields["version"] == "1",
-              let typeRaw = fields["capsule"],
+        guard header.scalar("version") == "1",
+              let typeRaw = header.scalar("capsule"),
               let type = CapsuleEntryKind(rawValue: typeRaw),
               type != .password,
               type != .skill,
+              type != .resource,
               type != .video,
-              let idRaw = fields["id"],
-              let id = UUID(uuidString: try decodeScalar(idRaw)),
-              let titleRaw = fields["title"],
-              let title = try? decodeScalar(titleRaw),
+              let idRaw = header.scalar("id"),
+              let id = UUID(uuidString: idRaw),
+              let title = header.scalar("title"),
               !title.isEmpty,
               title.count <= CapsuleContentStore.maximumTitleCharacters,
-              let updatedRaw = fields["updated_at"],
-              let updatedText = try? decodeScalar(updatedRaw),
+              let updatedText = header.scalar("updated_at"),
               let updatedAt = parseDate(updatedText) else {
             throw CapsuleCloudSyncError.malformedDocument(fileURL.path)
         }
@@ -657,15 +643,17 @@ private enum CapsuleCloudDocumentCodec {
 
         var assetName: String?
         if type == .image || type == .pdf {
-            guard let assetRaw = fields["sync_asset"],
-                  let decoded = try? decodeScalar(assetRaw),
+            guard let decoded = header.scalar("sync_asset"),
                   isValidAssetName(decoded, for: type) else {
                 throw CapsuleCloudSyncError.malformedDocument(fileURL.path)
             }
             assetName = decoded
         }
-        let projectName = try fields["sync_project"].map { try decodeScalar($0) }
-        if let name = projectName {
+        let projectName = header.entry("sync_project").map { $0.scalar }
+        if projectName == .some(nil) {
+            throw CapsuleCloudSyncError.malformedDocument(fileURL.path)
+        }
+        if let name = projectName.flatMap({ $0 }) {
             guard name == URL(fileURLWithPath: name).lastPathComponent,
                   name.hasSuffix(".rimesproject"), assetHash(from: name) != nil else {
                 throw CapsuleCloudSyncError.malformedDocument(fileURL.path)
@@ -678,7 +666,7 @@ private enum CapsuleCloudDocumentCodec {
             updatedAt: updatedAt,
             content: content,
             assetName: assetName,
-            projectName: projectName,
+            projectName: projectName.flatMap { $0 },
             data: data,
             revision: CapsuleCloudIO.revision(data),
             frontMatterLines: Array(lines[0...end])
@@ -802,7 +790,7 @@ private enum CapsuleCloudDocumentCodec {
             return allowedImageExtensions.contains(ext)
         case .pdf:
             return ext == "pdf"
-        case .password, .skill, .note, .video:
+        case .password, .skill, .resource, .note, .video:
             return false
         }
     }

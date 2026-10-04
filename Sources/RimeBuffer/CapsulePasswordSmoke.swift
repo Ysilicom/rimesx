@@ -133,7 +133,7 @@ func runCapsulePasswordSmokeTest() -> Bool {
               try contentStore.record(id: image.id).snippet
                 == "Image · example.png",
               try contentStore.record(id: pdf.id).snippet
-                == "PDF · example.pdf",
+                == "待补书目信息 · example.pdf",
               Set(try contentStore.listRecords().map(\.summary.type))
                 == Set([.skill, .note, .image, .pdf]) else {
             return fail("all ordinary Capsule kinds Markdown round trip")
