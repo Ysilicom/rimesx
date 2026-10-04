@@ -6,8 +6,8 @@
 
 **合并到 main → macOS CI 全绿 → `./scripts/release.sh <渠道>` → tag → 签名暂存 → 真机同路验收 → 第二次批准 → GitHub Release。**
 
-当前 macOS、iOS、Android、Windows 统一以 **1.0.0** 为下一正式版本，Linux 不纳入本轮。
-目标与阻断项见 [1.0 发布准备](RELEASE-1.0.0.md)。macOS 的 `VERSION`、`Info.plist` 与正式 tag 必须一致。发布脚本不修改、不提交任何文件，只在 `origin/main` 上创建并推送一个 tag；
+当前 macOS、iOS、Android、Windows 统一以 **1.1.0** 为下一正式版本，Linux 不纳入本轮。
+目标与验收记录见 [1.1.0 发布计划](docs/releases/1.1.0-plan.md)；[1.0 发布准备](RELEASE-1.0.0.md)保留作历史记录。macOS 的 `VERSION`、`Info.plist` 与正式 tag 必须一致。发布脚本不修改、不提交任何文件，只在 `origin/main` 上创建并推送一个 tag；
 构建、验证、发布说明和 Release 由 GitHub Actions 完成。macOS 与数据预览的发布中心是
 [`scholay/rimes`](https://github.com/scholay/rimes/releases)；iOS 独立走 App Store Connect。
 
@@ -30,8 +30,9 @@ flowchart LR
 |---|---|---|---|---|
 | macOS 预览版 | `vX.Y.Z-preview.N` | `./scripts/release.sh preview` | 未签名 PKG + `SHA256SUMS`，Pre-release | 手动安装，见 [UNSIGNED-PREVIEW.md](UNSIGNED-PREVIEW.md) |
 | macOS 正式版 | `vX.Y.Z` | `./scripts/release.sh stable` | Developer ID 签名并公证的 PKG + `SHA256SUMS`，Latest | 应用内自动更新 |
-| iOS | `ios-vX.Y.Z` | [iOS 发布流程](platforms/ios/CI_RELEASE.md) | App Store 签名 IPA、独立 build number | App Store |
-| Windows 原生实验版 | 暂无自动发布 tag | [Windows 构建](platforms/windows/native/README.md) | x64 / x86 工程 Artifact；不是签名安装包 | 尚未建立正式分发通道 |
+| iOS | `ios-vX.Y.Z`（App Store 工作流） | [iOS 发布流程](platforms/ios/CI_RELEASE.md) | App Store 签名 IPA、独立 build number；当前公开测试使用 TestFlight | TestFlight / App Store，分别记录审核状态 |
+| Android | `android-vX.Y.Z`（维护者发布） | `platforms/android/scripts/build-release.sh` | 长期密钥签名 APK / AAB | 下载 APK 保留数据升级 |
+| Windows 原生 | `windows-vX.Y.Z`（维护者发布） | [Windows 构建](platforms/windows/native/README.md) | x64 / x86 完整载荷、EXE 安装器与 ZIP；当前 EXE 未签名 | 下载 EXE 升级，按安装器提示重启或注销 |
 | Linux 原生实验版 | 暂无自动发布 tag | [Linux 构建](platforms/linux/ime/README.md) | Fcitx5 Artifact；可在 Linux 本地打 `.deb` | 实验性手动部署 |
 | Windows / Linux 数据预览（维护通道） | `platform-preview-vX.Y.Z` | `./scripts/release.sh platform minor` | 数据与脚本包，Pre-release | 手动安装，见 [CROSS-PLATFORM-PREVIEW.md](CROSS-PLATFORM-PREVIEW.md) |
 
