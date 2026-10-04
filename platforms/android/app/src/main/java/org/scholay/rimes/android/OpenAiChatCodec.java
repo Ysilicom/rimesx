@@ -15,7 +15,8 @@ final class OpenAiChatCodec {
     static final int MAX_TEXT_UNITS=16384,MAX_LINE_BYTES=131072,MAX_WIRE_BYTES=1048576;
     static final String MOCK_MODEL="rimes-local-mock";
     enum Code { EMPTY_INPUT,INPUT_LIMIT,OUTPUT_LIMIT,INVALID_UNICODE,INVALID_UTF8,INVALID_REQUEST,
-        INVALID_FRAME,INCOMPLETE,PROVIDER_ERROR,WIRE_LIMIT,INVALID_DIRECTION,DICTIONARY_UNCOVERED,DICTIONARY_UNAVAILABLE }
+        INVALID_FRAME,INCOMPLETE,PROVIDER_ERROR,WIRE_LIMIT,INVALID_DIRECTION,DICTIONARY_UNCOVERED,DICTIONARY_UNAVAILABLE,
+        NOT_CONFIGURED,NETWORK_ERROR,HTTP_ERROR }
     static final class Failure extends Exception {
         final Code code;
         Failure(Code code,String message) { super(message); this.code=code; }
@@ -60,6 +61,26 @@ final class OpenAiChatCodec {
             return new JSONObject().put("model",MOCK_MODEL).put("messages",messages).put("stream",true)
                     .toString().getBytes(StandardCharsets.UTF_8);
         } catch(JSONException error) { throw new Failure(Code.INVALID_REQUEST,"AI 请求格式无效，原文已保留。"); }
+    }
+    static byte[] makeRemoteRequest(String pluginID,String source,String model,String direction) throws Failure {
+        validateSource(source);
+        if(!CometAiSettings.validModel(model)) throw invalidRequest();
+        String prompt;
+        if("translate".equals(pluginID)) {
+            if(!"auto".equals(direction) && !"zh-en".equals(direction) && !"en-zh".equals(direction))
+                throw new Failure(Code.INVALID_DIRECTION,"请选择自动、中译英或英译中，原文已保留。");
+            boolean english="zh-en".equals(direction) || "auto".equals(direction)
+                    && source.codePoints().anyMatch(c -> Character.UnicodeScript.of(c)==Character.UnicodeScript.HAN);
+            prompt="Translate the supplied text into "+(english?"English":"Simplified Chinese")
+                    +". Preserve meaning and tone. Return only the translation, without commentary.";
+        } else prompt=instruction(pluginID);
+        try {
+            JSONObject request=new JSONObject().put("model",model).put("stream",true).put("max_tokens",2048)
+                    .put("messages",new JSONArray().put(new JSONObject().put("role","system").put("content",prompt))
+                            .put(new JSONObject().put("role","user").put("content",source)));
+            if(model.startsWith("deepseek")) request.put("thinking",new JSONObject().put("type","disabled"));
+            return request.toString().getBytes(StandardCharsets.UTF_8);
+        } catch(JSONException error) { throw invalidRequest(); }
     }
     static Request readRequest(byte[] bytes) throws Failure {
         if(bytes==null || bytes.length>MAX_LINE_BYTES) throw new Failure(Code.INVALID_REQUEST,"AI 请求格式或长度无效，原文已保留。");
@@ -157,7 +178,7 @@ final class OpenAiChatCodec {
             }
             try {
                 JSONObject root=parseObject(payload);
-                if(root.has("error")) throw new Failure(Code.PROVIDER_ERROR,"模拟服务返回错误，原文已保留。");
+                if(root.has("error")) throw new Failure(Code.PROVIDER_ERROR,"AI 服务返回错误，原文已保留。");
                 if(!"chat.completion.chunk".equals(root.opt("object"))) throw invalidFrame();
                 JSONArray choices=root.getJSONArray("choices");
                 if(choices.length()==0) return; // Optional usage-only chunk.

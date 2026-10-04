@@ -1,7 +1,7 @@
 <resources>
-    <string name="app_name">RIMES 开发版</string>
+    <string name="app_name">RIMES</string>
     <string name="english_keyboard">中文 / 英文</string>
-    <string name="privacy">输入留在本机。关闭键盘或切换输入框时清除 Buffer 草稿；密码框和私密输入框禁用 Buffer。</string>
+    <string name="privacy">普通输入留在本机。仅主动执行联网 AI 时会发送本次 Buffer 原文给已配置服务。关闭键盘或切换输入框时清除 Buffer 草稿；密码框和私密输入框禁用 Buffer。</string>
     <string name="try_typing">在此试打</string>
     <string name="second_field">第二个输入框：测试切换目标</string>
     <string name="password_field">密码框：Buffer 应保持关闭</string>

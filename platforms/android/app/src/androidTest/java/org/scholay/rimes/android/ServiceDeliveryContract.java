@@ -67,6 +67,7 @@ final class ServiceDeliveryContract {
                 contract.translationDirectionPolicy();
                 contract.disabledMockPolicy();
                 contract.translationSurvivesMockPolicy();
+                contract.remoteConfigurationPolicy();
             } catch(Throwable error) { failure.set(error); }
         });
         if(failure.get()!=null) throw new AssertionError("Service delivery contract failed",failure.get());
@@ -341,6 +342,7 @@ final class ServiceDeliveryContract {
             check(service.getCurrentInputConnection()==connection,"public framework bind installs the exact fake connection");
             set(service,"target",connection); set(service,"selection",7); set(service,"selectionStart",7);
             set(service,"preferences",preferences); set(service,"settings",settings); set(service,"pluginExecutor",executor);
+            set(service,"cometSettings",new CometAiSettings(preferences));
             preferences.registerOnSharedPreferenceChangeListener((SharedPreferences.OnSharedPreferenceChangeListener)get(service,"preferenceListener"));
             invoke(service,"restoreSettings",new Class<?>[0]);
             // No UI is created. A real idle ChordSurface satisfies the ordinary send policy gate.
@@ -374,6 +376,23 @@ final class ServiceDeliveryContract {
             ((Handler)get(service,"main")).removeCallbacksAndMessages(null);
             if(holding!=null) holding.callbacks.clear();
             input.unbindInput();
+        }
+    }
+    private void remoteConfigurationPolicy() throws Exception {
+        try(Fixture fixture=new Fixture(false)) {
+            fixture.settings.setAiMockEnabled(false);
+            fixture.preferences.edit().putString(CometAiSettings.KEY,"{\"enabled\":true,\"translation\":true,\"model\":\"deepseek-v4-flash\"}").apply();
+            PluginSession.Request old=fixture.prepare("ask",OUTPUT);
+            check((Boolean)invoke(fixture.service,"pluginAllowed",new Class<?>[0]),"online AI works independently of demo toggle");
+            fixture.preferences.edit().putString(CometAiSettings.KEY,"{\"enabled\":true,\"translation\":true,\"model\":\"changed-model\"}").apply();
+            check(fixture.plugins.snapshot(fixture.buffer).status==PluginSession.Status.IDLE,"provider setting change revokes completed output");
+            check(!fixture.plugins.update(old,fixture.buffer,OUTPUT,true),"old provider callback cannot restore revoked result");
+            check(SOURCE.equals(fixture.buffer.text()),"provider setting change retains source");
+            fixture.prepare("ask",OUTPUT);
+            fixture.preferences.edit().remove(CometAiSettings.KEY).apply();
+            fixture.send(true);
+            check(fixture.connection.attempts==0,"disable blocks stale online delivery");
+            check(!(Boolean)invoke(fixture.service,"pluginAllowed",new Class<?>[0]),"disabled remote and mock deny AI");
         }
     }
 
@@ -473,9 +492,9 @@ final class ServiceDeliveryContract {
     private static void set(Object instance,String name,Object value) throws Exception {
         Field field=RimesInputMethodService.class.getDeclaredField(name); field.setAccessible(true); field.set(instance,value);
     }
-    private static void invoke(Object instance,String name,Class<?>[] types,Object... values) throws Exception {
+    private static Object invoke(Object instance,String name,Class<?>[] types,Object... values) throws Exception {
         Method method=RimesInputMethodService.class.getDeclaredMethod(name,types); method.setAccessible(true);
-        try { method.invoke(instance,values); }
+        try { return method.invoke(instance,values); }
         catch(InvocationTargetException error) {
             Throwable cause=error.getCause();
             if(cause instanceof Error) throw (Error)cause;

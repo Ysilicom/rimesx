@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- The foundation needs no network, clipboard, storage or contacts permissions. -->
+    <!-- Network is used only by the explicitly enabled AI service and explicit Run action. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <application android:label="@string/app_name" android:theme="@style/RimesTheme" android:icon="@mipmap/ic_launcher"
         android:dataExtractionRules="@xml/data_extraction_rules" android:allowBackup="false" android:usesCleartextTraffic="false"
         android:supportsRtl="true">

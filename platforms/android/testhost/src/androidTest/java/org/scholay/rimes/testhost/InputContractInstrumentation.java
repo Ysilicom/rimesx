@@ -40,6 +40,8 @@ public final class InputContractInstrumentation extends Instrumentation {
             else if("benchmark".equals(arguments.getString("mode"))) benchmark();
             else if("layout".equals(arguments.getString("mode"))) layoutContract();
             else if("plugins".equals(arguments.getString("mode"))) pluginsContract();
+            else if("comet-live".equals(arguments.getString("mode"))) cometLiveContract();
+            else if("comet-denied".equals(arguments.getString("mode"))) cometDeniedContract();
             else if(!"soak".equals(arguments.getString("mode"))) contract();
             else soak(Long.parseLong(arguments.getString("seconds","1800")));
             result.putString("stream","PASS input contract; assertions="+assertions+"\n"); finish(-1,result);
@@ -286,7 +288,7 @@ public final class InputContractInstrumentation extends Instrumentation {
     }
     private AccessibilityNodeInfo pluginOutput(String name,String status) {
         String prefix="插件输出："+name+" · "+status+" · ";
-        long until=SystemClock.uptimeMillis()+15000;
+        long until=SystemClock.uptimeMillis()+("comet-live".equals(arguments.getString("mode"))?65000:15000);
         do {
             for(AccessibilityWindowInfo window:getUiAutomation().getWindows()) {
                 AccessibilityNodeInfo value=outputNode(window.getRoot(),prefix); if(value!=null) return value;
@@ -368,6 +370,80 @@ public final class InputContractInstrumentation extends Instrumentation {
         for(String name:names) check(find("Buffer 插件："+name,false)==null,"private denies plugin "+name);
         check(!waitLabel("Buffer off",true).isEnabled(),"private denies Buffer"); expect(host.privateInput,"","private field unchanged");
         focus(host.first); layout("26"); report("PASS local dictionary, four OpenAI-format mock plugins, source/output isolation, exact Send, editing/cancel/hide/target/private guards");
+    }
+    /** Explicit live mode; the IME's encrypted test profile must already be configured. */
+    private void cometDeniedContract() throws Exception {
+        touchHostField(); focusAny(host.first); layout("26"); pinyin(); tap("中英切换");
+        tap("Buffer 插件：快问"); type("hello"); pluginSource("hello","live denied request");
+        tap("执行快问");
+        AccessibilityNodeInfo output=pluginOutput("快问","ERROR");
+        check(output.getContentDescription().toString().contains("当前地区"),"actual region restriction shown in keyboard");
+        pluginSource("hello","region restriction");
+        check(!pluginSendButton().isEnabled(),"failed online result cannot send");
+        android.graphics.Bitmap image=getUiAutomation().takeScreenshot();
+        if(image!=null) try(java.io.FileOutputStream out=getTargetContext().openFileOutput("comet-region-error.png",0)) {
+            image.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out); image.recycle();
+        }
+        type("a"); pluginOutput("快问","IDLE"); pluginSource("helloa","editing after failed request");
+        focus(host.second); expectStable(host.second,"","failed result cannot reach a new target");
+        focus(host.privateInput); check(find("Buffer 插件：快问",false)==null,"private field denies online AI");
+        onlinePasswordGuard(); touchHostField(); focus(host.first);
+        report("PASS live CometAPI region restriction; source retained, Send disabled, editing/target/private/password guards");
+    }
+    private void cometLiveContract() throws Exception {
+        touchHostField(); focusAny(host.first); layout("26"); pinyin(); tap("中英切换");
+        String[][] cases={{"快问","why is the sky blue"},{"润色","we is happy today"},{"翻译","good morning"}};
+        for(String[] test:cases) {
+            focus(host.first); tap("Buffer 插件："+test[0]);
+            for(char c:test[1].toCharArray()) { if(c==' ') tap("Space"); else tap(String.valueOf(c)); }
+            pluginSource(test[1],test[0]+" source");
+            check(!pluginSendButton().isEnabled(),"online result cannot send before completion");
+            long start=SystemClock.elapsedRealtime(); tap("执行"+test[0]);
+            String generated=resultText(pluginOutput(test[0],"READY"),test[0]);
+            check(!generated.isEmpty() && !generated.contains("Mock") && !generated.equals(test[1]),"real generated result "+test[0]);
+            if(test[0].equals("润色")) check(generated.toLowerCase(java.util.Locale.ROOT).contains("are happy"),"model fixes English agreement");
+            if(test[0].equals("翻译")) check(generated.codePoints().anyMatch(c -> Character.UnicodeScript.of(c)==Character.UnicodeScript.HAN),"AI returns Chinese translation");
+            pluginSource(test[1],test[0]+" before send");
+            if(test[0].equals("润色")) {
+                android.graphics.Bitmap image=getUiAutomation().takeScreenshot();
+                if(image!=null) try(java.io.FileOutputStream out=getTargetContext().openFileOutput("comet-live.png",0)) {
+                    image.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out); image.recycle();
+                }
+            }
+            tapPluginSend(); expect(host.first,generated,"exact live output inserted once");
+            tap("Enter"); expectStable(host.first,generated,"live output not duplicated");
+            report("LIVE "+test[0]+" elapsedMs="+(SystemClock.elapsedRealtime()-start)+" output="+generated);
+        }
+        focus(host.first); tap("Buffer 插件：快问"); type("hello"); tap("执行快问");
+        tap("取消执行"); SystemClock.sleep(1200); pluginOutput("快问","IDLE"); pluginSource("hello","live cancellation");
+        check(!pluginSendButton().isEnabled(),"cancelled stream cannot send");
+        tap("执行快问"); focus(host.second); expectStable(host.second,"","late reply cannot reach a new target");
+        SystemClock.sleep(2500); expect(host.first,"","old target unchanged"); expect(host.second,"","new target unchanged after network completion window");
+        focus(host.privateInput); check(find("Buffer 插件：快问",false)==null,"private field denies online AI");
+        onlinePasswordGuard(); touchHostField(); focus(host.first);
+        report("PASS live CometAPI quick question, polish, translation, manual Send, cancellation, target loss and private/password guards");
+    }
+    private void touchHostField() {
+        android.graphics.Rect rect=new android.graphics.Rect();
+        runOnMainSync(() -> host.first.getGlobalVisibleRect(rect));
+        check(!rect.isEmpty(),"host field visible before initial physical focus");
+        long time=SystemClock.uptimeMillis();
+        android.view.MotionEvent down=android.view.MotionEvent.obtain(time,time,android.view.MotionEvent.ACTION_DOWN,rect.exactCenterX(),rect.exactCenterY(),0);
+        android.view.MotionEvent up=android.view.MotionEvent.obtain(time,time+70,android.view.MotionEvent.ACTION_UP,rect.exactCenterX(),rect.exactCenterY(),0);
+        down.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN); up.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);
+        try { check(getUiAutomation().injectInputEvent(down,true) && getUiAutomation().injectInputEvent(up,true),"initial physical editor tap opens IME"); }
+        finally { down.recycle(); up.recycle(); }
+    }
+    private void onlinePasswordGuard() {
+        // An OEM secure keyboard can replace RIMES here; requiring RIMES's q key is incorrect.
+        runOnMainSync(() -> { host.password.setText(""); host.focus(host.password); getTargetContext().getSystemService(InputMethodManager.class).restartInput(host.password); });
+        SystemClock.sleep(700);
+        AtomicReference<Boolean> focused=new AtomicReference<>(false);
+        runOnMainSync(() -> focused.set(host.password.hasFocus()));
+        check(focused.get(),"actual password editor focused");
+        long until=SystemClock.uptimeMillis()+600;
+        do { check(find("Buffer 插件：快问",false)==null,"password field exposes no online AI action"); SystemClock.sleep(50); } while(SystemClock.uptimeMillis()<until);
+        expect(host.password,"","password editor unchanged by AI");
     }
     private void contract() throws Exception {
         focus(host.first); pinyin(); type("nihao");
