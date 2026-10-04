@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "status": "pending-device-feedback",
+  "status": "ready",
   "assets": [
     {
       "name": "librime",
@@ -60,9 +60,9 @@
       "evidence": "Product/support/privacy URLs verified HTTP 200. Owner-confirmed full review contact and notes saved and reloaded. Build 10 submitted 2026-09-22 10:34 CST; waiting for review."
     },
     {
-      "name": "Physical haptic regression acceptance for build 37",
-      "verified": false,
-      "evidence": "2026-10-04: build 36 improved but did not fully resolve the maintainer-reported weak/delayed haptics. Release-optimized build 37 is installed for assessment; automatic tests cannot verify perceived Taptic Engine latency. See validation/release-1.1.0/README.md."
+      "name": "Physical haptic regression acceptance for build 38",
+      "verified": true,
+      "evidence": "2026-10-04: on Release-optimized build 38 the maintainer confirmed clear feedback while typing slowly and responsive feedback at speed, then explicitly accepted iOS. Build 39 changes only the app home hero and build number; the accepted keyboard code is unchanged. Hosted tests and simulator gestures are documented separately in validation/release-1.1.0/README.md."
     }
   ],
   "releaseAuthorization": {

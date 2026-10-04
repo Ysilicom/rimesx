@@ -18,6 +18,8 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
     func testNativeKeyboardLayoutsAndSnapshots() async throws {
         let variants: [(String, CGFloat, Bool, Bool, Bool, UIUserInterfaceStyle)] = [
             ("portrait", 393, false, false, false, .light),
+            ("swipe-symbols", 393, false, false, false, .light),
+            ("swipe-symbols-landscape", 852, false, false, false, .dark),
             ("buffer", 393, true, false, true, .light),
             ("buffer-expanded", 393, true, true, true, .light),
             ("narrow-dark", 320, true, false, true, .dark),
@@ -54,6 +56,7 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
             let (bufferView, candidates, keys) = controller.developmentLayout(bufferText: buffer ? "你好，这是一段用于检查空间布局的原文。" : nil, expanded: expanded, chord: chord)
             XCTAssertEqual(keys.chordMode, chord, name)
             XCTAssertFalse(keys.usesCustomLayout, name)
+            if name.hasPrefix("swipe-symbols") { controller.developmentSwipeSymbols(true) }
             if name.hasSuffix("idle") || name == "emoji" { controller.developmentContent() }
             if name == "buffer-empty" { controller.developmentContent(); controller.developmentBuffer("") }
             if name.hasPrefix("default-blocks") {
@@ -1387,10 +1390,10 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         controller.developmentContent(preedit: "ni", candidates: ["你", "拟"]); window.layoutIfNeeded()
         XCTAssertEqual(controller.view.bounds.height, idleHeight)
         XCTAssertEqual(frame(v.keys), keyFrame)
-        XCTAssertTrue(v.settings.isHidden); XCTAssertTrue(toggle.isHidden)
+        XCTAssertTrue(v.settings.isHidden); XCTAssertFalse(toggle.isHidden)
         XCTAssertTrue(controller.developmentShortcuts.isHidden)
         XCTAssertEqual(frame(v.candidates).minX, frame(controller.view).minX + 5)
-        XCTAssertEqual(frame(v.candidates).maxX, frame(controller.view).maxX - 5)
+        XCTAssertEqual(frame(v.candidates).maxX, frame(toggle).minX - 4)
         XCTAssertEqual(frame(v.candidates).height, candidateFrame.height)
         controller.developmentContent(); controller.developmentBuffer("", plugin: true); window.layoutIfNeeded()
         XCTAssertFalse(v.settings.isHidden); XCTAssertFalse(toggle.isHidden)

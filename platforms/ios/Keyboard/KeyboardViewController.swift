@@ -298,6 +298,7 @@ final class KeyboardViewController: UIInputViewController {
         }
         surface.onTypingPress = { [weak self] in self?.noteTypingKey() }
         surface.onKey = { [weak self] in self?.type($0) }
+        surface.onAlternate = { [weak self] text in self?.insertAlternate(text) }
         surface.onEmoji = { [weak self] text in
             guard let self, self.onscreen else { return }
             self.surface.cancel(); self.settle(); self.breakAssociationChain(); self.insert(text); self.render()
@@ -682,6 +683,13 @@ final class KeyboardViewController: UIInputViewController {
         }
         render()
     }
+    private func insertAlternate(_ text: String) {
+        guard onscreen, currentDocument == DocumentIdentity.read(textDocumentProxy) else { return }
+        // Digits here are literal text, never a candidate-selection shortcut.
+        settle()
+        if !engine.rawInput.isEmpty { commitRawInput() }
+        breakAssociationChain(); insert(text); render()
+    }
     private func settle() {
         guard !snapshot.preedit.isEmpty else { return }
         if !snapshot.candidates.isEmpty { receive(engine.candidate(0)) }
@@ -880,7 +888,7 @@ final class KeyboardViewController: UIInputViewController {
     private func renderShortcuts() {
         let empty = snapshot.preedit.isEmpty && snapshot.candidates.isEmpty && !showingAssociations && !surface.isChordActive && handPreview.isHidden
         let choosing = handPreview.isHidden && (!snapshot.preedit.isEmpty || !snapshot.candidates.isEmpty || showingAssociations)
-        for button in [moreButton, bufferButton] where button.isHidden != choosing { button.isHidden = choosing }
+        if moreButton.isHidden != choosing { moreButton.isHidden = choosing }
         // The empty strip stays in place underneath, so the row keeps its reserved slot.
         shortcuts.isHidden = !empty
         shortcuts.selected = bufferEnabled ? selectedPlugin : nil
@@ -889,7 +897,8 @@ final class KeyboardViewController: UIInputViewController {
             if button.isEnabled != enabled { button.isEnabled = enabled }
         }
     }
-    private var candidateSideInset: CGFloat { moreButton.isHidden ? 0 : 36 }
+    private var candidateLeadingInset: CGFloat { moreButton.isHidden ? 0 : 36 }
+    private func candidateWidth(in panelWidth: CGFloat) -> CGFloat { max(0, panelWidth - candidateLeadingInset - 36) }
     private func renderBuffer() {
         bufferPanel.isHidden = !bufferEnabled; bufferButton.isSelected = bufferEnabled
         if !bufferEnabled { hostSnapshot = nil; captureTimer?.invalidate(); captureTimer = nil }
@@ -978,7 +987,7 @@ final class KeyboardViewController: UIInputViewController {
         let customHeight = surface.usesCustomLayout ? surface.customLayout.map { CGFloat($0.geometry(width: Double(max(1, width - 10)), landscape: landscape).height) } : nil
         let standardHeight = surface.usesStandardLayout ? StandardKeyboardGeometry.height(landscape: landscape) : nil
         return [(status, 28), (bufferPanel, bufferHeight),
-                (candidatePanel, max(32, candidateStrip.fittingHeight(width: max(0, width - 10 - 2 * candidateSideInset)))),
+                (candidatePanel, max(32, candidateStrip.fittingHeight(width: candidateWidth(in: width - 10)))),
                 (spellingStrip, 34),
                 (surface, customHeight ?? standardHeight ?? KeyboardGeometry.height(layout: surface.chordLayout, chord: surface.chordMode, numeric: surface.numeric, emoji: surface.emojiMode, landscape: landscape, width: max(1, width - 10), profile: surface.profile)), (bottom, landscape ? 34 : 40)].filter { !$0.0.isHidden }
     }
@@ -1055,7 +1064,7 @@ final class KeyboardViewController: UIInputViewController {
         if isDefaultBuffer { source.frame = topLine; result.frame = bottomLine } else { result.frame = topLine; source.frame = bottomLine }
         typingStats.frame = CGRect(x: 8, y: 0, width: max(0, result.bounds.width - 16), height: bufferRowHeight)
         bufferButton.frame = CGRect(x: candidatePanel.bounds.width - 32, y: 0, width: 32, height: 32)
-        candidateStrip.frame = CGRect(x: candidateSideInset, y: 0, width: max(0, candidatePanel.bounds.width - 2 * candidateSideInset), height: candidatePanel.bounds.height)
+        candidateStrip.frame = CGRect(x: candidateLeadingInset, y: 0, width: candidateWidth(in: candidatePanel.bounds.width), height: candidatePanel.bounds.height)
         moreButton.frame = CGRect(x: 0, y: 0, width: 32, height: 32)
         handPreview.frame = CGRect(x: 36, y: 0, width: max(0, candidatePanel.bounds.width - 72), height: 32)
         shortcuts.frame = handPreview.frame
@@ -1243,7 +1252,13 @@ final class KeyboardViewController: UIInputViewController {
                     self.choose(self.preferences.scheme); self.render()
                 }
             }))
-
+            items.append(UIAction(title: L("长按上滑输入数字和符号", "Hold and swipe up for symbols"), image: UIImage(systemName: "hand.draw"), state: preferences.longPressSwipeSymbols ? .on : .off) { [weak self] _ in
+                guard let self else { return }
+                self.preferences.longPressSwipeSymbols.toggle()
+                self.preferencesStore.save(self.preferences)
+                self.surface.longPressSwipeSymbols = self.preferences.longPressSwipeSymbols
+                self.refreshMoreMenu(); self.render()
+            })
         }
         if !surface.hasUtilityCells {
             items.append(UIAction(title: directEnglish ? L("切换中文", "Switch to Chinese") : L("切换英文", "Switch to English"), image: UIImage(systemName: "globe")) { [weak self] _ in self?.toggleLanguage() })
@@ -1410,6 +1425,11 @@ final class KeyboardViewController: UIInputViewController {
             if preferences.keyboardThemeMigrationVersion == 0 { preferences.keyboardSkin = appearance.skin }
             preferences.appliedKeyboardAppearanceRevision = revision; preferencesStore.save(preferences)
         }
+        if let revision = appearance.longPressSwipeSymbolsRevision, revision != preferences.appliedLongPressSwipeSymbolsRevision {
+            preferences.longPressSwipeSymbols = appearance.longPressSwipeSymbols
+            preferences.appliedLongPressSwipeSymbolsRevision = revision
+        }
+        surface.longPressSwipeSymbols = preferences.longPressSwipeSymbols
         let savedTheme = KeyboardThemeStore().load()
         let explicitAppTheme = savedTheme.revision != nil && savedTheme.revision != preferences.appliedKeyboardThemeRevision
         preferences.reconcileTheme(savedTheme)
@@ -1727,6 +1747,10 @@ final class KeyboardViewController: UIInputViewController {
         preferences.ordinaryLayout = layout; preferences.keyboardSkin = skin
         preferences.statusSkin = (skin == .system ? StatusSkin.apple : .rhino).rawValue
         choose(preferences.scheme); render(); view.layoutIfNeeded()
+    }
+    func developmentSwipeSymbols(_ enabled: Bool) {
+        preferences.longPressSwipeSymbols = enabled; surface.longPressSwipeSymbols = enabled
+        refreshMoreMenu(); view.layoutIfNeeded()
     }
     func developmentSelectNineKeySpelling(_ value: String) { selectNineKeySpelling(value) }
     var developmentStandardFunctions: [StandardKeyControl: UIView] { standardFunctions }

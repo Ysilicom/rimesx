@@ -1,6 +1,6 @@
 # iOS GitHub Actions release
 
-Current target: **1.1.0**, local build **37**. Build 35's external review was withdrawn after a reported haptic regression; build 37 is installed locally for follow-up acceptance. The public [TestFlight invitation](https://testflight.apple.com/join/Kdj9RB4q) is separate from an App Store release. Read App Store Connect for the currently approved builds.
+Current target: **1.1.0**, local build **39**. Build 35's external review was withdrawn after a reported haptic regression; build 38 passed the maintainer's physical acceptance. Build 39 only updates the app home hero and is being prepared for upload. The public [TestFlight invitation](https://testflight.apple.com/join/Kdj9RB4q) is separate from an App Store release. Read App Store Connect for the currently approved builds.
 
 `ios.yml` runs unsigned builds, shared tests and hosted iOS tests on matching
 pull requests targeting main and matching pushes to main. `ios-release.yml` runs

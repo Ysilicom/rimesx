@@ -213,10 +213,20 @@ public final class SetupActivity extends Activity {
     }
     private String directionName(String id) { return id.equals("zh-en")?t("中 → 英","Chinese → English"):id.equals("en-zh")?t("英 → 中","English → Chinese"):t("自动中英","Automatic"); }
     private void home() {
-        LinearLayout hero=column(); hero.setPadding(dp(16),dp(16),dp(16),dp(16)); hero.setBackground(shape((accent&0x00FFFFFF)|0x14000000,24));
-        TextView brand=text("RIMES",38,ink,true); brand.setTypeface(Typeface.create("sans-serif-rounded",Typeface.BOLD)); hero.addView(brand);
-        TextView subtitle=text(t("把想法，写得顺一点。","A little more flow, in every word."),20,ink,false); subtitle.setPadding(0,dp(12),0,dp(12)); hero.addView(subtitle);
-        hero.addView(text(t("离线中文输入 · 滑动并击 · 可选 AI","Offline Chinese · Slide chords · Optional AI"),15,secondary,false)); content.addView(hero);
+        LinearLayout hero=new LinearLayout(this); hero.setOrientation(LinearLayout.HORIZONTAL); hero.setGravity(Gravity.CENTER_VERTICAL);
+        hero.setTag("settings.home.hero"); hero.setPadding(dp(16),dp(16),dp(16),dp(16)); hero.setBackground(shape((accent&0x00FFFFFF)|0x14000000,24));
+        ImageView logo=new ImageView(this); logo.setImageResource(R.drawable.rimes_brand_logo); logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        logo.setBackground(shape(0xFFFFFFFF,16)); logo.setClipToOutline(true); logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams logoParams=new LinearLayout.LayoutParams(dp(72),dp(72)); logoParams.setMarginEnd(dp(16)); hero.addView(logo,logoParams);
+        LinearLayout identity=column();
+        TextView brand=text("RIMES",32,ink,true); brand.setTypeface(Typeface.create("sans-serif-rounded",Typeface.BOLD)); identity.addView(brand);
+        String[] lines={"世界对智者太过挑剔","好奇的人需要朋友"};
+        for(int i=0;i<lines.length;i++) {
+            TextView line=text(lines[i],15,secondary,false); line.setSingleLine(true);
+            line.setAutoSizeTextTypeUniformWithConfiguration(12,15,1,android.util.TypedValue.COMPLEX_UNIT_SP);
+            line.setPadding(0,dp(i==0?6:4),0,0); identity.addView(line,new LinearLayout.LayoutParams(-1,-2));
+        }
+        hero.addView(identity,new LinearLayout.LayoutParams(0,-2,1)); content.addView(hero);
         LinearLayout start=group(t("开始使用","Get started"));
         row(start,KeyboardIcon.KEYBOARD,t("启用 RIMES 键盘","Enable RIMES keyboard"),null,null,"settings.home.enable",() -> navigate("setup"));
         row(start,KeyboardIcon.WRITE,t("输入体验","Try typing"),null,null,"settings.home.playground",() -> navigate("playground"));

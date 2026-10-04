@@ -1,10 +1,10 @@
 # RIMES Android
 
-**1.0.0** is the next release target of the native Java Android input method for daily Chinese input and
+**1.1.0** is the next release of the native Java Android input method for daily Chinese input and
 local dictionary learning. Minimum Android 8.0 / API 26; development package
 `org.scholay.rimes.android.debug`; release identity `org.scholay.rimes.android`.
-Build code is now **9**. This anchors the next product release; no 1.0.0 package has been published.
-The dev8 physical-device evidence remains historical and must be repeated on the signed release.
+The release candidate uses build code **11**, signed with the existing production key.
+Version 1.0.0 is already public; 1.1.0 remains in release preparation.
 See [release preparation](RELEASE.md) for signing and upgrade requirements.
 Current evidence and remaining acceptance are in [VALIDATION.md](VALIDATION.md).
 

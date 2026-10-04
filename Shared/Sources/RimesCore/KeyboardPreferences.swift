@@ -16,6 +16,8 @@ public struct KeyboardPreferences: Codable {
     public var traditional = false
     public var chordLayout: ChordLayout = .orthogonal
     public var ordinaryLayout: OrdinaryKeyboardLayout = .qwerty
+    public var longPressSwipeSymbols = false
+    public var appliedLongPressSwipeSymbolsRevision: UUID?
     public var keyboardSkin: KeyboardSkin = .system
     public var appliedKeyboardAppearanceRevision: UUID?
     public var appliedKeyboardThemeRevision: UUID?
@@ -41,7 +43,7 @@ public struct KeyboardPreferences: Codable {
     private enum CodingKeys: String, CodingKey {
         case scheme, appliedAppSelection, initialized, haptics, keySounds, traditional, sourceLanguage, targetLanguage
         case chordLayout, hapticStrength, lastChineseScheme, englishInput, poem, speakTranslation, statusSkin, art, statusSkinRotation, appliedSkinRevision, thinking
-        case ordinaryLayout, keyboardSkin, appliedKeyboardAppearanceRevision, overriddenCustomLayoutRevision
+        case ordinaryLayout, longPressSwipeSymbols, appliedLongPressSwipeSymbolsRevision, keyboardSkin, appliedKeyboardAppearanceRevision, overriddenCustomLayoutRevision
         case appliedKeyboardThemeRevision, keyboardThemeMigrationVersion
     }
     public init(from decoder: Decoder) throws {
@@ -54,6 +56,8 @@ public struct KeyboardPreferences: Codable {
         traditional = try values.decodeIfPresent(Bool.self, forKey: .traditional) ?? false
         chordLayout = (try? values.decode(ChordLayout.self, forKey: .chordLayout)) ?? .orthogonal
         ordinaryLayout = (try? values.decode(OrdinaryKeyboardLayout.self, forKey: .ordinaryLayout)) ?? .qwerty
+        longPressSwipeSymbols = (try? values.decode(Bool.self, forKey: .longPressSwipeSymbols)) ?? false
+        appliedLongPressSwipeSymbolsRevision = try? values.decode(UUID.self, forKey: .appliedLongPressSwipeSymbolsRevision)
         keyboardSkin = (try? values.decode(KeyboardSkin.self, forKey: .keyboardSkin)) ?? .system
         appliedKeyboardAppearanceRevision = try? values.decode(UUID.self, forKey: .appliedKeyboardAppearanceRevision)
         appliedKeyboardThemeRevision = try? values.decode(UUID.self, forKey: .appliedKeyboardThemeRevision)

@@ -147,6 +147,7 @@ final class RimeSchemeStoreTests: XCTestCase {
         try publish(package)
         try store.activate(.init(packageID: package.id, schemaID: "xmjd6"))
         try store.activate(nil)
+        try store.remove(packageID: package.id)
 
         XCTAssertEqual(try Data(contentsOf: configURL), configData)
         XCTAssertEqual(defaults.dictionaryRepresentation() as NSDictionary, beforePreferences)
@@ -155,6 +156,70 @@ final class RimeSchemeStoreTests: XCTestCase {
         XCTAssertEqual(restored.chordLayout, .splitOrthogonal)
         XCTAssertTrue(restored.englishInput)
         XCTAssertEqual(restored.hapticStrength, .strongest)
+    }
+
+    func testRemovingActivePackageRestoresBuiltInAndPreservesOtherPackagesAndUserData() throws {
+        let first = package(schema: "first"), second = package(schema: "second")
+        try publish(first); try publish(second)
+        let selection = RimeSchemeSelection(packageID: first.id, schemaID: "first")
+        try store.activate(selection)
+        let before = store.load()
+        let userData = temporary.appendingPathComponent("RimeImported/\(first.id)/first.userdb")
+        try FileManager.default.createDirectory(at: userData.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let learned = Data("user learned words".utf8); try learned.write(to: userData)
+
+        try store.remove(packageID: first.id)
+
+        XCTAssertNil(store.load().active); XCTAssertNotEqual(store.load().revision, before.revision)
+        XCTAssertEqual(store.load().packages.map(\.id), [second.id])
+        XCTAssertNil(store.resolve(selection))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.packageURL(id: first.id).path))
+        XCTAssertNotNil(store.resolve(.init(packageID: second.id, schemaID: "second")))
+        XCTAssertEqual(try Data(contentsOf: userData), learned)
+    }
+
+    func testRemovingInactiveOrMissingPackagePreservesCurrentSelection() throws {
+        let first = package(schema: "first"), broken = package(schema: "broken")
+        try publish(first); try publish(broken)
+        let selection = RimeSchemeSelection(packageID: first.id, schemaID: "first")
+        try store.activate(selection)
+        let revision = store.load().revision
+        try FileManager.default.removeItem(at: store.packageURL(id: broken.id))
+
+        try store.remove(packageID: broken.id)
+
+        XCTAssertEqual(store.load().packages.map(\.id), [first.id])
+        XCTAssertEqual(store.load().active, selection); XCTAssertEqual(store.load().revision, revision)
+    }
+
+    func testDeletionRestoresResourcesIfLibraryWriteFails() throws {
+        let package = package(schema: "fixture")
+        try publish(package)
+        let selection = RimeSchemeSelection(packageID: package.id, schemaID: "fixture")
+        try store.activate(selection)
+        let before = try Data(contentsOf: store.root.appendingPathComponent("library-v1.json"))
+        let failing = RimeSchemeStore(root: store.root, writeLibraryData: { _, _ in throw CocoaError(.fileWriteOutOfSpace) })
+
+        XCTAssertThrowsError(try failing.remove(packageID: package.id))
+
+        XCTAssertEqual(try Data(contentsOf: store.root.appendingPathComponent("library-v1.json")), before)
+        XCTAssertNotNil(store.resolve(selection)); XCTAssertEqual(store.load().active, selection)
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: store.root.path).contains { $0.hasPrefix(".removed-") })
+    }
+
+    func testDeletionRejectsUnownedPathsAndDoesNotFollowPackageSymlinks() throws {
+        let package = package(schema: "fixture")
+        try publish(package)
+        let outside = temporary.appendingPathComponent("outside")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let sentinel = outside.appendingPathComponent("keep.txt")
+        try Data("keep".utf8).write(to: sentinel)
+        for invalid in ["../outside", "", UUID().uuidString] { XCTAssertThrowsError(try store.remove(packageID: invalid)) }
+        try FileManager.default.removeItem(at: store.packageURL(id: package.id))
+        try FileManager.default.createSymbolicLink(at: store.packageURL(id: package.id), withDestinationURL: outside)
+        try store.remove(packageID: package.id)
+        XCTAssertEqual(try String(contentsOf: sentinel, encoding: .utf8), "keep")
+        XCTAssertTrue(store.load().packages.isEmpty)
     }
 
     private func package(schema: String) -> RimeSchemePackage {

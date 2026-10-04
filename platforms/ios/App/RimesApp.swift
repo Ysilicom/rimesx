@@ -26,11 +26,22 @@ struct HomeView: View {
         NavigationStack {
             List {
                 Section {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("RIMES").font(.system(size: 38, weight: .bold, design: .rounded))
-                        Text(L("把想法，写得顺一点。", "A little more flow, in every word.")).font(.title3)
-                        Text(L("离线中文输入 · 滑动并击 · 可选 AI", "Offline Chinese · Slide chords · Optional AI")).font(.subheadline).foregroundStyle(.secondary)
-                    }.padding(.vertical, 16)
+                    HStack(spacing: 16) {
+                        Image("BrandLogo").resizable().scaledToFit()
+                            .frame(width: 72, height: 72)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("RIMES").font(.system(size: 32, weight: .bold, design: .rounded))
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("世界对智者太过挑剔")
+                                Text("好奇的人需要朋友")
+                            }.font(.subheadline).foregroundStyle(.secondary)
+                                .lineLimit(1).minimumScaleFactor(0.8)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }.padding(.vertical, 12)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("settings.home.hero")
                 }.listRowBackground(Color.teal.opacity(0.08))
                 Section(L("开始使用", "Get started")) {
                     NavigationLink { SetupView() } label: { Label(L("启用 RIMES 键盘", "Enable RIMES keyboard"), systemImage: "keyboard") }

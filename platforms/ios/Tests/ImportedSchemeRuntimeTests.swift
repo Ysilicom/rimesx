@@ -112,6 +112,30 @@ import RimesCore
         XCTAssertNil(store.load().active)
     }
 
+    func testDeletingImportedChoiceRestoresPreviousChordOnNextPresentation() async throws {
+        let root = temporaryRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        let store = RimeSchemeStore(root: root)
+        let package = try await installFixture(schema: "fixture_delete", word: "星猫", store: store)
+        defer { removeUserData(for: package) }
+        let (window, controller) = host(); defer { window.isHidden = true }
+        controller.developmentChoose(.chord); controller.developmentSetLayout(.splitOrthogonal)
+        let selection = RimeSchemeSelection(packageID: package.id, schemaID: "fixture_delete")
+        try store.activate(selection)
+        controller.developmentChooseImported(selection, store: store)
+        controller.developmentType("a")
+        XCTAssertFalse(controller.layoutViews.keys.chordMode)
+
+        controller.viewWillDisappear(false)
+        try store.remove(packageID: package.id)
+        controller.viewWillAppear(false); window.layoutIfNeeded()
+
+        XCTAssertNil(controller.developmentImportedSelection)
+        XCTAssertTrue(controller.layoutViews.keys.resolvesChords)
+        XCTAssertEqual(controller.layoutViews.keys.chordLayout, .splitOrthogonal)
+        XCTAssertNil(store.load().active)
+        XCTAssertTrue(controller.developmentRaw.isEmpty)
+    }
+
     func testImportedTopUpCommitsPreviousWordAndKeepsNewCompositionInHostAndBuffer() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
