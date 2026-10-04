@@ -100,4 +100,4 @@ The command writes the ZIP and a sibling `.sha256` file under `platforms/windows
 
 Upstream references: [Weasel README and user directory](https://github.com/rime/weasel#%E5%AE%9A%E8%A3%BD%E8%BC%B8%E5%85%A5%E6%B3%95), [Weasel customization guide](https://github.com/rime/weasel/wiki/Weasel-%E5%AE%9A%E5%88%B6%E5%8C%96), and [`WeaselDeployer.exe /deploy` source](https://github.com/rime/weasel/blob/master/WeaselDeployer/WeaselDeployer.cpp).
 
-The packaging scripts are covered by the repository's MIT license; the release ZIP includes it as `LICENSE`. Bundled data retains its original notices, including files under `rime-data/licenses/`; see the packaged `THIRD_PARTY_NOTICES.md` as well.
+The packaging scripts are covered by the repository's Apache-2.0 license, subject to [the licensing scope](../../LICENSING.md) and retained historical MIT grants. Future packages must include `LICENSE`, `NOTICE` and applicable retained licenses. Bundled data retains its original notices, including files under `rime-data/licenses/`; see `THIRD_PARTY_NOTICES.md` as well.

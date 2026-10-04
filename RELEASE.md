@@ -6,7 +6,8 @@
 
 **合并到 main → macOS CI 全绿 → `./scripts/release.sh <渠道>` → tag → 签名暂存 → 真机同路验收 → 第二次批准 → GitHub Release。**
 
-macOS 公开版本号只来自 tag。发布脚本不修改、不提交任何文件，只在 `origin/main` 上创建并推送一个 tag；
+当前 macOS、iOS、Android、Windows 统一以 **1.0.0** 为下一正式版本，Linux 不纳入本轮。
+目标与阻断项见 [1.0 发布准备](RELEASE-1.0.0.md)。macOS 的 `VERSION`、`Info.plist` 与正式 tag 必须一致。发布脚本不修改、不提交任何文件，只在 `origin/main` 上创建并推送一个 tag；
 构建、验证、发布说明和 Release 由 GitHub Actions 完成。macOS 与数据预览的发布中心是
 [`scholay/rimes`](https://github.com/scholay/rimes/releases)；iOS 独立走 App Store Connect。
 
@@ -153,8 +154,8 @@ Release 的同一批资产读回校验。signed-stage 只是一道发布权威�
 
 ## 六、版本号规则
 
-- **tag 是唯一来源。** 仓库里的 `Info.plist` 固定为 `0.0.0-dev`，CI 会拒绝提交真实版本号；
-  `build_install.sh` 的开发安装用 `git describe` 命名（如 `0.5.0-preview.1-73-ge4490c8`）。
+- **VERSION 是产品目标，tag 是发布身份。** `Info.plist` 与 `VERSION` 必须一致；正式 tag 也必须匹配。
+  `stable` 默认选择该目标。开发安装使用 `1.0.0-dev.<commit>[.dirty]`，继续退出正式自动更新通道。
 - 排序：`X.Y.Z-preview.N` 低于 `X.Y.Z`；预览号从 1 开始递增，禁止回退。
 - 应用内更新只认严格的 `X.Y.Z`；预览版和开发版不会收到更新提示。
 

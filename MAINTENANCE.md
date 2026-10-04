@@ -2,9 +2,9 @@
 
 ## 原则
 
-- 一个仓库、一条应用集成主线 `main`；macOS、iOS、Windows、Linux 不维持长期分叉的产品主线。
+- 一个仓库、一条应用集成主线 `main`；macOS、iOS、Android、Windows、Linux 不维持长期分叉的产品主线。
 - 新工作从最新主线开短分支，一件事一个可审查提交/PR；合入后不再沿旧分支叠加功能。
-- 每个平台独立构建、独立版本号、独立验收和发布节奏。合入主线不等于该平台已可用或已发布。
+- 每个平台独立构建、验收和发布。2026-10-03 起 macOS、iOS、Android、Windows 的下一产品版本统一锚定 **1.0.0**，构建编号独立递增；Linux 保留现状。合入主线不等于可用或已发布。
 - 本地维护可以领先 `origin/main`。未获授权时，不 push、不创建发布 tag、不触发远端 workflow，
   不安装输入法、不提交 App Store、不修改远端 PR 或保护规则。
 - 获准同步远端时，从已验证的本地主线提交创建交付分支，经 PR 回到 `origin/main`；不 force-push
@@ -17,6 +17,7 @@
 |---|---|---|
 | macOS | `Sources/`、`Package.swift` | IMK 焦点/投递/保护态、原生 UI、升级安装 |
 | iOS | `platforms/ios/` | App 与键盘扩展、Full Access、设备与 App Store |
+| Android | `platforms/android/`（当前独立工作区） | 原生 IME、正式身份与签名、设备与迁移 |
 | 共享 Swift 逻辑 | `Shared/` | 共享单测 + macOS/iOS 受影响路径 |
 | Windows | `platforms/windows/native/` | TSF/Broker、x64/x86、真实 Windows 宿主 |
 | Linux | `platforms/linux/` | Fcitx5、Buffer/Capsule、X11/Wayland 真实桌面 |
@@ -30,13 +31,14 @@ Windows/Linux 的 C++ 适配层不直接共享 Swift 实现；用行为规范、
 
 | 平台/渠道 | 版本来源 | 构建/发布入口 | 当前边界 |
 |---|---|---|---|
-| macOS | `vX.Y.Z[-preview.N]`；本地开发版附提交身份 | `CI` / `Release macOS`，`scripts/release.sh` | 正式包需签名、公证、同包真机验收与批准 |
+| macOS | `VERSION` 与 `Info.plist`；正式 tag 匹配，本地开发版附提交身份 | `CI` / `Release macOS`，`scripts/release.sh` | 正式包需签名、公证、同包真机验收与批准 |
 | iOS | 公开版 `ios-vX.Y.Z`；本地默认 `project.yml`，CI 独立 build number | `iOS checks` / `ios-release.yml` | tag 必须位于 main 历史；上传、审核、上架分开记录 |
-| Windows 原生 | `native/CMakeLists.txt` 的项目版本；Artifact 加架构和 commit SHA | `Windows IME` / `Windows Native Foundation` | 工程预览，不是完整签名安装包 |
+| Android | `platforms/android/VERSION` 与 Gradle versionCode | `Android checks` / `scripts/build-release.sh` | 正式 APK/AAB 需长期签名与独立验收 |
+| Windows 原生 | `native/VERSION` 生成工程、PE 和运行时版本；Artifact 加架构和源码快照 | `Windows IME` / `Windows Native Foundation` | 工程预览，不是完整签名安装包 |
 | Linux 原生 | `ime/VERSION` 的包版本及 CMake 项目版本；Artifact 加 commit SHA | `Linux IME` / `ime/scripts/package-deb.sh` | 实验性 Artifact / `.deb`，需真实桌面验证 |
 | 旧 Windows/Linux 数据预览 | `platform-preview-vX.Y.Z` | `platform-preview-release.yml` | 词库与脚本数据包，不是原生 IME 产品版本 |
 
-四个平台版本不必同号，也不因其他平台发布而递增。当前 Windows/Linux 原生通道未接入 tag 自动
+本轮四个目标平台统一使用 1.0.0，后续修复的构建编号独立递增。Linux 不跟随此次版本锚定。当前 Windows/Linux 原生通道未接入 tag 自动
 公开发布；不要创建一个看似正式的 tag 来冒充分发能力。未来接通时使用各自的 `windows-v*` /
 `linux-v*` 命名空间，并先补打包、验收和发布授权门禁，不复用 macOS 的 `v*` 或数据预览标签。
 

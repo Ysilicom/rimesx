@@ -77,8 +77,10 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $stagingRoot 'lib') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'lib/RimesDataPreview.Common.ps1') -Destination (Join-Path $stagingRoot 'lib/RimesDataPreview.Common.ps1')
     Copy-Item -LiteralPath (Join-Path $platformRoot 'README.md') -Destination (Join-Path $stagingRoot 'README.md')
-    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination (Join-Path $stagingRoot 'LICENSE')
-    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'THIRD_PARTY_NOTICES.md') -Destination (Join-Path $stagingRoot 'THIRD_PARTY_NOTICES.md')
+    foreach ($legalFile in @('LICENSE', 'NOTICE', 'LICENSING.md', 'ATTRIBUTION.md', 'THIRD_PARTY_NOTICES.md')) {
+        Copy-Item -LiteralPath (Join-Path $repositoryRoot $legalFile) -Destination (Join-Path $stagingRoot $legalFile)
+    }
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSES') -Destination (Join-Path $stagingRoot 'LICENSES') -Recurse
 
     $manifestFiles = @($stagedInventory | ForEach-Object {
         [ordered]@{

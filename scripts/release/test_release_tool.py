@@ -296,10 +296,10 @@ class GitHistoryTests(unittest.TestCase):
 
 
 class PlistTests(unittest.TestCase):
-    def test_placeholder_is_required(self):
+    def test_product_version_anchor_is_required(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "Info.plist"
-            path.write_bytes(plistlib.dumps({"CFBundleShortVersionString": tool.DEV_PLACEHOLDER_VERSION}))
+            path.write_bytes(plistlib.dumps({"CFBundleShortVersionString": tool.PRODUCT_VERSION}))
             self.assertIsNone(tool.check_plist(path))
             path.write_bytes(plistlib.dumps({"CFBundleShortVersionString": "0.4.2"}))
             self.assertIn("0.4.2", tool.check_plist(path))

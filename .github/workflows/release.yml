@@ -36,7 +36,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Rehearsal version (default: the version the next preview would get). Never publishes.'
+        description: 'Rehearsal version (default: VERSION product target). Never publishes.'
         required: false
 
 permissions:
@@ -172,12 +172,15 @@ jobs:
           elif [[ -n "$DISPATCH_VERSION" ]]; then
             VERSION="$DISPATCH_VERSION"
           else
-            # Rehearse the exact version string the next preview would get.
-            VERSION="$(git ls-remote --tags --refs origin \
-              | python3 scripts/release/release_tool.py rehearsal-version)"
+            # Rehearse the current product target without publishing.
+            VERSION="$(cat VERSION)"
           fi
           if [[ ! "$VERSION" =~ ${semver}(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
             echo "Invalid build version: $VERSION" >&2
+            exit 1
+          fi
+          if [[ "$IS_RELEASE" == true && "$VERSION" != "$(cat VERSION)" ]]; then
+            echo "Formal tag must match the VERSION product target." >&2
             exit 1
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
@@ -294,7 +297,8 @@ jobs:
             [ -d "$resource_bundle" ] || continue
             cp -R "$resource_bundle" "$APP/Contents/Resources/"
           done
-          cp THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
+          cp LICENSE NOTICE LICENSING.md ATTRIBUTION.md THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
+          cp -R LICENSES "$APP/Contents/Resources/"
           cp Info.plist "$APP/Contents/Info.plist"
           cp -R Vendor/rime/Frameworks/* "$APP/Contents/Frameworks/"
           cp -R Vendor/rime/SharedSupport/* "$APP/Contents/SharedSupport/"

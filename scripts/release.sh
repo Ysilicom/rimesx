@@ -1,8 +1,8 @@
 #!/bin/bash
 # =============================================================================
-# RIMES 发布脚本 —— 所有渠道的唯一入口
+# RIMES macOS 发布脚本与旧数据预览维护入口
 #
-# 版本号只来自 tag。脚本从远端 tag 计算下一个版本，确认 origin/main 的 macOS
+# 正式目标来自 VERSION，发布身份来自 tag。脚本确认 origin/main 的 macOS
 # 发布就绪检查通过，
 # 在 origin/main 上创建 tag 并只推送这个 tag；不修改、不提交任何文件。
 # tag 推送后由 GitHub Actions 构建、验证并创建 Release。
@@ -11,7 +11,7 @@
 #   ./scripts/release.sh preview               # 继续当前预览线：v0.5.0-preview.1 → v0.5.0-preview.2
 #   ./scripts/release.sh preview minor         # 开始新预览线：最新正式版 minor+1 的 preview.1
 #   ./scripts/release.sh preview 0.6.0         # 开始指定的预览线 v0.6.0-preview.1
-#   ./scripts/release.sh stable                # 当前预览线转正：v0.5.0-preview.N → v0.5.0
+#   ./scripts/release.sh stable                # 发布 VERSION 锚定的正式版本：v1.0.0
 #   ./scripts/release.sh patch|minor|major     # 直接发布正式版（基于最新正式版）
 #   ./scripts/release.sh 0.5.1                 # 直接发布指定正式版
 #   ./scripts/release.sh platform minor        # Windows / Linux 数据预览 platform-preview-vX.Y.Z
@@ -114,7 +114,7 @@ case "$COMMAND" in
     preview) KIND="preview" ;;
     stable)
         KIND="stable"
-        [[ -z "$ARG" ]] || die "stable 不接受参数；直接发布指定正式版请用 ./scripts/release.sh X.Y.Z"
+        [[ -z "$ARG" ]] || die "stable 默认采用 VERSION，不接受参数；直接发布指定正式版请用 ./scripts/release.sh X.Y.Z"
         ;;
     platform)
         KIND="platform"
@@ -133,6 +133,11 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "当前目录不是 G
 command -v python3 >/dev/null || die "需要 python3。"
 command -v gh >/dev/null || die "需要 GitHub CLI（gh）来确认 CI 状态；请安装并 gh auth login。"
 TOOL="scripts/release/release_tool.py"
+PRODUCT_VERSION="$(cat VERSION)"
+[[ "$PRODUCT_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || die "VERSION 必须是正式产品版本。"
+if [[ "$KIND" == stable && -z "$ARG" ]]; then
+    ARG="$PRODUCT_VERSION"
+fi
 
 git remote get-url "$REMOTE" >/dev/null 2>&1 || die "缺少发布远端 ${REMOTE}。"
 fetch_url="$(git remote get-url "$REMOTE")"
@@ -161,6 +166,9 @@ while IFS= read -r line; do
     esac
 done <<< "$plan_output"
 [[ -n "$TAG" && -n "$VERSION" ]] || die "无法解析版本计划: $plan_output"
+if [[ "$KIND" == stable && "$VERSION" != "$PRODUCT_VERSION" ]]; then
+    die "正式版本 $VERSION 与 VERSION=$PRODUCT_VERSION 不一致；先更新并验证发布目标。"
+fi
 
 # --- Gates ------------------------------------------------------------------
 fetch_main="$(remote_main_sha)"
@@ -178,7 +186,7 @@ fi
 remote_tag_exists "$TAG" && die "远端 tag $TAG 已存在；发布脚本绝不会删除或覆盖远端标签。"
 git show-ref --verify --quiet "refs/tags/$TAG" && die "本地 tag $TAG 已存在；请先确认其来源，发布脚本不会重建标签。"
 
-python3 "$TOOL" check-plist || gate "Info.plist 版本号不是开发占位值。"
+python3 "$TOOL" check-plist || gate "Info.plist 与 VERSION 发布目标不一致。"
 if [[ "$KIND" != "platform" ]]; then
     python3 -B scripts/sync-buffer-plugin-catalog.py --check >/dev/null \
         || gate "预置缓冲插件 catalog / README 未同步。"

@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Fast, macOS-free checks of the release rules: tags are the only version
-  # source, commits follow Conventional Commits (release notes are generated
+  # Fast, macOS-free checks of the release rules: product anchors match the release
+  # tags, commits follow Conventional Commits (release notes are generated
   # from them), and the version tooling behaves as documented in RELEASE.md.
   release-tooling:
     name: Release tooling
@@ -34,8 +34,10 @@ jobs:
           bash -n scripts/sign-macos-app.sh
           scripts/rehearse-release-pkg.sh --help
 
-      - name: Info.plist carries no committed version
-        run: python3 scripts/release/release_tool.py check-plist
+      - name: Info.plist matches the product version anchor
+        run: |
+          python3 scripts/release/release_tool.py check-plist
+          python3 scripts/release/check-product-versions.py
 
       - name: Conventional commit messages
         if: github.event_name == 'pull_request'

@@ -114,8 +114,10 @@ python3 "$preview_tool" stage \
     --output-dir "$package_root/data/rime-data"
 cp "$platform_root/README.md" "$package_root/README.md"
 printf '%s\n' "$version" > "$package_root/VERSION"
-cp "$repo_root/LICENSE" "$package_root/LICENSE"
-cp "$repo_root/THIRD_PARTY_NOTICES.md" "$package_root/THIRD_PARTY_NOTICES.md"
+for legal_file in LICENSE NOTICE LICENSING.md ATTRIBUTION.md THIRD_PARTY_NOTICES.md; do
+    cp "$repo_root/$legal_file" "$package_root/$legal_file"
+done
+cp -R "$repo_root/LICENSES" "$package_root/LICENSES"
 cp -R "$platform_root/scripts" "$package_root/scripts"
 
 if find -P "$package_root/data/rime-data" -type l -print -quit | grep -q .; then

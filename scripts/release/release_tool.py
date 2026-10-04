@@ -25,7 +25,7 @@ Subcommands:
   lint-commits BASE HEAD
       Fail when a non-merge commit in BASE..HEAD is not a Conventional Commit.
   check-plist [PATH]
-      Fail unless Info.plist carries the development placeholder version.
+      Fail unless Info.plist agrees with the numeric product VERSION anchor.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ from pathlib import Path
 REPO = "scholay/rimes"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHANGELOG = REPO_ROOT / "CHANGELOG.md"
-DEV_PLACEHOLDER_VERSION = "0.0.0-dev"
+PRODUCT_VERSION = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
 GITHUB_RELEASES_URL = f"https://api.github.com/repos/{REPO}/releases"
 GITHUB_RELEASE_PAGE_SIZE = 100
 
@@ -534,10 +534,12 @@ def lint_commits(base: str, head: str) -> list[str]:
 def check_plist(path: Path) -> str | None:
     with path.open("rb") as handle:
         version = plistlib.load(handle).get("CFBundleShortVersionString")
-    if version != DEV_PLACEHOLDER_VERSION:
+    if not CORE.fullmatch(PRODUCT_VERSION):
+        return "VERSION must contain a strict MAJOR.MINOR.PATCH product version"
+    if version != PRODUCT_VERSION:
         return (
-            f"{path.name} 的 CFBundleShortVersionString 必须保持为 {DEV_PLACEHOLDER_VERSION}，"
-            f"实际为 {version!r}。版本号只来自发布 tag，由 CI 在构建时写入。"
+            f"{path.name} 的 CFBundleShortVersionString 必须与 VERSION={PRODUCT_VERSION} 一致，"
+            f"实际为 {version!r}。正式 tag 必须匹配这一发布目标。"
         )
     return None
 
