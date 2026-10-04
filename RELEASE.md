@@ -6,7 +6,7 @@
 
 **合并到 main → macOS CI 全绿 → `./scripts/release.sh <渠道>` → tag → 签名暂存 → 真机同路验收 → 第二次批准 → GitHub Release。**
 
-当前 macOS、iOS、Android、Windows 统一以 **1.1.0** 为下一正式版本，Linux 不纳入本轮。
+本轮 macOS、iOS、Android、Windows 统一以 **1.1.0** 为发布目标，Linux 不纳入本轮。
 目标与验收记录见 [1.1.0 发布计划](docs/releases/1.1.0-plan.md)；[1.0 发布准备](RELEASE-1.0.0.md)保留作历史记录。macOS 的 `VERSION`、`Info.plist` 与正式 tag 必须一致。发布脚本不修改、不提交任何文件，只在 `origin/main` 上创建并推送一个 tag；
 构建、验证、发布说明和 Release 由 GitHub Actions 完成。macOS 与数据预览的发布中心是
 [`scholay/rimes`](https://github.com/scholay/rimes/releases)；iOS 独立走 App Store Connect。
@@ -97,6 +97,11 @@ git switch main && git pull --ff-only
 再次读取两个 Environment，配置变弱或缺失就拒绝继续；不要用直接 `git push` 绕开 `release.sh`。
 
 ## 三、tag 推送之后
+
+**正式 tag 创建后，到对应 Release 完成公开前，暂停合并任何 main PR，包括纯文档 PR。**
+签名 job 在导入凭据前会重新校验 `origin/main` 与 tag 源提交完全一致；构建期间推进 main，
+即使只改文档，也会使这道检查拒绝继续。发布记录和生成的 `CHANGELOG.md` 应在公开资产读回校验后，
+再通过后续 PR 合入。不要通过移动 tag、回退 main 或放宽保护规则恢复流程。
 
 [`.github/workflows/release.yml`](.github/workflows/release.yml) 接手：
 

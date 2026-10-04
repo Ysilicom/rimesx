@@ -14,6 +14,12 @@ packaging/upgrade rehearsal passed. The canonical `v1.1.0` tag was created by
 
 ## Public host packages
 
+- [macOS 1.1.0 (84)](https://github.com/scholay/rimes/releases/tag/v1.1.0)
+  was published as the stable Latest release on 2026-10-04. All four public
+  assets were downloaded without an account token and matched their staged
+  bytes, GitHub digests and sizes. The exact public PKG had already passed
+  signing, notarization and installation on macOS 27.0 / Apple Silicon;
+  all 227 installed payload entries matched.
 - [Windows 1.1.0](https://github.com/scholay/rimes/releases/tag/windows-v1.1.0)
   was published on 2026-10-04. All five public assets were downloaded without
   an account token and matched their staged bytes, GitHub digests and sizes.
@@ -21,11 +27,15 @@ packaging/upgrade rehearsal passed. The canonical `v1.1.0` tag was created by
   was published on 2026-10-04 with production build code 12. All five public
   assets were downloaded without an account token and matched their staged
   bytes, GitHub digests and sizes.
-- Both tags resolve to the merge commit above. Their `BUILD-INFO.json` assets
-  identify the exact earlier runtime build commits and validation scope.
-- macOS follows the protected CI signing, immutable stage, same-package local
-  installation and publication sequence; the local preflight draft is not the
-  public release.
+- All three tags resolve to the merge commit above. Their `BUILD-INFO.json`
+  assets identify the exact runtime build commits and validation scope.
+- macOS uses the verified application built by the tagged CI run, signed
+  locally without recompilation under an explicit one-time maintainer approval.
+  The original waiting workflow was cancelled after a documentation-only merge
+  advanced `main` beyond its source; CI signing/publication is not claimed.
+  The approved exception, provenance, package digest and same-package acceptance
+  are recorded in [macOS acceptance](macos.md). The private local preflight
+  draft remains separate; default protected CI release policy is unchanged.
 
 ## Public official plugins
 
