@@ -34,9 +34,9 @@ struct HomeView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("RIMES").font(.system(size: 32, weight: .bold, design: .rounded))
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("世界对智者太过挑剔")
-                                Text("好奇的人需要朋友")
-                            }.font(.subheadline).foregroundStyle(.secondary)
+                                Text(L("世界对智者太过挑剔", "The world is too hard on the wise."))
+                                Text(L("好奇的人需要朋友", "Curious minds need friends."))
+                            }.font(.system(size: 13)).foregroundStyle(.secondary)
                                 .lineLimit(1).minimumScaleFactor(0.8)
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }.padding(.vertical, 12)
@@ -63,6 +63,17 @@ struct HomeView: View {
                     NavigationLink { DataManagementView() } label: { Label(L("数据管理", "Data management"), systemImage: "externaldrive") }
                     NavigationLink(L("隐私与第三方许可", "Privacy & licenses")) { PrivacyView() }
                     Text("RIMES " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0")).font(.caption).foregroundStyle(.secondary)
+                } footer: {
+                    VStack(spacing: 0) {
+                        Link("pm.scholay.com", destination: URL(string: "https://pm.scholay.com")!)
+                            .accessibilityLabel(L("官网，pm.scholay.com", "Website, pm.scholay.com"))
+                            .accessibilityIdentifier("settings.home.website")
+                            .frame(minHeight: 44)
+                        Link("pm@scholay.com", destination: URL(string: "mailto:pm@scholay.com")!)
+                            .accessibilityLabel(L("联系邮箱，pm@scholay.com", "Email, pm@scholay.com"))
+                            .accessibilityIdentifier("settings.home.email")
+                            .frame(minHeight: 44)
+                    }.font(.footnote).frame(maxWidth: .infinity)
                 }
             }.navigationTitle(L("欢迎", "Welcome"))
             .alert(L("无法保存", "Could not save"), isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) { Button("OK") { model.error = nil } } message: { Text(model.error ?? "") }

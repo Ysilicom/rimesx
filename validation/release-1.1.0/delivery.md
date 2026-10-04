@@ -24,12 +24,14 @@ Code 10 keyboard acceptance:
 - The AI settings page exposes separate HTTPS API address, model and API-key fields. Real DeepSeek request coverage is recorded in the Android debug instrumentation report; it is not misrepresented as a new paid request from the signed release UI.
 - The original default and enabled input-method settings were restored after acceptance. No phone data or credentials were cleared.
 
-Code 11 changes only the settings-home hero and build number. Core tests,
+Code 12 changes only the settings-home hero, localized brand copy, website/email
+links and build number. Core tests,
 Release lint, signed APK/AAB builds, APK signature and 16 KB alignment checks
 passed again. `adb install -r` preserved data, and package metadata confirmed
-1.1.0 / 11. The actual Xiaomi settings home displayed the shared rhino logo on
-the left and RIMES plus both Chinese brand lines on the right; accessibility
-readback confirmed both complete lines. The keyboard runtime is unchanged.
+1.1.0 / 12. The actual Xiaomi settings home displayed the shared rhino logo on
+the left and RIMES plus both localized brand lines on the right; accessibility
+readback confirmed both complete English lines. The website opened in the browser, and
+the email link opened the system email-app chooser. The keyboard runtime is unchanged.
 
 ## iOS distribution
 
@@ -37,7 +39,7 @@ readback confirmed both complete lines. The keyboard runtime is unchanged.
 - App Store Connect processed build `65483d44-bd5c-4efd-9820-3a9da775fc5e` as VALID / APP_STORE_ELIGIBLE.
 - The maintainer signed in to App Store Connect. Build 35 was added to the existing RIMES Community group and submitted for external TestFlight review at 2026-10-04T08:37:22Z; UI and API both reported `WAITING_FOR_REVIEW`.
 - Automatic tester notification is enabled. The existing public invitation remains https://testflight.apple.com/join/Kdj9RB4q. Submission is not approval or public availability of 1.1.0; existing approved builds remain available meanwhile.
-- Follow-up: the maintainer reported weak/delayed haptics. Build 35 was removed from review on the same day; the UI now says `Ready to Submit`. Build 38 was installed with Release optimization. The maintainer confirmed clear slow-typing feedback, responsive fast typing and accepted iOS. Build 39 adds only the settings-home hero and build number; the accepted keyboard implementation is unchanged. The simulator home was visually checked and both brand lines read back. Release-optimized build 39 was installed on Higher's iPhone, with metadata confirming 1.1.0 / 39. The replacement archive/upload is pending.
+- Follow-up: the maintainer reported weak/delayed haptics. Build 35 was removed from review on the same day; the UI now says `Ready to Submit`. Build 38 was installed with Release optimization. The maintainer confirmed clear slow-typing feedback, responsive fast typing and accepted iOS. Build 39 adds only the settings-home hero and build number; the accepted keyboard implementation is unchanged. The simulator home was visually checked and both brand lines read back. Release-optimized build 39 was installed on Higher's iPhone, with metadata confirming 1.1.0 / 39. Build 40 adds English brand copy, smaller single-line text and website/email links; it is installed with version 1.1.0 / 40. The website link opened in Safari and the bottom contact labels were read back. The replacement archive/upload is pending.
 
 ## Remaining user-side observations
 

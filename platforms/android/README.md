@@ -3,7 +3,7 @@
 **1.1.0** is the next release of the native Java Android input method for daily Chinese input and
 local dictionary learning. Minimum Android 8.0 / API 26; development package
 `org.scholay.rimes.android.debug`; release identity `org.scholay.rimes.android`.
-The release candidate uses build code **11**, signed with the existing production key.
+The release candidate uses build code **12**, signed with the existing production key.
 Version 1.0.0 is already public; 1.1.0 remains in release preparation.
 See [release preparation](RELEASE.md) for signing and upgrade requirements.
 Current evidence and remaining acceptance are in [VALIDATION.md](VALIDATION.md).

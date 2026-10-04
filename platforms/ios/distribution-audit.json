@@ -62,7 +62,7 @@
     {
       "name": "Physical haptic regression acceptance for build 38",
       "verified": true,
-      "evidence": "2026-10-04: on Release-optimized build 38 the maintainer confirmed clear feedback while typing slowly and responsive feedback at speed, then explicitly accepted iOS. Build 39 changes only the app home hero and build number; the accepted keyboard code is unchanged. Hosted tests and simulator gestures are documented separately in validation/release-1.1.0/README.md."
+      "evidence": "2026-10-04: on Release-optimized build 38 the maintainer confirmed clear feedback while typing slowly and responsive feedback at speed, then explicitly accepted iOS. Build 40 changes only app home branding, localization, contact links and build number; the accepted keyboard code is unchanged. Hosted tests and simulator gestures are documented separately in validation/release-1.1.0/README.md."
     }
   ],
   "releaseAuthorization": {

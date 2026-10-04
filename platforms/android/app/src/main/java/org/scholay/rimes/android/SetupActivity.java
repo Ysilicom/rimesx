@@ -220,10 +220,10 @@ public final class SetupActivity extends Activity {
         LinearLayout.LayoutParams logoParams=new LinearLayout.LayoutParams(dp(72),dp(72)); logoParams.setMarginEnd(dp(16)); hero.addView(logo,logoParams);
         LinearLayout identity=column();
         TextView brand=text("RIMES",32,ink,true); brand.setTypeface(Typeface.create("sans-serif-rounded",Typeface.BOLD)); identity.addView(brand);
-        String[] lines={"世界对智者太过挑剔","好奇的人需要朋友"};
+        String[] lines={t("世界对智者太过挑剔","The world is too hard on the wise."),t("好奇的人需要朋友","Curious minds need friends.")};
         for(int i=0;i<lines.length;i++) {
-            TextView line=text(lines[i],15,secondary,false); line.setSingleLine(true);
-            line.setAutoSizeTextTypeUniformWithConfiguration(12,15,1,android.util.TypedValue.COMPLEX_UNIT_SP);
+            TextView line=text(lines[i],13,secondary,false); line.setSingleLine(true);
+            line.setAutoSizeTextTypeUniformWithConfiguration(10,13,1,android.util.TypedValue.COMPLEX_UNIT_SP);
             line.setPadding(0,dp(i==0?6:4),0,0); identity.addView(line,new LinearLayout.LayoutParams(-1,-2));
         }
         hero.addView(identity,new LinearLayout.LayoutParams(0,-2,1)); content.addView(hero);
@@ -246,6 +246,21 @@ public final class SetupActivity extends Activity {
         try { version=getPackageManager().getPackageInfo(getPackageName(),0).versionName; }
         catch(android.content.pm.PackageManager.NameNotFoundException error) { version=t("开发版","Development"); }
         note("RIMES  "+version);
+        contactLink("pm.scholay.com","https://pm.scholay.com",false);
+        contactLink("pm@scholay.com","mailto:pm@scholay.com",true);
+    }
+    private void contactLink(String label,String destination,boolean email) {
+        TextView link=text(label,13,accent,false); link.setGravity(Gravity.CENTER); link.setMinHeight(dp(44));
+        link.setTag(email?"settings.home.email":"settings.home.website");
+        link.setContentDescription((email?t("联系邮箱，","Email, "):t("官网，","Website, "))+label);
+        clickable(link,() -> {
+            try { startActivity(new Intent(email?Intent.ACTION_SENDTO:Intent.ACTION_VIEW,android.net.Uri.parse(destination))); }
+            catch(android.content.ActivityNotFoundException error) {
+                String message=email?t("没有可用的邮件应用","No email app is available."):t("没有可用的浏览器","No browser is available.");
+                android.widget.Toast.makeText(this,message,android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
+        content.addView(link,new LinearLayout.LayoutParams(-1,-2));
     }
     private void setup() {
         LinearLayout status=group(t("键盘状态","Keyboard status")); InputMethodManager manager=getSystemService(InputMethodManager.class);

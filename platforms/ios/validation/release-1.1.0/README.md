@@ -1,6 +1,6 @@
 # iOS 1.1.0 acceptance — 2026-10-04
 
-## Keyboard follow-up (36 → 39)
+## Keyboard follow-up (36 → 40)
 
 The maintainer reported delayed/weak haptics in every RIMES layout on build 35.
 Build 36 removed repeated package reads from typing renders and moved Delete's
@@ -78,3 +78,14 @@ and TestFlight approval are separate delivery checks.
 - Keyboard layout: final measured height was 252 pt, equal to the requested height, with no excess host space. Controller presentation was 540 ms and sampled memory peaked at 23.74 MB. The input metric has only one sample (62.97 ms); it is not a statistically useful P95, OS launch latency or display-frame benchmark. See the complete metrics receipt.
 
 Acceptance covers the above explicit cases on this phone. It does not claim broad app coverage, a day-long soak, minimum-OS coverage, or Apple review approval.
+
+Build 40 localizes both brand lines (Chinese/English) and reduces them to 13 pt,
+with each sentence kept on one line. The bottom of the home adds website and
+email links. Android code 12 has the same copy and contact destinations. English
+rendering was checked on the iOS simulator and Xiaomi phone. Chinese copy was
+also read back and visually checked after relaunching the simulator app in Chinese.
+Both website links
+opened https://pm.scholay.com, and Android's email link opened the email-app
+chooser. iOS uses the native mailto link; the simulator has no mail handler, so
+mail composition is not claimed. Both final mobile builds were installed without
+clearing app data; iPhone metadata reports 1.1.0 / 40 and Android reports 1.1.0 / 12.

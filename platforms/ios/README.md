@@ -1,10 +1,10 @@
 # RIMES iOS 1.1.0 preparation
 
 Native iPhone application and keyboard extension (iOS 17+). The next local
-release target is **1.1.0 (39)**; both targets inherit the same marketing version
+release target is **1.1.0 (40)**; both targets inherit the same marketing version
 and build number from `project.yml`. Build 38 passed the maintainer's physical
-haptic and iOS acceptance. Build 39 changes the app's home hero only. Build 35's
-external review was withdrawn after a reported regression; build 39 is being
+haptic and iOS acceptance. Build 40 updates the app's home hero, localization and contact links only. Build 35's
+external review was withdrawn after a reported regression; build 40 is being
 prepared for upload.
 
 The [public TestFlight invitation](https://testflight.apple.com/join/Kdj9RB4q)
