@@ -1,5 +1,7 @@
 # iOS GitHub Actions release
 
+Current target: **1.0.0**, local build **34**. The public [TestFlight invitation](https://testflight.apple.com/join/Kdj9RB4q) currently offers 0.1.0 (32). A public beta link is separate from a 1.0 App Store release. Existing review state is preserved.
+
 `ios.yml` runs unsigned builds, shared tests and hosted iOS tests on matching
 pull requests targeting main and matching pushes to main. `ios-release.yml` runs
 only for stable tags `ios-vMAJOR.MINOR.PATCH`, using macos-26 / Xcode 26.6 and
@@ -34,7 +36,7 @@ The implementation is not evidence that credentialed CI publication has run.
 1. Integrate the intended iOS source changes into `origin/main` and add real
    three-locale update notes in `AppStore/release-notes/<version>.json`. Run checks
    on that commit. Local main-only maintenance is not permission to push or tag.
-2. Create and push its exact version tag, e.g. `ios-v0.1.1`. Never tag an older
+2. Create and push its exact version tag, e.g. `ios-v1.0.0`. Never tag an older
    commit while the intended app changes remain uncommitted in a worktree.
 3. Actions requires the tagged commit to be in `origin/main` history, validates
    the tag, notes and Secrets, builds/tests, imports signing

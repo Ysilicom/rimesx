@@ -12,7 +12,7 @@ The app is free; noncommercial distribution is not used as an exemption from lic
 | librime | BSD-3-Clause; pinned source and notices retained. |
 | pinyin_simp | Apache-2.0; pinned source, unchanged dictionary and notices retained. |
 
-The repository MIT license is not substituted for component licenses. Internal
+The repository Apache-2.0 license does not replace component licenses or historical MIT grants (see `LICENSING.md`). Internal
 provenance remains intact while the public example name is Default chord.
 Import/export and custom profiles remain supported.
 

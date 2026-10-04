@@ -1,12 +1,15 @@
-# RIMES iOS 0.1
+# RIMES iOS 1.0.0 preparation
 
-Native iPhone application and keyboard extension (iOS 17+). The current local
-development build is **0.1.0 (22)**. App Store build **10** was submitted on
-22 September 2026; this development round does not change that submission.
-The iPhone 15 Pro was updated in place and its version read back as **0.1.0 (22)**.
-Physical thumb ergonomics and haptics still need user confirmation. See `VALIDATION.md`
-for build 22 checks and `AppStore/README.md` for the separate store handoff.
-macOS input-method source and installation are unchanged.
+Native iPhone application and keyboard extension (iOS 17+). The next local
+release target is **1.0.0 (34)**; both targets inherit the same marketing version
+and build number from `project.yml`. This version has not been uploaded or released.
+
+The [public TestFlight invitation](https://testflight.apple.com/join/Kdj9RB4q)
+is enabled. On 2026-10-03 its external group offered **0.1.0 (32)**, while
+App Store version 0.1.0 still showed Waiting for Review. The build list reported
+41 crashes for build 32; diagnose those reports and revalidate the final 1.0 build
+before calling it release-ready. Historical build 22 checks remain in `VALIDATION.md`.
+See `CI_RELEASE.md` and the root `RELEASE-1.0.0.md` for release preparation.
 
 ## Implemented
 
@@ -83,7 +86,10 @@ macOS input-method source and installation are unchanged.
   dictionary (`associations.tsv`, built by `scripts/build-associations.py`; e.g.
   谢谢 → 了/大家/合作). Tapping one inserts it and chains; any other key hides them
   (Space still types a space). Learning is keyboard-private, bounded to 600 words ×
-  8 next words, excluded from backup, and cleared from Gear → Clear learned associations.
+  8 next words and excluded from backup. Clearing is available only in the app's
+  Data management → Clear learned associations, with a destructive confirmation.
+  The app sends a reset revision without reading any learned words; the keyboard
+  applies it once on its next presentation. Updating the app does not request a reset.
 - Composition appears inline as native marked text in the host, or at the Buffer
   cursor. Confirming a candidate replaces it once; unconfirmed text stays out of
   Buffer source revisions and translation requests. There is no separate preedit row.
@@ -107,6 +113,20 @@ macOS input-method source and installation are unchanged.
   and only the head is delivered through the existing proxy. Switching targets
   suspends automatic delivery until explicitly re-enabled; hiding clears drafts
   and timers. Translation/AI output remains explicitly inserted.
+- Tap the Default Buffer stats readout to choose Emoji blocks, ordinary text, or
+  an optional PNG in one preview. Text is inserted only after tapping Insert text;
+  the gear menu has no stats-export entry. Emoji frames stay eight cells wide;
+  long numbers continue on additional rows, with the complete GitHub link below.
+  The preview
+  has a complete drawn frame and a full-width hint at the bottom. Save to Photos
+  requests add-only authorization on the explicit save; denied/restricted access
+  and Photos write errors are shown as failures. Full Access is needed to export
+  from the keyboard. The containing app's Typing stats card page also offers Save
+  to Photos, system sharing and file export. Image copying is a secondary action.
+  Preview pauses automatic insertion and does not consume Buffer or totals. The
+  stats tap only previews; images are an opt-in format. Only the latest
+  explicitly saved PNG is retained in the App Group, excluded from backup and
+  deletable in the app. Photos copies are managed separately in Photos.
 - Compiled-in Buffer plugins with serial, cancellable, revision-bound execution.
   Apple on-device translation on iOS 26+ previews after a 400 ms pause; defaults
   to Simplified Chinese → English. Download languages in the containing app first.
@@ -187,8 +207,10 @@ This smoke is not a substitute for keyboard-extension lifecycle or physical test
 - iOS's proxy gives no host acknowledgement of successful application-level send.
   RIMES makes one explicit proxy insertion and consumes that local block; it does
   not retry, synthesize Return or claim a message was sent.
-- Basic typing and Buffer work without Full Access. AI requires both Full Access
-  and separate recipient consent. Password fields and opting-out host apps use the
+- Basic typing, Buffer and card previews work without Full Access. Keyboard image
+  export and clipboard access require Full Access; AI also requires separate
+  recipient consent. Saving images requests add-only Photos permission, never
+  library read access. Password fields and opting-out host apps use the
   system keyboard. No unsupported mechanisms are used to bypass those limits.
 
 ## Distribution gate
