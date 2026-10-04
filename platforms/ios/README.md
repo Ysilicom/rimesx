@@ -4,13 +4,14 @@ Native iPhone application and keyboard extension (iOS 17+). The next local
 release target is **1.1.0 (40)**; both targets inherit the same marketing version
 and build number from `project.yml`. Build 38 passed the maintainer's physical
 haptic and iOS acceptance. Build 40 updates the app's home hero, localization and contact links only. Build 35's
-external review was withdrawn after a reported regression; build 40 is being
-prepared for upload.
+external review was withdrawn after a reported regression. The verified build 40
+IPA was uploaded to App Store Connect on 2026-10-04; processing and external
+review are tracked there.
 
 The [public TestFlight invitation](https://testflight.apple.com/join/Kdj9RB4q)
 remains enabled for previously approved builds. See
 [1.1.0 acceptance](validation/release-1.1.0/README.md) for the current test scope
-and pending device checks. Historical build 22 checks remain in `VALIDATION.md`.
+and remaining coverage limits. Historical build 22 checks remain in `VALIDATION.md`.
 See `CI_RELEASE.md` for the upload workflow.
 
 ## Implemented

@@ -92,7 +92,7 @@ Bundled plug-ins use the defaults above. Optional plug-ins require installation 
 
 ## Install
 
-This release targets **1.1.0**: [macOS installer](https://github.com/scholay/rimes/releases/tag/v1.1.0), [Android APK](https://github.com/scholay/rimes/releases/tag/android-v1.1.0), and [Windows EXE](https://github.com/scholay/rimes/releases/tag/windows-v1.1.0). The macOS package is signed and notarized; Android uses the long-term signing key; the Windows EXE is unsigned. iOS **1.1.0 (35)** has been submitted for external TestFlight review. The [public invitation](https://testflight.apple.com/join/Kdj9RB4q) remains open with previously approved builds until approval. Linux stays on its existing version. Refer to each release page for current availability.
+This release targets **1.1.0**: [macOS installer](https://github.com/scholay/rimes/releases/tag/v1.1.0), [Android APK](https://github.com/scholay/rimes/releases/tag/android-v1.1.0), and [Windows EXE](https://github.com/scholay/rimes/releases/tag/windows-v1.1.0). The macOS package is signed and notarized; Android uses the long-term signing key; the Windows EXE is unsigned. iOS offers approved test builds through the [public TestFlight invitation](https://testflight.apple.com/join/Kdj9RB4q); TestFlight shows the builds currently available to install. Linux stays on its existing version. Refer to each release page for current availability.
 
 To build locally, clone the source and its pinned official plugins:
 

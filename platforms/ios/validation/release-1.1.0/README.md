@@ -27,7 +27,10 @@ right. Empty rows restore Settings without moving the keys.
   without clearing data; device metadata confirmed version/build. Subjective
   haptic acceptance passed via the maintainer's direct feedback.
 - Build 35's external TestFlight review was withdrawn after the regression;
-  App Store Connect reports `Ready to Submit`. No replacement is submitted yet.
+  App Store Connect reports `Ready to Submit`. Build 40 is the replacement;
+  its exact App Store IPA passed signature/profile/version/privacy verification
+  and uploaded successfully on 2026-10-04 (delivery UUID
+  `a01bd652-292d-4db3-bdc9-628fd1606b08`). Upload does not establish review approval.
 - Explicit plugin reinstall now repairs corrupt/obsolete receipts while leaving
   the plugin disabled and rejecting downloads started before the repair.
 
