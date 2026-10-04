@@ -22,6 +22,21 @@ final class SingleLineTextView: UIScrollView {
     enum Role { case input, output }
     var role = Role.input { didSet { applyRole(); if let plain { text = plain } } }
     var font: UIFont = .systemFont(ofSize: 15) { didSet { if let plain, oldValue != font { text = plain } } }
+    /// Three softly pulsing dots while a reply is on its way and nothing is readable yet.
+    var waiting = false { didSet { if waiting != oldValue { updateWaiting() } } }
+    private let dots = CAReplicatorLayer(), dot = CALayer()
+    private func updateWaiting() {
+        dots.isHidden = !waiting
+        dot.removeAllAnimations()
+        guard waiting else { return }
+        accessibilityValue = L("等待回应", "Waiting for a reply")
+        guard !UIAccessibility.isReduceMotionEnabled else { dot.opacity = 0.6; return }
+        let pulse = CABasicAnimation(keyPath: "opacity"); pulse.fromValue = 0.2; pulse.toValue = 1
+        let grow = CABasicAnimation(keyPath: "transform.scale"); grow.fromValue = 0.7; grow.toValue = 1.1
+        let group = CAAnimationGroup(); group.animations = [pulse, grow]; group.duration = 0.5
+        group.autoreverses = true; group.repeatCount = .infinity; group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        dot.add(group, forKey: "pulse")
+    }
     /// Shows the text as the model's thinking: dimmer, and read out as thinking.
     var thinking = false { didSet { if oldValue != thinking, let plain { text = plain } } }
     var text: String {
@@ -57,7 +72,12 @@ final class SingleLineTextView: UIScrollView {
     private(set) var blockRanges: [NSRange] = []
     private(set) var activeBlock: Int?
     func setBlocks(_ ranges: [NSRange], active: Int?) {
-        blockRanges = ranges; activeBlock = active; setNeedsLayout()
+        let changed = ranges != blockRanges
+        blockRanges = ranges; activeBlock = active
+        // The gaps between blocks live in the text itself, so re-apply them even when the
+        // characters are unchanged (e.g. a streamed reply settling into blocks).
+        // Only when the new blocks fit the current text; otherwise the caller sets new text next.
+        if changed, let plain, ranges.allSatisfy({ NSMaxRange($0) <= (plain as NSString).length }) { text = plain } else { setNeedsLayout() }
     }
     /// Tapping a block reports its index; a drag still scrolls. Nil disables block taps.
     var onTapBlock: ((Int) -> Void)? { didSet { updateTap() } }
@@ -92,8 +112,11 @@ final class SingleLineTextView: UIScrollView {
         placeholderLabel.textColor = .placeholderText; placeholderLabel.isUserInteractionEnabled = false
         placeholderLabel.adjustsFontSizeToFitWidth = true; placeholderLabel.minimumScaleFactor = 0.7
         canvas.addSubview(placeholderLabel)
-        caret.backgroundColor = .systemTeal; caret.layer.cornerRadius = 1; caret.isUserInteractionEnabled = false
+        caret.backgroundColor = tintColor; caret.layer.cornerRadius = 1; caret.isUserInteractionEnabled = false
         canvas.addSubview(caret)
+        dot.backgroundColor = (tintColor ?? .systemBlue).cgColor; dot.opacity = 0.2
+        dots.addSublayer(dot); dots.instanceCount = 3; dots.instanceDelay = 0.16
+        dots.isHidden = true; layer.addSublayer(dots)
         showsHorizontalScrollIndicator = false; showsVerticalScrollIndicator = false
         alwaysBounceHorizontal = false; alwaysBounceVertical = false; bounces = true
         hideEdgeEffects()
@@ -102,11 +125,14 @@ final class SingleLineTextView: UIScrollView {
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: SingleLineTextView, _: UITraitCollection) in view.applyRole(); view.setNeedsLayout() }
     }
     required init?(coder: NSCoder) { fatalError() }
+    override func tintColorDidChange() { super.tintColorDidChange(); applyRole(); setNeedsLayout() }
     private func applyRole() {
+        caret.backgroundColor = tintColor
+        dot.backgroundColor = (tintColor ?? .systemBlue).resolvedColor(with: traitCollection).cgColor
         switch role {
         case .input:
             backgroundColor = .systemBackground
-            layer.borderWidth = 1; layer.borderColor = UIColor.systemTeal.withAlphaComponent(0.7).resolvedColor(with: traitCollection).cgColor
+            layer.borderWidth = 1; layer.borderColor = (tintColor ?? .systemBlue).withAlphaComponent(0.7).resolvedColor(with: traitCollection).cgColor
             accessibilityTraits = [.updatesFrequently]
         case .output:
             backgroundColor = .tertiarySystemFill
@@ -145,6 +171,10 @@ final class SingleLineTextView: UIScrollView {
             contentOffset = CGPoint(x: max(0, min(contentOffset.x, contentSize.width - bounds.width)), y: 0)
         }
         canvas.frame = CGRect(origin: .zero, size: contentSize)
+        let size: CGFloat = 7
+        dots.frame = CGRect(x: contentOffset.x + Self.inset + 6, y: (bounds.height - size) / 2, width: size * 5, height: size)
+        dot.frame = CGRect(x: 0, y: 0, width: size, height: size); dot.cornerRadius = size / 2
+        dots.instanceTransform = CATransform3DMakeTranslation(size * 1.8, 0, 0)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         // The visible window, in canvas coordinates, moves with the scroll position.
         let window = CGRect(x: contentOffset.x, y: 0, width: bounds.width, height: bounds.height).insetBy(dx: Self.clipInset, dy: Self.clipInset)
@@ -181,10 +211,10 @@ final class SingleLineTextView: UIScrollView {
             let frame = CGRect(x: left - 4, y: 5, width: max(8, right - left + 8), height: max(0, bounds.height - 10))
             view.frame = frame; blockFrames.append(frame)
             let active = index == activeBlock
-            view.backgroundColor = active ? UIColor.systemTeal.withAlphaComponent(0.12)
+            view.backgroundColor = active ? (tintColor ?? .systemBlue).withAlphaComponent(0.12)
                 : role == .input ? UIColor.tertiarySystemFill : UIColor.systemBackground.withAlphaComponent(0.6)
             view.layer.borderWidth = active ? 1 : 0
-            view.layer.borderColor = UIColor.systemTeal.resolvedColor(with: traitCollection).cgColor
+            view.layer.borderColor = (tintColor ?? .systemBlue).resolvedColor(with: traitCollection).cgColor
         }
     }
 }

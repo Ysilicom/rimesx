@@ -25,14 +25,42 @@ public enum AIPrompt {
     用提问的语言回答。
     """
 }
-/// Keyboard requests ask for the least thinking. Not every model accepts the parameter,
-/// so callers step down this list when the service rejects a request (HTTP 400/422).
-public enum AIReasoningEffort: String, CaseIterable {
-    case minimal, low, unspecified
+/// How much the model should think. Services spell this differently, so each level lists the
+/// request fields to try in order; callers step to the next when a service rejects one (HTTP
+/// 400/422) and remember what worked. The last entry is always "send nothing".
+public enum AIThinking: String, CaseIterable, Codable {
+    case off, minimal, low, medium, high, auto
+    public var attempts: [[String: Any]] { attempts(model: "") }
+    /// DeepSeek (V4 included) turns thinking off only with `thinking: {type: disabled}`, and its
+    /// `reasoning_effort` knows only low/high/max, with thinking on at high by default; routers
+    /// such as CometAPI pass `thinking` through. So DeepSeek models get DeepSeek's own spelling first.
+    public func attempts(model: String) -> [[String: Any]] {
+        let disabled: [String: Any] = ["thinking": ["type": "disabled"]]
+        if model.lowercased().contains("deepseek") {
+            let enabled = ["type": "enabled"]
+            switch self {
+            case .off: return [disabled, ["reasoning_effort": "none"], [:]]
+            case .minimal, .low: return [["thinking": enabled, "reasoning_effort": "low"], ["reasoning_effort": "low"], [:]]
+            case .medium, .high: return [["thinking": enabled, "reasoning_effort": "high"], ["reasoning_effort": "high"], [:]]
+            case .auto: return [[:]]
+            }
+        }
+        switch self {
+        case .off:
+            // DeepSeek/GLM-style switch, Qwen-style switch, OpenAI-style effort, then nothing.
+            return [disabled, ["enable_thinking": false], ["reasoning_effort": "none"], ["reasoning_effort": "minimal"], [:]]
+        case .minimal: return [["reasoning_effort": "minimal"], ["reasoning_effort": "low"], [:]]
+        case .low: return [["reasoning_effort": "low"], [:]]
+        case .medium: return [["reasoning_effort": "medium"], [:]]
+        case .high: return [["reasoning_effort": "high"], [:]]
+        case .auto: return [[:]]
+        }
+    }
 }
 public enum AIRequest {
+    /// `extra` adds request fields, such as one of `AIThinking.attempts`.
     public static func make(provider: ProviderConfiguration, key: String, source: String, instruction: String, consent: String,
-                            reasoning: AIReasoningEffort = .minimal) throws -> URLRequest {
+                            extra: [String: Any] = [:]) throws -> URLRequest {
         guard !provider.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CoreError.invalidEndpoint }
         let url = try provider.endpoint("chat/completions")
         guard consent == provider.consentIdentity else { throw CoreError.noConsent }
@@ -43,7 +71,7 @@ public enum AIRequest {
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         var body: [String: Any] = ["model": provider.model, "stream": true, "messages": [["role": "system", "content": instruction], ["role": "user", "content": source]]]
-        if reasoning != .unspecified { body["reasoning_effort"] = reasoning.rawValue }
+        for (field, value) in extra where body[field] == nil { body[field] = value }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }

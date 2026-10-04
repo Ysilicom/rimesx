@@ -31,16 +31,20 @@ struct HomeView: View {
                 Section(L("开始使用", "Get started")) {
                     NavigationLink { SetupView() } label: { Label(L("启用 RIMES 键盘", "Enable RIMES keyboard"), systemImage: "keyboard") }
                     NavigationLink { PlaygroundView() } label: { Label(L("输入体验", "Try typing"), systemImage: "square.and.pencil") }
+                    NavigationLink { TypingStatsCardView() } label: { Label(L("打字统计卡片", "Typing stats card"), systemImage: "square.grid.3x3") }
                 }
                 Section(L("你的输入方式", "Your typing")) {
-                    Picker(L("默认方案", "Default scheme"), selection: $model.value.scheme) { ForEach(InputScheme.allCases) { Text($0.title).tag($0) } }.onChange(of: model.value.scheme) { _,_ in model.value.schemeSelectionRevision = UUID(); model.save() }
+                    Picker(L("默认方案", "Default scheme"), selection: $model.value.scheme) { ForEach(InputScheme.allCases) { Text($0.title).tag($0) } }.onChange(of: model.value.scheme) { _,_ in do { try RimeSchemeStore().activate(nil); model.value.schemeSelectionRevision = UUID(); model.save() } catch { model.error = error.localizedDescription } }
                     NavigationLink { ChordProfilesView() } label: { Label(L("滑动并击与键位", "Slide chords & mappings"), systemImage: "hand.draw") }
+                    NavigationLink { KeyboardAppearanceView() } label: { Label(L("键盘布局与换肤", "Keyboard layout & skins"), systemImage: "keyboard") }
+                    NavigationLink { RimeSchemesView() } label: { Label(L("Rime 方案包与导入", "Rime schemes & import"), systemImage: "shippingbox") }
                     NavigationLink { TranslationSetupView() } label: { Label(L("苹果翻译语言包", "Apple translation languages"), systemImage: "translate") }
                     NavigationLink { ProvidersView() } label: { Label(L("AI 服务", "AI services"), systemImage: "sparkles") }
                     NavigationLink { PoemLibraryView() } label: { Label(L("AI 作诗：句式与词卡", "AI Poem: patterns & word cards"), systemImage: "text.book.closed") }
-                    NavigationLink { StatusSkinsView() } label: { Label(L("状态灯样式", "Status light looks"), systemImage: "pawprint") }
+                    NavigationLink { StatusSkinsView() } label: { Label(L("宠物轮换", "Pet rotation"), systemImage: "pawprint") }
                 }
                 Section {
+                    NavigationLink { DataManagementView() } label: { Label(L("数据管理", "Data management"), systemImage: "externaldrive") }
                     NavigationLink(L("隐私与第三方许可", "Privacy & licenses")) { PrivacyView() }
                     Text("RIMES " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0")).font(.caption).foregroundStyle(.secondary)
                 }
@@ -57,7 +61,7 @@ struct SetupView: View {
                 Button(L("打开设置", "Open Settings")) { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
             }
             Section(L("完全访问是可选的", "Full Access is optional")) {
-                Text(L("普通输入与 Buffer 可以离线使用。只有键盘内 AI 需要完全访问；AI 还会在发送前单独征求同意。", "Typing and Buffer work offline. Only AI in the keyboard needs Full Access; sending text also requires separate consent."))
+                Text(L("普通输入、Buffer 和统计图片预览可离线使用。键盘内图片导出、剪贴板和联网 AI 需要完全访问；保存到相册时只申请添加照片的权限，AI 发送还会单独征求同意。", "Typing, Buffer and stats previews work offline. Image export, clipboard access and online AI in the keyboard need Full Access. Saving to Photos requests add-only access; AI sends require separate consent."))
                 Text(L("密码等安全输入框、禁止第三方键盘的 App 将使用系统键盘。", "Secure fields and apps that disallow third-party keyboards use the system keyboard."))
             }
         }.navigationTitle(L("启用键盘", "Enable keyboard"))
@@ -69,7 +73,7 @@ struct PlaygroundView: View {
     var body: some View {
         Form {
             Section(L("使用系统地球键切换至 RIMES", "Switch to RIMES using the globe key")) { TextEditor(text: $text).frame(minHeight: 170).accessibilityIdentifier("playground.primary") }
-            Section(L("另一个输入框", "Another field")) { TextField(L("测试切换输入目标", "Test switching fields"), text: $second).accessibilityIdentifier("playground.secondary") }
+            Section(L("另一个输入框", "Another field")) { TextField(L("测试切换输入目标", "Test switching fields"), text: $second).submitLabel(.send).accessibilityIdentifier("playground.secondary") }
             #if DEBUG
             NavigationLink(L("本地引擎检查", "Local engine check")) { EngineCheckView() }
             #endif
@@ -163,19 +167,19 @@ struct StatusSkinsView: View {
     private var chosen: [StatusSkin] { StatusSkin.rotation(model.value.statusSkins ?? []) }
     var body: some View {
         List {
-            Section { Text(L("在键盘里轻点 Buffer 左上角的状态灯，会在这里选中的样式之间轮换。键盘的设置面板里也能改。", "In the keyboard, tap the status light at the top left of the Buffer to rotate through the looks chosen here. You can also change them in the keyboard's settings panel.")).font(.callout) }
+            Section { Text(L("轻点键盘 Buffer 左上角的宠物，会在选中的主题之间轮换，同时切换整个键盘的配色，包括并击键盘。", "Tap the pet at the top left of the Buffer to rotate through these themes. The whole keyboard, including chord mode, changes colors with it.")).font(.callout) }
             Section(L("轮换的样式", "Looks in the rotation")) {
-                ForEach(StatusSkin.allCases) { skin in
+                ForEach(StatusSkin.themes) { skin in
                     Toggle(skin.title + (skin.isNoto ? L("（动画）", " (animated)") : ""), isOn: Binding(get: { chosen.contains(skin) }, set: { on in
                         var next = chosen
                         if on { next.append(skin) } else if next.count > 1 { next.removeAll { $0 == skin } }
-                        model.value.statusSkins = StatusSkin.allCases.filter(next.contains).map(\.rawValue)
+                        model.value.statusSkins = StatusSkin.themes.filter(next.contains).map(\.rawValue)
                         model.value.statusSkinsRevision = UUID(); model.save()
                     }))
                 }
             }
             Section { Text(L("动画宠物来自 Google Noto Animated Emoji，采用 CC BY 4.0 许可；为键盘缩小为 96 像素并精简了帧。", "Animated pets: Google Noto Animated Emoji, licensed CC BY 4.0; resized to 96 px with fewer frames for the keyboard.")).font(.caption).foregroundStyle(.secondary) }
-        }.navigationTitle(L("状态灯样式", "Status light looks"))
+        }.navigationTitle(L("宠物轮换", "Pet rotation"))
     }
 }
 struct PoemLibraryView: View {
@@ -326,6 +330,7 @@ struct PrivacyView: View {
     var body: some View {
         List {
             Section(L("本机输入", "On-device typing")) { Text(L("词频只保存在设备。无账户、遥测或输入正文日志。Buffer 草稿不会落盘；键盘会话结束时清除。", "Learning stays on your device. No account, telemetry or text logs. Buffer drafts are not saved to disk and are cleared when the keyboard session ends.")) }
+            Section(L("统计图片", "Stats images")) { Text(L("图片在本机生成，只含汇总统计，不含输入正文。保存时只申请相册添加权限，不读取你的照片；App 同时保留最新一张主动保存的卡片，不参与备份，可在卡片页面删除。相册中的副本请在照片 App 中删除。", "Images are generated on-device with aggregate statistics, without typed text. Saving requests add-only access and never reads your photos. The app keeps the latest explicitly saved card, excluded from backup and deletable on its page. Delete Photos copies in the Photos app.")) }
             Section("AI") { Text(L("只发送你主动提交的 Buffer 文本到你配置并同意的服务；API Key 保存在仅限本设备的 Keychain 中。请求不会跟随重定向。", "Only explicitly submitted Buffer text goes to your configured, consented service. API keys stay in this device's Keychain. Requests never follow redirects.")) }
             Section(L("苹果翻译", "Apple translation")) { Text(L("翻译在设备上使用已下载的苹果语言模型。下载语言包可能需要联网；翻译不可用时不会自动改用 AI 服务。", "Translation uses downloaded Apple language models on your device. Preparing languages may need a network connection. Unavailable translations never fall back to an AI service automatically.")) }
             Section {

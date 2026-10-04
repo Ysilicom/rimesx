@@ -34,6 +34,9 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         ]
         for (name, width, buffer, expanded, chord, style) in variants {
             let controller = KeyboardViewController(); controller.layoutNeedsInputModeSwitchKey = false
+            // Snapshots describe built-in layouts even if an imported scheme or
+            // custom layout is currently selected in the simulator's real app.
+            controller.loadViewIfNeeded(); controller.developmentResetPreferences()
             controller.layoutProxy.keyboardAppearance = style == .dark ? .dark : .light
             controller.overrideUserInterfaceStyle = style
             let window = UIWindow(frame: CGRect(x: 0, y: 0, width: width, height: 900))
@@ -49,6 +52,8 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
             controller.overrideUserInterfaceStyle = style
             controller.view.overrideUserInterfaceStyle = style
             let (bufferView, candidates, keys) = controller.developmentLayout(bufferText: buffer ? "你好，这是一段用于检查空间布局的原文。" : nil, expanded: expanded, chord: chord)
+            XCTAssertEqual(keys.chordMode, chord, name)
+            XCTAssertFalse(keys.usesCustomLayout, name)
             if name.hasSuffix("idle") || name == "emoji" { controller.developmentContent() }
             if name == "buffer-empty" { controller.developmentContent(); controller.developmentBuffer("") }
             if name.hasPrefix("default-blocks") {
@@ -91,6 +96,7 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
 @MainActor final class LayoutTestDocumentProxy: NSObject, UITextDocumentProxy {
     let native = UITextView()
     var keyboardAppearance: UIKeyboardAppearance = .default
+    var returnKeyType: UIReturnKeyType = .default
     var documentIdentifier = UUID()
     var identityAvailable = true
     override func responds(to selector: Selector!) -> Bool {
@@ -126,15 +132,18 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
             controller.developmentEnter()
             XCTAssertEqual(text(), "nihao"); XCTAssertTrue(controller.developmentRaw.isEmpty)
             XCTAssertNil(controller.layoutProxy.native.markedTextRange)
-            controller.developmentEnter(); XCTAssertEqual(text(), "nihao\n")
+            controller.developmentEnter()
+            let prefix = buffered ? "" : "nihao\n"
+            XCTAssertEqual(text(), prefix)
+            if buffered { XCTAssertEqual(controller.layoutProxy.native.text, "nihao") }
             controller.developmentType("ni")
             controller.developmentShift()
-            XCTAssertEqual(text(), "nihao\nni")
+            XCTAssertEqual(text(), prefix + "ni")
             XCTAssertFalse(controller.layoutViews.keys.resolvesChords)
-            controller.developmentType("ab"); XCTAssertEqual(text(), "nihao\nniAB")
+            controller.developmentType("ab"); XCTAssertEqual(text(), prefix + "niAB")
             controller.developmentShift(); XCTAssertTrue(controller.layoutViews.keys.resolvesChords)
             controller.developmentType("hao"); controller.developmentLanguage()
-            XCTAssertEqual(text(), "nihao\nniABhao")
+            XCTAssertEqual(text(), prefix + "niABhao")
             XCTAssertEqual(controller.layoutViews.keys.chordLayout, .splitOrthogonal)
             XCTAssertFalse(controller.layoutViews.keys.resolvesChords)
             controller.developmentType("test"); XCTAssertTrue(text().hasSuffix("haotest"))
@@ -233,7 +242,7 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
     func testEmptyBufferPassesDeleteAndReturnToTheApp() throws {
         let (window, controller) = host(); defer { window.isHidden = true }
         controller.layoutProxy.native.text = "你好"
-        let returnKey = try XCTUnwrap(controller.layoutViews.bottom.arrangedSubviews.first { $0.accessibilityIdentifier == "keyboard.enter" } as? KeycapButton)
+        let returnKey = try XCTUnwrap(controller.developmentStandardFunctions[.enter] as? KeycapButton)
         let send = controller.layoutViews.insert
         controller.developmentBuffer(""); window.layoutIfNeeded()
         // Empty Buffer: Return is the lit sending key and goes to the app; Delete edits the app.
@@ -241,13 +250,13 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         controller.developmentBackspace(); XCTAssertEqual(controller.layoutProxy.native.text, "你")
         controller.developmentEnter(); XCTAssertEqual(controller.layoutProxy.insertions.last, "\n")
         XCTAssertEqual(controller.developmentBufferSource.text, "")
-        // With Buffer text the two swap: Send is lit, Return breaks a line in the Buffer.
+        // With Buffer text, Return and the upper insert key both insert a block.
         controller.developmentBuffer("原文"); window.layoutIfNeeded()
-        XCTAssertFalse(returnKey.isSelected); XCTAssertTrue(send.isSelected)
-        let host = controller.layoutProxy.native.text
-        controller.developmentEnter(); XCTAssertEqual(controller.developmentBufferSource.text, "原文\n")
-        controller.developmentBackspace() // Default deletes a whole block
-        XCTAssertEqual(controller.developmentBufferSource.text, ""); XCTAssertEqual(controller.layoutProxy.native.text, host)
+        XCTAssertTrue(returnKey.isSelected); XCTAssertTrue(send.isSelected)
+        let before = controller.layoutProxy.native.text ?? ""
+        controller.developmentEnter(); XCTAssertEqual(controller.developmentBufferSource.text, "")
+        let host = before + "原文"
+        XCTAssertEqual(controller.layoutProxy.native.text, host)
         XCTAssertTrue(returnKey.isSelected)
         // A held Delete that began in the Buffer stops when the Buffer empties.
         controller.developmentBuffer("字"); window.layoutIfNeeded()
@@ -292,7 +301,7 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         let paused = stats.text ?? ""
         XCTAssertNotEqual(typing, paused)
         XCTAssertTrue(paused.contains("3s"), paused)
-        // Tapping the readout appends the session's figures, then the RIMES credit, at the end.
+        // The ordinary-text action still appends the existing figures and RIMES credit.
         let signature = try XCTUnwrap(controller.typingSignature())
         XCTAssertTrue(signature.contains("\(controller.developmentTypingSession.characters)"))
         XCTAssertTrue(signature.hasSuffix(L("来自 RIMES 免费开源输入法", "Sent from RIMES, the free open-source input method")))
@@ -303,6 +312,59 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         XCTAssertTrue(controller.developmentTypingSession.isEmpty); XCTAssertTrue(controller.developmentTypingMetrics.isEmpty)
         XCTAssertNil(controller.typingSignature())
         XCTAssertFalse(stats.text?.contains("s") == true && stats.text?.contains(L("停", "idle")) == true)
+    }
+    func testOptionalImagePreviewPreservesTypingAndPausesAutoInsertion() throws {
+        let (window, controller) = host(); defer { window.isHidden = true }
+        var clock: TimeInterval = 100; controller.defaultClockNow = { clock }
+        controller.developmentBuffer("")
+        for step in 0..<6 { clock = 100 + Double(step); controller.developmentType("ni"); controller.developmentSpace() }
+        controller.developmentAutoDelay(1); window.layoutIfNeeded()
+        let source = controller.developmentBufferSource.text, totals = controller.developmentTypingSession
+        let height = controller.view.bounds.height
+        controller.developmentCardFullAccess = false
+        controller.layoutViews.result.onTapBackground?(); window.layoutIfNeeded()
+        let preview = try XCTUnwrap(controller.view.subviews.first { $0.accessibilityIdentifier == "keyboard.typingCard.preview" })
+        let picker = try XCTUnwrap(preview.subviews.first { $0.accessibilityIdentifier == "keyboard.typingCard.formats" } as? UISegmentedControl)
+        XCTAssertEqual(picker.numberOfSegments, 3)
+        XCTAssertEqual(picker.selectedSegmentIndex, TypingCardPreview.Format.blocks.rawValue)
+        let menu = try XCTUnwrap(controller.layoutViews.settings.menu)
+        XCTAssertFalse(menu.children.contains { ($0 as? UIAction)?.title == L("统计图片（可选）", "Stats image (optional)") })
+        let data = try XCTUnwrap(controller.developmentTypingCardPNG)
+        try TypingCardStore.validate(data)
+        XCTAssertEqual(controller.view.bounds.height, height)
+        for _ in 0..<5 { clock += 1; controller.developmentAutoTick() }
+        XCTAssertEqual(controller.developmentBufferSource.text, source)
+        XCTAssertEqual(controller.developmentTypingSession, totals)
+        XCTAssertTrue(controller.layoutProxy.insertions.isEmpty)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = TypingCardStore(directory: directory)
+        controller.developmentSaveTypingCard(store: store); XCTAssertNil(try store.load())
+        controller.developmentCardFullAccess = true
+        controller.developmentSaveTypingCard(store: store); XCTAssertEqual(try store.load(), data)
+        controller.developmentCloseTypingCard(); XCTAssertNil(controller.developmentTypingCardPNG)
+        XCTAssertEqual(controller.developmentTypingSession, totals)
+        controller.developmentAutoTick(); clock += 2; controller.developmentAutoTick()
+        XCTAssertNotEqual(controller.developmentBufferSource.text, source)
+    }
+    func testStatsTapPreviewsBeforeExplicitMatrixInsertionWithoutFullAccess() throws {
+        let (window, controller) = host(); defer { window.isHidden = true }
+        controller.developmentCardFullAccess = false
+        controller.layoutProxy.native.text = "正文"; controller.developmentBuffer("")
+        controller.developmentType("ni"); controller.developmentSpace()
+        let expected = TypingStatsText.matrix(try XCTUnwrap(TypingCardSnapshot(session: controller.developmentTypingSession)))
+        controller.layoutViews.result.onTapBackground?(); window.layoutIfNeeded()
+        XCTAssertEqual(controller.layoutProxy.native.text, "正文")
+        XCTAssertFalse(controller.developmentTypingSession.isEmpty)
+        func find(_ view: UIView) -> UIButton? {
+            if view.accessibilityIdentifier == "keyboard.typingCard.primary" { return view as? UIButton }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        let insert = try XCTUnwrap(find(controller.view)); XCTAssertTrue(insert.isEnabled)
+        insert.sendActions(for: .touchUpInside)
+        XCTAssertEqual(controller.layoutProxy.native.text, "正文\n\n" + expected)
+        XCTAssertTrue(controller.developmentTypingSession.isEmpty)
+        XCTAssertNil(controller.developmentTypingCardPNG)
     }
     func testNotoPetsDecodeAsSmallLoops() throws {
         // Every bundled pet is a small animated loop; every Noto skin has its file.
@@ -336,8 +398,8 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         XCTAssertEqual(light.frame.size, controller.layoutViews.insert.superview!.frame.size)
         XCTAssertLessThan(light.frame.maxX, controller.layoutViews.result.frame.minX)
         XCTAssertEqual(light.state, .idle)
-        // Holding the light cycles its skin, and the choice is kept.
-        XCTAssertEqual(light.skin, .light)
+        // Tapping the pet cycles its theme, and the choice is kept.
+        XCTAssertEqual(light.skin, .apple)
         light.onCycleSkin?(); XCTAssertEqual(light.skin, .rhino)
         light.onCycleSkin?(); XCTAssertEqual(light.skin, .crab)
         controller.developmentBuffer(nil); controller.developmentBuffer("原文", plugin: true); XCTAssertEqual(light.skin, .crab)
@@ -348,7 +410,7 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         }
         // A large render of each pose, to check the drawing itself.
         for state: StatusLight.State in [.idle, .waiting, .streaming, .ready, .failed] {
-            for skin in StatusLight.Skin.allCases where skin != .light {
+            for skin in StatusLight.Skin.themes where skin != .apple {
                 let big = StatusLight(frame: CGRect(x: 0, y: 0, width: 220, height: 240)); big.skin = skin; big.set(state)
                 window.addSubview(big); big.layoutIfNeeded()
                 let shot = UIGraphicsImageRenderer(bounds: big.bounds).image { big.layer.render(in: $0.cgContext) }
@@ -357,21 +419,21 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
             }
         }
         light.set(.idle)
-        // Crab → drawn pets → Noto pets → back to the plain light.
-        for expected in Array(StatusLight.Skin.allCases.dropFirst(3)) + [.light] { light.onCycleSkin?(); XCTAssertEqual(light.skin, expected) }
+        // Crab → drawn pets → Noto pets → back to the native theme.
+        for expected in Array(StatusLight.Skin.themes.dropFirst(3)) + [.apple] { light.onCycleSkin?(); XCTAssertEqual(light.skin, expected) }
         // A tap (not a hold) switches; settings choose which looks the tap rotates through.
         XCTAssertTrue(light.gestureRecognizers?.contains { $0 is UITapGestureRecognizer } == true)
         XCTAssertFalse(light.gestureRecognizers?.contains { $0 is UILongPressGestureRecognizer } == true)
         controls.settings.sendActions(for: .touchUpInside); window.layoutIfNeeded()
         let skinPanel = try XCTUnwrap(controller.developmentPanel)
         func skinChip(_ skin: StatusSkin) -> PanelChip? { skinPanel.chips.first { $0.accessibilityIdentifier?.hasSuffix("." + skin.rawValue) == true } }
-        XCTAssertTrue(StatusSkin.allCases.allSatisfy { skinChip($0)?.item.selected == true }) // all by default
-        // Narrow the rotation to dot + fox + panda: deselect everything else.
-        for skin in StatusSkin.allCases where ![.light, .fox, .panda].contains(skin) { skinChip(skin)?.sendActions(for: .touchUpInside) }
-        XCTAssertEqual(StatusSkin.allCases.filter { skinChip($0)?.item.selected == true }, [.light, .fox, .panda])
+        XCTAssertTrue(StatusSkin.themes.allSatisfy { skinChip($0)?.item.selected == true }) // all by default
+        // Narrow the rotation to native + fox + panda: deselect everything else.
+        for skin in StatusSkin.themes where ![.apple, .fox, .panda].contains(skin) { skinChip(skin)?.sendActions(for: .touchUpInside) }
+        XCTAssertEqual(StatusSkin.themes.filter { skinChip($0)?.item.selected == true }, [.apple, .fox, .panda])
         controls.settings.sendActions(for: .touchUpInside) // close
-        light.skin = .light
-        for expected: StatusSkin in [.fox, .panda, .light, .fox] { light.onCycleSkin?(); XCTAssertEqual(light.skin, expected) }
+        light.skin = .apple
+        for expected: StatusSkin in [.fox, .panda, .apple, .fox] { light.onCycleSkin?(); XCTAssertEqual(light.skin, expected) }
         controller.developmentBuffer("原文", plugin: true, generating: true); XCTAssertEqual(light.state, .waiting)
         controller.developmentBuffer("原文。", plugin: true, output: "Source."); XCTAssertEqual(light.state, .ready)
         // Translate settings: [from] ⇄ [to] on one line, and a switch for reading aloud.
@@ -422,19 +484,24 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
     }
     func testStreamingShowsNoStatusWordsAndRevealsEvenly() {
         let (window, controller) = host(); defer { window.isHidden = true }
-        // Waiting for the first words: the line stays empty (the status light shows the state).
+        // Waiting for the first words: no words in the line, but pulsing dots so it is never blank.
         controller.developmentBuffer("原文", plugin: true, generating: true); window.layoutIfNeeded()
         XCTAssertEqual(controller.layoutViews.result.text, "")
+        XCTAssertTrue(controller.layoutViews.result.waiting)
+        controller.developmentBuffer("原文", plugin: true, output: "译文。"); XCTAssertFalse(controller.layoutViews.result.waiting)
         // A burst of text is revealed gradually, then fully.
         let line = SingleLineTextView(frame: CGRect(x: 0, y: 0, width: 120, height: 36)); window.addSubview(line)
         var settled = false
         let reveal = StreamReveal(line: line) { settled = true }
         let burst = String(repeating: "流式输出更自然。", count: 6)
         reveal.start(); reveal.feed(burst, finished: false)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.12))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.25))
         XCTAssertGreaterThan(line.text.count, 0); XCTAssertLessThan(line.text.count, burst.count)
+        // A whole answer arriving at once still streams at a readable pace (≤ ~90 characters a second).
         reveal.feed(burst, finished: true)
-        RunLoop.main.run(until: Date().addingTimeInterval(1.2))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertLessThan(line.text.count, burst.count)
+        RunLoop.main.run(until: Date().addingTimeInterval(1.5))
         XCTAssertEqual(line.text, burst); XCTAssertTrue(settled); XCTAssertFalse(reveal.isActive)
         XCTAssertGreaterThan(line.contentOffset.x, 0) // it followed the newest text
         line.removeFromSuperview()
@@ -453,7 +520,7 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         XCTAssertEqual(ThinkingCaption.caption("还没想完"), "")
         XCTAssertEqual(ThinkingCaption.caption("Let me think about the ranking of"), "Let me think about the ranking of")
         XCTAssertFalse(c2.layoutViews.result.text.contains(ThinkingText.marker))
-        c2.developmentPreview("答案是这样。"); RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        c2.developmentPreview("答案是这样。"); RunLoop.main.run(until: Date().addingTimeInterval(1.0))
         XCTAssertFalse(c2.layoutViews.result.thinking)
         XCTAssertEqual(c2.layoutViews.result.text, "答案是这样。")
     }
@@ -549,6 +616,34 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         try? (controller.typingSignature() ?? "").write(to: root.appendingPathComponent("10-signature.txt"), atomically: true, encoding: .utf8)
         try? L("中文", "english").write(to: root.appendingPathComponent("language.txt"), atomically: true, encoding: .utf8)
     }
+    func testTranslationBlocksWithTrailingSpacesNeverOverlap() {
+        let (window, controller) = host(); defer { window.isHidden = true }
+        // Real translation output: English chunks, each ending in a space.
+        let blocks = ["The weather is nice ", "today, ", "let's go to the ", "park. ", "See you tomorrow!"]
+        controller.developmentPlugin(.translate, source: "今天天气很好，我们去公园吧。明天见！", output: blocks.joined(), blocks: blocks)
+        window.layoutIfNeeded()
+        let line = controller.layoutViews.result; line.layoutIfNeeded()
+        let frames = line.blockFrames
+        XCTAssertEqual(frames.count, blocks.count)
+        for (left, right) in zip(frames, frames.dropFirst()) { XCTAssertLessThanOrEqual(left.maxX, right.minX + 0.5, "\(frames)") }
+        // The text is laid out as wide as the blocks say, so the last block is fully inside the content.
+        XCTAssertLessThanOrEqual(frames.last!.maxX, line.contentSize.width)
+        let format = UIGraphicsImageRendererFormat(); format.scale = 3
+        let image = UIGraphicsImageRenderer(bounds: controller.layoutViews.buffer.bounds, format: format).image { controller.layoutViews.buffer.layer.render(in: $0.cgContext) }
+        // The real path: the reply streams in as plain text, then settles into blocks with the same
+        // characters. The gaps must appear then too, or block backgrounds run into each other.
+        controller.developmentPlugin(.translate, source: "今天天气很好。明天见！", generating: true)
+        controller.developmentPreview("Nice day! See you tomorrow!"); RunLoop.main.run(until: Date().addingTimeInterval(1.5))
+        XCTAssertEqual(line.text, "Nice day! See you tomorrow!")
+        controller.developmentFinish("Nice day! See you tomorrow!"); RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        window.layoutIfNeeded(); line.layoutIfNeeded()
+        XCTAssertEqual(line.blockRanges.count, 2)
+        let firstEnd = NSMaxRange(line.blockRanges[0]) - 1
+        XCTAssertNotNil(line.attributedText?.attribute(.kern, at: firstEnd, effectiveRange: nil), "the gap after the first block")
+        let settled = line.blockFrames
+        XCTAssertEqual(settled.count, 2)
+        if settled.count == 2 { XCTAssertLessThanOrEqual(settled[0].maxX, settled[1].minX + 0.5) }
+    }
     func testEmptyCandidateRowOpensPluginsWithoutRunningThem() throws {
         let (window, controller) = host(); defer { window.isHidden = true }
         let bar = controller.developmentShortcuts, controls = controller.developmentPluginControls
@@ -597,6 +692,11 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         func chip(_ id: String) -> PanelChip? { panel.chips.first { $0.accessibilityIdentifier?.hasSuffix(".\(id)") == true } }
         XCTAssertEqual(chip(KeyboardPlugin.poem.rawValue)?.item.selected, true)
         XCTAssertNotNil(chip("improvise")); XCTAssertNotNil(chip("builtin.lushi")); XCTAssertNotNil(chip("clear"))
+        // AI plugins can set the thinking depth right here.
+        XCTAssertEqual(AIThinking.allCases.compactMap { chip($0.rawValue) }.count, AIThinking.allCases.count)
+        XCTAssertEqual(chip("minimal")?.item.selected, true)
+        try XCTUnwrap(chip("off")).sendActions(for: .touchUpInside)
+        XCTAssertEqual(chip("off")?.item.selected, true)
         try XCTUnwrap(chip("acrosticHead")).sendActions(for: .touchUpInside)
         XCTAssertEqual(chip("acrosticHead")?.item.selected, true); XCTAssertEqual(chip("improvise")?.item.selected, false)
         snapshot("plugin-panel-poem")
@@ -690,10 +790,11 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         let (window, controller) = host(); defer { window.isHidden = true }
         let v = controller.layoutViews
         func view(_ id: String, in root: UIView) -> UIView? { root.subviews.first { $0.accessibilityIdentifier == id } }
-        let bottomDelete = try XCTUnwrap(view("keyboard.delete", in: v.bottom)), bottomLanguage = try XCTUnwrap(view("keyboard.mode.bottom", in: v.bottom))
+        let bottomDelete = try XCTUnwrap(controller.developmentStandardFunctions[.backspace]), bottomLanguage = try XCTUnwrap(controller.developmentStandardFunctions[.language])
         let chordDelete = try XCTUnwrap(view("keyboard.delete.chord", in: v.keys) as? RepeatKeycapButton)
         // Pinyin: ordinary layout.
-        XCTAssertFalse(bottomDelete.isHidden); XCTAssertTrue(bottomLanguage.isHidden); XCTAssertTrue(chordDelete.isHidden)
+        XCTAssertFalse(bottomDelete.isHidden); XCTAssertFalse(bottomLanguage.isHidden); XCTAssertTrue(chordDelete.isHidden)
+        XCTAssertTrue(bottomDelete.superview === v.keys)
         controller.developmentChoose(.chord); window.layoutIfNeeded()
         XCTAssertTrue(bottomDelete.isHidden); XCTAssertFalse(bottomLanguage.isHidden); XCTAssertFalse(chordDelete.isHidden)
         XCTAssertNil(view("keyboard.mode", in: v.keys).flatMap { $0.isHidden ? nil : $0 })
@@ -795,6 +896,13 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
     }
     func testAssociationsFollowCommitsLearnAndClearOnOtherKeys() throws {
         let (window, controller) = host(); defer { window.isHidden = true }
+        // Keep persisted app reset requests out of this two-controller fixture.
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let suite = "rimes-association-fixture-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { try? FileManager.default.removeItem(at: directory); defaults.removePersistentDomain(forName: suite) }
+        let store = AssociationHistoryStore(root: directory, defaults: defaults)
+        controller.developmentAssociationStore(store)
         controller.developmentClearAssociationHistory()
         let strip = controller.layoutViews.candidates
         func text() -> String { controller.layoutProxy.native.text }
@@ -823,6 +931,7 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         // History persists across keyboard sessions and can be cleared.
         controller.developmentSaveAssociationHistory()
         let (window2, second) = host(); defer { window2.isHidden = true }
+        second.developmentAssociationStore(store)
         second.developmentType("xiexie"); second.developmentSpace()
         XCTAssertEqual(second.developmentAssociations.first, "你")
         second.developmentClearAssociationHistory()
@@ -1078,7 +1187,7 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
         controller.layoutViews.candidates.onSelect?(index)
         XCTAssertEqual(proxy.native.text, "前😀你好后"); XCTAssertNil(proxy.native.markedTextRange)
         controller.developmentType("ni")
-        let delete = try XCTUnwrap(controller.layoutViews.bottom.arrangedSubviews.compactMap { $0 as? UIButton }.first { $0.accessibilityLabel == L("删除", "Delete") })
+        let delete = controller.developmentDelete
         delete.sendActions(for: .touchDown); delete.sendActions(for: .touchUpInside); delete.sendActions(for: .touchDown); delete.sendActions(for: .touchUpInside)
         XCTAssertEqual(proxy.native.text, "前😀你好后"); XCTAssertNil(proxy.native.markedTextRange)
         controller.developmentType("hao"); controller.viewWillDisappear(false)
@@ -1322,6 +1431,7 @@ func L(_ zh: String, _ en: String) -> String { RIMES.L(zh, en) }
     }
     func testSystemGlobeOnlyWhenRequiredAndSpaceReceivesFreedWidth() {
         let (window, controller) = host(); defer { window.isHidden = true }
+        controller.developmentChoose(.chord); window.layoutIfNeeded()
         let views = controller.layoutViews
         let space = views.bottom.arrangedSubviews.first { $0.accessibilityIdentifier == "keyboard.space" }!
         let without = space.bounds.width

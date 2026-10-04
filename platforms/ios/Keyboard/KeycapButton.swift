@@ -3,14 +3,28 @@ import UIKit
 @testable import RIMES
 #endif
 import ImageIO
+import RimesCore
 
 /// One cap geometry/palette for drawn letters and UIKit-backed controls.
 enum KeycapStyle {
     static func capRect(in rect: CGRect, pressed: Bool, compact: Bool = false) -> CGRect {
         rect.insetBy(dx: compact ? 0 : 0.5, dy: compact ? 0.75 : 1.5).offsetBy(dx: 0, dy: pressed ? (compact ? 0.75 : 1.5) : (compact ? -0.25 : -0.5))
     }
-    static func draw(in rect: CGRect, pressed: Bool, selected: Bool = false, enabled: Bool = true, compact: Bool = false) {
+    static func draw(in rect: CGRect, pressed: Bool, selected: Bool = false, enabled: Bool = true, compact: Bool = false,
+                     theme: StatusSkin = .rhino, functional: Bool = false, accent: Bool = false) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
+        let palette = theme.palette
+        if theme.keyboardStyle == .system {
+            let dark = UITraitCollection.current.userInterfaceStyle == .dark
+            let cap = UIBezierPath(roundedRect: rect.insetBy(dx: 0, dy: 0.5), cornerRadius: 5)
+            context.saveGState()
+            if !enabled { context.setAlpha(0.4) }
+            context.setShadow(offset: CGSize(width: 0, height: 1), blur: 0, color: UIColor.black.withAlphaComponent(dark ? 0.5 : 0.25).cgColor)
+            let fill: UIColor = pressed ? (accent && selected ? palette.pressedSelected : palette.accent)
+                : accent && selected ? palette.accent : selected ? palette.key
+                : functional ? palette.functional : palette.key
+            fill.setFill(); cap.fill(); context.restoreGState(); return
+        }
         context.saveGState()
         if !enabled { context.setAlpha(0.4) }
         let base = UIBezierPath(roundedRect: rect.insetBy(dx: compact ? 0 : 0.5, dy: compact ? 0.75 : 1.5).offsetBy(dx: 0, dy: compact ? 0.75 : 1.5), cornerRadius: compact ? 3 : 6)
@@ -18,7 +32,7 @@ enum KeycapStyle {
         UIColor.separator.setFill(); base.fill()
         context.setShadow(offset: .zero, blur: 0, color: nil)
         let cap = UIBezierPath(roundedRect: capRect(in: rect, pressed: pressed, compact: compact), cornerRadius: compact ? 3 : 6)
-        (pressed || selected ? UIColor.systemTeal : UIColor.secondarySystemGroupedBackground).setFill(); cap.fill()
+        (pressed && selected ? palette.pressedSelected : pressed || selected ? palette.accent : functional ? palette.functional : palette.key).setFill(); cap.fill()
         UIColor.label.withAlphaComponent(pressed || selected ? 0.15 : 0.10).setStroke()
         cap.lineWidth = 0.7; cap.stroke()
         context.restoreGState()
@@ -26,6 +40,10 @@ enum KeycapStyle {
 }
 
 class KeycapButton: UIButton {
+    var theme: StatusSkin = .rhino { didSet { if oldValue != theme { updateAppearance() } } }
+    var skin: KeyboardSkin { theme.keyboardStyle }
+    var functionalCap = false { didSet { if oldValue != functionalCap { setNeedsDisplay() } } }
+    var accentCap = false { didSet { if oldValue != accentCap { updateAppearance() } } }
     var compactCap = false { didSet { setNeedsDisplay(); setNeedsLayout() } }
     var titleHorizontalInset: CGFloat = 6 { didSet { setNeedsLayout() } }
     override init(frame: CGRect) {
@@ -48,11 +66,21 @@ class KeycapButton: UIButton {
     override var isSelected: Bool { didSet { updateAppearance() } }
     override var isEnabled: Bool { didSet { updateAppearance() } }
     private func updateAppearance() {
-        tintColor = !isEnabled ? .label.withAlphaComponent(0.4) : isHighlighted || isSelected ? .white : .label
+        let palette = theme.palette
+        let selectedInk: UIColor = skin == .system && !accentCap ? palette.ink : palette.accentInk
+        let pressedInk = isSelected && (skin != .system || accentCap) ? palette.pressedSelectedInk : palette.accentInk
+        adjustsImageWhenHighlighted = false
+        setTitleColor(palette.ink, for: .normal)
+        setTitleColor(palette.ink.withAlphaComponent(0.4), for: .disabled)
+        setTitleColor(palette.accentInk, for: .highlighted)
+        setTitleColor(pressedInk, for: [.selected, .highlighted])
+        setTitleColor(selectedInk, for: .selected)
+        tintColor = !isEnabled ? palette.ink.withAlphaComponent(0.4) : isHighlighted ? pressedInk : isSelected ? selectedInk : palette.ink
         setNeedsDisplay(); setNeedsLayout()
     }
     override func draw(_ rect: CGRect) {
-        KeycapStyle.draw(in: bounds, pressed: isHighlighted, selected: isSelected, enabled: isEnabled, compact: compactCap)
+        KeycapStyle.draw(in: bounds, pressed: isHighlighted, selected: isSelected, enabled: isEnabled, compact: compactCap,
+                         theme: theme, functional: functionalCap, accent: accentCap)
     }
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -60,7 +88,7 @@ class KeycapButton: UIButton {
         let textHeight = min(cap.height, ceil(titleLabel?.font.lineHeight ?? 0))
         titleLabel?.frame = CGRect(x: titleHorizontalInset, y: cap.midY - textHeight / 2, width: max(0, bounds.width - 2 * titleHorizontalInset), height: textHeight)
         if let imageView, let image = imageView.image {
-            let size = CGSize(width: min(image.size.width, cap.width - 8), height: min(image.size.height, cap.height - 6))
+            let size = CGSize(width: max(0, min(image.size.width, cap.width - 8)), height: max(0, min(image.size.height, cap.height - 6)))
             imageView.frame = CGRect(x: cap.midX - size.width / 2, y: cap.midY - size.height / 2, width: size.width, height: size.height)
         }
     }
@@ -229,7 +257,7 @@ final class SpaceCursorButton: KeycapButton {
         let divider = UIBezierPath()
         divider.move(to: CGPoint(x: cap.midX, y: cap.minY + cap.height * 0.22))
         divider.addLine(to: CGPoint(x: cap.midX, y: cap.maxY - cap.height * 0.22))
-        (isHighlighted || isSelected ? UIColor.white.withAlphaComponent(0.6) : UIColor.separator).setStroke()
+        (isHighlighted || isSelected ? tintColor.withAlphaComponent(0.6) : UIColor.separator).setStroke()
         divider.lineWidth = 1; divider.stroke()
     }
 }
@@ -265,7 +293,7 @@ final class StatusLight: UIView {
     }
     typealias Skin = StatusSkin
     private(set) var state = State.idle
-    var skin = Skin.light { didSet { if skin != oldValue { setNeedsLayout(); apply(animated: false) } } }
+    var skin = Skin.apple { didSet { if skin != oldValue { setNeedsDisplay(); setNeedsLayout(); apply(animated: false) } } }
     /// A tap asks for the next skin in the chosen rotation.
     var onCycleSkin: (() -> Void)?
     private let dot = CALayer()
@@ -284,6 +312,7 @@ final class StatusLight: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear; isOpaque = false; contentMode = .redraw
+        dot.name = "status.dot"
         dot.shadowOffset = .zero; dot.shadowRadius = 5; dot.shadowOpacity = 0.9
         layer.addSublayer(dot); layer.addSublayer(crab)
         for pet in pets.values { layer.addSublayer(pet) }
@@ -295,13 +324,13 @@ final class StatusLight: UIView {
         addSubview(mascotView)
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
         isAccessibilityElement = true; accessibilityTraits = [.staticText, .updatesFrequently]
-        accessibilityHint = L("轻点切换样式", "Tap to change its look")
+        accessibilityHint = L("轻点切换宠物与键盘配色", "Tap to change pet and keyboard colors")
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (light: StatusLight, _: UITraitCollection) in light.apply(animated: false) }
         apply(animated: false)
     }
     required init?(coder: NSCoder) { fatalError() }
     @objc private func tapped() { onCycleSkin?() }
-    override func draw(_ rect: CGRect) { KeycapStyle.draw(in: bounds, pressed: false) }
+    override func draw(_ rect: CGRect) { KeycapStyle.draw(in: bounds, pressed: false, theme: skin) }
     override func layoutSubviews() {
         super.layoutSubviews()
         let cap = KeycapStyle.capRect(in: bounds, pressed: false), size: CGFloat = 10
@@ -321,14 +350,14 @@ final class StatusLight: UIView {
     private func apply(animated: Bool) {
         let color = state.color.resolvedColor(with: traitCollection)
         let motion = !UIAccessibility.isReduceMotionEnabled
-        accessibilityLabel = L("输出状态：", "Output status: ") + state.label
-        dot.isHidden = skin != .light; crab.isHidden = skin != .crab
+        accessibilityLabel = skin.title + " · " + state.label
+        dot.isHidden = !skin.usesDot; crab.isHidden = skin != .crab
         applyNoto(color: color, motion: motion)
         applyMascot(color: color, motion: motion)
         for (species, pet) in pets { pet.isHidden = skin.petSpecies != species; pet.show(skin.petSpecies == species ? state : nil, color: color, motion: motion) }
         dot.removeAnimation(forKey: "breath")
         crab.show(skin == .crab ? state : nil, color: color, motion: motion)
-        guard skin == .light else { return }
+        guard skin.usesDot else { return }
         dot.backgroundColor = color.cgColor; dot.shadowColor = color.cgColor
         dot.opacity = state == .idle ? 0.45 : 1
         guard let period = state.period, motion else { return }

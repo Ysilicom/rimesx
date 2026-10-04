@@ -9,10 +9,11 @@ assert (data/'wubi86.dict.yaml').read_bytes()==(root/'rime-data/wubi86.dict.yaml
 checks=json.loads((data/'checksums.json').read_text())
 for path,sha in checks.items():
     assert hashlib.sha256((data/path).read_bytes()).hexdigest()==sha,path
-for name in ['rimes_pinyin','rimes_ziranma','rimes_wubi']:
+for name in ['rimes_pinyin','rimes_pinyin9','rimes_ziranma','rimes_wubi']:
     assert (data/'build'/f'{name}.schema.yaml').exists()
     assert (data/'build'/f'{name}.prism.bin').exists()
 assert (data/'associations.tsv').is_file() and 'associations.tsv' in checks
+assert len(json.loads((data/'nine-key-syllables.json').read_text())) > 300
 assert not any(p.suffix in ['.lua','.dylib'] or 'yoyo' in p.name or 'flypy' in p.name for p in data.rglob('*'))
 for name in ['App/Info.plist','Keyboard/Info.plist']:
     p=plistlib.loads((ios/name).read_bytes()); assert p['CFBundleLocalizations']==['en','zh-Hans']

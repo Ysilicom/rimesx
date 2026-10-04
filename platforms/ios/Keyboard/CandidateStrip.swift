@@ -87,13 +87,20 @@ final class CandidateButton: UIButton {
         backgroundColor = .clear; layer.cornerRadius = 4
         titleLabel?.textAlignment = .center; titleLabel?.adjustsFontSizeToFitWidth = false
         titleLabel?.lineBreakMode = .byTruncatingTail
-        setTitleColor(.label, for: .normal); setTitleColor(.systemTeal, for: .highlighted)
+        setTitleColor(.label, for: .normal)
         setPreferredSymbolConfiguration(.init(pointSize: 17, weight: .medium), forImageIn: .normal)
-        tintColor = .label
+        updateHighlight()
     }
     required init?(coder: NSCoder) { fatalError() }
     override var isHighlighted: Bool {
-        didSet { backgroundColor = isHighlighted ? .tertiarySystemFill : .clear }
+        didSet { updateHighlight() }
+    }
+    override func tintColorDidChange() { super.tintColorDidChange(); updateHighlight() }
+    private func updateHighlight() {
+        let accent = tintColor ?? UIColor.systemBlue
+        backgroundColor = isHighlighted ? accent : .clear
+        setTitleColor(KeyboardPalette.contrastingInk(on: accent), for: .highlighted)
+        imageView?.tintColor = isHighlighted ? KeyboardPalette.contrastingInk(on: accent) : .label
     }
     func symbol(_ name: String, label: String) {
         setImage(UIImage(systemName: name), for: .normal); accessibilityLabel = label
@@ -111,6 +118,7 @@ final class CandidateButton: UIButton {
 /// Temporarily replaces the candidate row while a chord is held. Mirrored about
 /// the centre: left keys, left mapping, [combined result], right mapping, right keys.
 final class ChordHandPreviewView: UIView {
+    var theme: StatusSkin = .apple { didSet { if oldValue != theme { update(preview) } } }
     private let leftKeys = UILabel(), leftOutput = UILabel(), combined = UILabel(), rightOutput = UILabel(), rightKeys = UILabel()
     private let pill = UIView()
     private var columns: [UILabel] { [leftKeys, leftOutput, combined, rightOutput, rightKeys] }
@@ -153,15 +161,15 @@ final class ChordHandPreviewView: UIView {
             keys.font = keyFont; keys.textColor = .secondaryLabel; keys.text = side?.keys.uppercased() ?? ""
             output.font = outputFont
             output.text = side == nil ? "—" : side?.output ?? "?"
-            output.textColor = side == nil ? .tertiaryLabel : side?.output == nil ? .systemRed : .systemTeal
+            output.textColor = side == nil ? .tertiaryLabel : side?.output == nil ? .systemRed : theme.palette.accentText
         }
         side(value?.left, keys: leftKeys, output: leftOutput)
         side(value?.right, keys: rightKeys, output: rightOutput)
         let mapped = value?.combined != nil
         combined.font = mapped ? .systemFont(ofSize: landscape ? 20 : 22, weight: .bold) : .systemFont(ofSize: 13, weight: .semibold)
-        combined.textColor = mapped ? .white : .secondaryLabel
+        combined.textColor = mapped ? theme.palette.accentInk : .secondaryLabel
         combined.text = value == nil ? "" : value?.combined ?? L("无映射", "No mapping")
-        pill.backgroundColor = mapped ? .systemTeal : .tertiarySystemFill
+        pill.backgroundColor = mapped ? theme.palette.accent : .tertiarySystemFill
         pill.isHidden = value == nil
         accessibilityLabel = value == nil ? nil : texts.filter { !$0.isEmpty }.joined(separator: " ")
         setNeedsLayout()
@@ -194,6 +202,7 @@ final class PluginShortcutBar: UIView {
         refresh()
     }
     required init?(coder: NSCoder) { fatalError() }
+    override func tintColorDidChange() { super.tintColorDidChange(); refresh() }
     @objc private func hold(_ recognizer: UILongPressGestureRecognizer) {
         guard recognizer.state == .began, let plugin = buttons.first(where: { $0.button === recognizer.view })?.plugin else { return }
         onSettings?(plugin)
@@ -209,8 +218,8 @@ final class PluginShortcutBar: UIView {
             var title = AttributedString(plugin.shortTitle); title.font = .systemFont(ofSize: plugin.shortTitle.count > 2 ? 12 : 13, weight: .medium)
             config.attributedTitle = title
             let on = plugin == selected
-            config.baseBackgroundColor = on ? .systemTeal : .tertiarySystemFill
-            config.baseForegroundColor = on ? .white : .label
+            config.baseBackgroundColor = on ? tintColor : .tertiarySystemFill
+            config.baseForegroundColor = on ? KeyboardPalette.contrastingInk(on: tintColor ?? .systemBlue) : .label
             button.configuration = config
             button.accessibilityTraits = on ? [.button, .selected] : [.button]
         }
@@ -234,6 +243,7 @@ struct PanelItem: Equatable {
     enum Role: Equatable { case choice, action, destructive }
     var id: String
     var title: String
+    var symbol: String? = nil
     var selected = false
     var role = Role.choice
     var enabled = true
@@ -257,36 +267,44 @@ struct PanelSection {
 /// Chip drawn by RIMES rather than a system control, so the panel reads as part of the keyboard.
 final class PanelChip: UIControl {
     let label = UILabel()
+    let icon = UIImageView()
     var item: PanelItem { didSet { apply() } }
     init(_ item: PanelItem) {
         self.item = item
         super.init(frame: .zero)
         layer.cornerRadius = 9; layer.cornerCurve = .continuous
         label.textAlignment = .center; label.isUserInteractionEnabled = false
-        addSubview(label); isAccessibilityElement = true
+        icon.contentMode = .scaleAspectFit; icon.isUserInteractionEnabled = false
+        addSubview(icon); addSubview(label); isAccessibilityElement = true
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (chip: PanelChip, _: UITraitCollection) in chip.apply() }
         apply()
     }
     required init?(coder: NSCoder) { fatalError() }
+    override func tintColorDidChange() { super.tintColorDidChange(); apply() }
     static let height: CGFloat = 32
     static let font = UIFont.systemFont(ofSize: 14, weight: .medium)
-    func fittingWidth() -> CGFloat { ceil((item.title as NSString).size(withAttributes: [.font: Self.font]).width) + 24 }
+    func fittingWidth() -> CGFloat { ceil((item.title as NSString).size(withAttributes: [.font: Self.font]).width) + 24 + (item.symbol == nil ? 0 : 22) }
     override var isHighlighted: Bool { didSet { alpha = isHighlighted ? 0.55 : item.enabled ? 1 : 0.35 } }
     private func apply() {
         label.text = item.title; label.font = Self.font
+        icon.image = item.symbol.flatMap { UIImage(systemName: $0) }; icon.isHidden = item.symbol == nil
         let (fill, text, border): (UIColor, UIColor, UIColor?) = switch item.role {
-        case .choice: item.selected ? (.systemTeal, .white, nil) : (.secondarySystemGroupedBackground, .label, .separator)
-        case .action: (UIColor.systemTeal.withAlphaComponent(0.14), .systemTeal, nil)
+        case .choice: item.selected ? (tintColor ?? .systemBlue, KeyboardPalette.contrastingInk(on: tintColor ?? .systemBlue), nil) : (.secondarySystemGroupedBackground, .label, .separator)
+        case .action: ((tintColor ?? .systemBlue).withAlphaComponent(0.14), .label, nil)
         case .destructive: (UIColor.systemRed.withAlphaComponent(0.12), .systemRed, nil)
         }
-        backgroundColor = fill; label.textColor = text
+        backgroundColor = fill; label.textColor = text; icon.tintColor = text
         layer.borderWidth = border == nil ? 0 : 0.7
         layer.borderColor = border?.resolvedColor(with: traitCollection).cgColor
         isEnabled = item.enabled; alpha = item.enabled ? 1 : 0.35
         accessibilityLabel = item.title
         accessibilityTraits = item.selected ? [.button, .selected] : item.enabled ? .button : [.button, .notEnabled]
     }
-    override func layoutSubviews() { super.layoutSubviews(); label.frame = bounds.insetBy(dx: 8, dy: 0) }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        icon.frame = CGRect(x: 12, y: (bounds.height - 16) / 2, width: 16, height: 16)
+        label.frame = item.symbol == nil ? bounds.insetBy(dx: 8, dy: 0) : CGRect(x: 34, y: 0, width: max(0, bounds.width - 46), height: bounds.height)
+    }
 }
 
 /// Buffer and plugin settings, drawn over the keys: a header, then titled rows of
@@ -318,7 +336,7 @@ final class KeyboardPanel: UIView {
     func show(title: String, sections: [PanelSection]) {
         titleLabel.text = title
         self.sections = sections
-        let next = sections.map { "\($0.title)|\($0.note ?? "")|\($0.customKey)|" + $0.items.map { "\($0.id)\($0.title)\($0.selected)\($0.enabled)" }.joined(separator: ",") }.joined(separator: ";")
+        let next = sections.map { "\($0.title)|\($0.note ?? "")|\($0.customKey)|" + $0.items.map { "\($0.id)\($0.title)\($0.symbol ?? "")\($0.selected)\($0.enabled)" }.joined(separator: ",") }.joined(separator: ";")
         guard next != signature else { return }
         signature = next
         let offset = scroll.contentOffset
@@ -401,7 +419,7 @@ final class DrumPicker: UIView, UIScrollViewDelegate {
         layer.cornerRadius = 10; layer.cornerCurve = .continuous; layer.borderWidth = 0.7
         clipsToBounds = true
         band.isUserInteractionEnabled = false; band.layer.cornerRadius = 7; band.layer.cornerCurve = .continuous
-        band.backgroundColor = UIColor.systemTeal.withAlphaComponent(0.12); band.layer.borderWidth = 1
+        band.layer.borderWidth = 1
         addSubview(band)
         scroll.showsVerticalScrollIndicator = false; scroll.showsHorizontalScrollIndicator = false
         scroll.decelerationRate = .fast; scroll.delegate = self; scroll.alwaysBounceVertical = true; scroll.hideEdgeEffects()
@@ -416,9 +434,11 @@ final class DrumPicker: UIView, UIScrollViewDelegate {
         applyColors()
     }
     required init?(coder: NSCoder) { fatalError() }
+    override func tintColorDidChange() { super.tintColorDidChange(); applyColors() }
     private func applyColors() {
         layer.borderColor = UIColor.separator.resolvedColor(with: traitCollection).cgColor
-        band.layer.borderColor = UIColor.systemTeal.withAlphaComponent(0.5).resolvedColor(with: traitCollection).cgColor
+        band.backgroundColor = (tintColor ?? .systemBlue).withAlphaComponent(0.12)
+        band.layer.borderColor = (tintColor ?? .systemBlue).withAlphaComponent(0.5).resolvedColor(with: traitCollection).cgColor
         let base = UIColor.secondarySystemGroupedBackground.resolvedColor(with: traitCollection)
         fade.colors = [base.withAlphaComponent(0.85).cgColor, base.withAlphaComponent(0).cgColor, base.withAlphaComponent(0).cgColor, base.withAlphaComponent(0.85).cgColor]
     }
@@ -509,7 +529,7 @@ final class DrumPicker: UIView, UIScrollViewDelegate {
     override func accessibilityDecrement() { roll(to: max(0, selectedIndex - 1)) }
 }
 
-/// On/off switch drawn by RIMES: a teal pill with a sliding knob.
+/// On/off switch using the active theme accent with a sliding knob.
 final class PanelToggle: UIControl {
     private let knob = UIView()
     private(set) var isOn = false
@@ -524,6 +544,7 @@ final class PanelToggle: UIControl {
         apply()
     }
     required init?(coder: NSCoder) { fatalError() }
+    override func tintColorDidChange() { super.tintColorDidChange(); apply() }
     override var intrinsicContentSize: CGSize { CGSize(width: 48, height: 28) }
     func setOn(_ on: Bool, animated: Bool) {
         guard on != isOn else { return }
@@ -531,7 +552,7 @@ final class PanelToggle: UIControl {
         if animated { UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) { self.apply(); self.layoutIfNeeded() } } else { apply() }
     }
     private func apply() {
-        backgroundColor = isOn ? .systemTeal : .tertiarySystemFill
+        backgroundColor = isOn ? tintColor : .tertiarySystemFill
         accessibilityValue = isOn ? L("开", "On") : L("关", "Off")
         setNeedsLayout()
     }
@@ -549,7 +570,7 @@ final class LanguagePairRow: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         swap.setImage(UIImage(systemName: "arrow.left.arrow.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)), for: .normal)
-        swap.tintColor = .systemTeal; swap.backgroundColor = UIColor.systemTeal.withAlphaComponent(0.14)
+        swap.backgroundColor = (tintColor ?? .systemBlue).withAlphaComponent(0.14)
         swap.layer.cornerRadius = 9; swap.layer.cornerCurve = .continuous
         swap.accessibilityLabel = L("交换方向", "Swap direction"); swap.accessibilityIdentifier = "keyboard.panel.swap"
         source.accessibilityLabel = L("原文语言", "From"); target.accessibilityLabel = L("译文语言", "To")
@@ -557,6 +578,11 @@ final class LanguagePairRow: UIView {
         for view in [source, swap, target] { addSubview(view) }
     }
     required init?(coder: NSCoder) { fatalError() }
+    override func tintColorDidChange() {
+        super.tintColorDidChange()
+        swap.backgroundColor = (tintColor ?? .systemBlue).withAlphaComponent(0.14)
+        swap.imageView?.tintColor = .label
+    }
     override func layoutSubviews() {
         super.layoutSubviews()
         let gap: CGFloat = 8, swapWidth: CGFloat = 44, drum = max(0, (bounds.width - swapWidth - 2 * gap) / 2)

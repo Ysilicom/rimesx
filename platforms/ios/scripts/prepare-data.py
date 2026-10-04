@@ -10,12 +10,23 @@ encoding=root/'Vendor/ios-build/encoding.swift'
 encoding.write_text((root/'Shared/Sources/RimesCore/ChordEncoding.swift').read_text()+'\nprint(String(data:try! JSONSerialization.data(withJSONObject:["algebra":ZiranmaShuangpin.syllableAlgebra,"preedit":ZiranmaShuangpin.preeditFormat]),encoding:.utf8)!)\n')
 rules=json.loads(subprocess.check_output(['xcrun','swift',str(encoding)],text=True))
 shutil.copy2(root/'rime-data/wubi86.dict.yaml',base/'wubi86.dict.yaml')
-(base/'default.yaml').write_text('config_version: "1.0"\nschema_list:\n  - schema: rimes_pinyin\n  - schema: rimes_ziranma\n  - schema: rimes_wubi\nmenu:\n  page_size: 9\n')
-for mode in ['pinyin','ziranma','wubi']:
+(base/'default.yaml').write_text('config_version: "1.0"\nschema_list:\n  - schema: rimes_pinyin\n  - schema: rimes_pinyin9\n  - schema: rimes_ziranma\n  - schema: rimes_wubi\nmenu:\n  page_size: 9\n')
+# Keep exact alphabetic spellings alongside each numeric alias, so choosing a
+# syllable can constrain one segment while the remainder still uses nine keys.
+syllables=set()
+for line in (base/'pinyin_simp.dict.yaml').read_text().splitlines():
+    fields=line.split('\t')
+    if len(fields)>1:
+        syllables.update(s for s in fields[1].split() if s.isascii() and s.isalpha() and s.islower())
+digit_map=str.maketrans('abcdefghijklmnopqrstuvwxyz','22233344455566677778889999')
+nine_algebra=[f'derive/^{s}$/{s.translate(digit_map)}/' for s in sorted(syllables)]
+(base/'nine-key-syllables.json').write_text(json.dumps(sorted(syllables))+'\n')
+for mode in ['pinyin','pinyin9','ziranma','wubi']:
     wubi=mode=='wubi'; double=mode=='ziranma'
     alg=rules['algebra'] if double else ['abbrev/^([a-z]).+$/$1/'] if not wubi else []
+    if mode=='pinyin9': alg=nine_algebra
     preedit=rules['preedit'] if double else []
-    schema=f'''# RIMES iOS original minimal schema (MIT). No desktop includes or Lua.
+    schema=f'''# RIMES iOS original minimal schema (Apache-2.0). No desktop includes or Lua.
 schema:
   schema_id: rimes_{mode}
   name: RIMES {mode}
@@ -28,7 +39,7 @@ engine:
   segmentors: [ascii_segmentor, abc_segmentor, punct_segmentor, fallback_segmentor]
   translators: [punct_translator, {'table_translator' if wubi else 'script_translator'}]
 speller:
-  alphabet: abcdefghijklmnopqrstuvwxyz
+  alphabet: {'abcdefghijklmnopqrstuvwxyz23456789' if mode=='pinyin9' else 'abcdefghijklmnopqrstuvwxyz'}
   delimiter: " '"
   algebra: {json.dumps(alg,ensure_ascii=False)}
 translator:
@@ -37,6 +48,8 @@ translator:
   enable_user_dict: true
   enable_sentence: true
   enable_completion: true
+  spelling_hints: {99 if mode=='pinyin9' else 0}
+  always_show_comments: {'true' if mode=='pinyin9' else 'false'}
   preedit_format: {json.dumps(preedit,ensure_ascii=False)}
 punctuator:
   half_shape:
@@ -50,7 +63,7 @@ punctuator:
     (base/f'rimes_{mode}.schema.yaml').write_text(schema)
 user=root/'Vendor/ios-build/data-user';user.mkdir(exist_ok=True)
 subprocess.run([str(root/'Vendor/ios-build/host/rime/bin/rime_deployer'),'--build',str(base),str(base),str(base/'build')],check=True)
-required=['rimes_pinyin.schema.yaml','rimes_ziranma.schema.yaml','rimes_wubi.schema.yaml','pinyin_simp.table.bin','wubi86.table.bin']
+required=['rimes_pinyin.schema.yaml','rimes_pinyin9.schema.yaml','rimes_pinyin9.prism.bin','rimes_ziranma.schema.yaml','rimes_wubi.schema.yaml','pinyin_simp.table.bin','wubi86.table.bin']
 for name in required:
     if not (base/'build'/name).is_file():raise RuntimeError('Missing compiled asset: '+name)
 subprocess.run(['python3',str(root/'platforms/ios/scripts/build-associations.py'),str(base)],check=True)

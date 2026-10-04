@@ -280,14 +280,28 @@ final class CoreTests: XCTestCase {
         try inline.append(event(#"{"content":"</think>\n春风"}"#, finish: #""stop""#)); try inline.append(Data("data: [DONE]\n\n".utf8))
         XCTAssertEqual(try inline.complete(), "春风")
     }
-    func testReasoningEffortIsOptional() throws {
+    func testThinkingLevelsTryEachSpellingThenNothing() throws {
         let p = ProviderConfiguration(name:"Test",baseURL:"https://example.test/v1",model:"test")
-        func body(_ effort: AIReasoningEffort) throws -> [String: Any] {
-            let req = try AIRequest.make(provider:p,key:"k",source:"s",instruction:"i",consent:p.consentIdentity,reasoning:effort)
+        func body(_ extra: [String: Any]) throws -> [String: Any] {
+            let req = try AIRequest.make(provider:p,key:"k",source:"s",instruction:"i",consent:p.consentIdentity,extra:extra)
             return try XCTUnwrap(JSONSerialization.jsonObject(with:XCTUnwrap(req.httpBody)) as? [String:Any])
         }
-        XCTAssertEqual(try body(.minimal)["reasoning_effort"] as? String, "minimal")
-        XCTAssertNil(try body(.unspecified)["reasoning_effort"])
+        XCTAssertEqual(try body(AIThinking.minimal.attempts[0])["reasoning_effort"] as? String, "minimal")
+        let off = try body(AIThinking.off.attempts[0])
+        XCTAssertEqual((off["thinking"] as? [String: String])?["type"], "disabled")
+        XCTAssertEqual(try body(AIThinking.off.attempts[1])["enable_thinking"] as? Bool, false)
+        // DeepSeek (e.g. deepseek-v4-flash on CometAPI) gets its own spelling first.
+        let deepOff = try body(AIThinking.off.attempts(model: "deepseek-v4-flash")[0])
+        XCTAssertEqual((deepOff["thinking"] as? [String: String])?["type"], "disabled"); XCTAssertNil(deepOff["enable_thinking"])
+        let deepLow = try body(AIThinking.minimal.attempts(model: "deepseek-v4-flash")[0])
+        XCTAssertEqual((deepLow["thinking"] as? [String: String])?["type"], "enabled"); XCTAssertEqual(deepLow["reasoning_effort"] as? String, "low")
+        XCTAssertEqual(try body(AIThinking.high.attempts(model: "DeepSeek-V4-Pro")[0])["reasoning_effort"] as? String, "high")
+        XCTAssertEqual(try body(AIThinking.high.attempts[0])["reasoning_effort"] as? String, "high")
+        for level in AIThinking.allCases { XCTAssertTrue(level.attempts.last?.isEmpty == true, level.rawValue) } // always a plain fallback
+        XCTAssertNil(try body(AIThinking.auto.attempts[0])["reasoning_effort"])
+        XCTAssertEqual(try body(["model": "other"])["model"] as? String, "test") // extras never override core fields
+        let prefs = try JSONDecoder().decode(KeyboardPreferences.self, from: Data(#"{"scheme":"pinyin"}"#.utf8))
+        XCTAssertEqual(prefs.thinking, .minimal)
     }
     func testLineBreaksStayWithTheirBlock() {
         XCTAssertEqual(TextBlocks.split("春眠不觉晓，\n处处闻啼鸟。\n夜来风雨声，\n花落知多少。"),

@@ -5,7 +5,7 @@ enum BufferBlockStyle {
     static let gap: CGFloat = 10
     /// Kerns the last character of every block but the final one; returns the ranges.
     static func apply(to text: NSMutableAttributedString, ranges: [NSRange]) {
-        for range in ranges.dropLast() where range.length > 0 {
+        for range in ranges.dropLast() where range.length > 0 && NSMaxRange(range) <= text.length {
             text.addAttribute(.kern, value: gap, range: NSRange(location: NSMaxRange(range) - 1, length: 1))
         }
     }
@@ -26,7 +26,7 @@ struct BufferComposition {
     let blockRanges: [NSRange]
     /// Block holding the caret.
     let activeBlock: Int?
-    init(source: String, cursor: Int, preedit: String, font: UIFont, selection: Range<Int>? = nil, blocks: [String]? = nil) {
+    init(source: String, cursor: Int, preedit: String, font: UIFont, selection: Range<Int>? = nil, blocks: [String]? = nil, accent: UIColor = .systemTeal) {
         let offset = min(max(0, cursor), source.count)
         let position = source.index(source.startIndex, offsetBy: offset)
         let prefix = String(source[..<position]), suffix = String(source[position...])
@@ -36,7 +36,7 @@ struct BufferComposition {
         let value = NSMutableAttributedString(string: prefix + preedit + suffix,
                                              attributes: [.font: font, .foregroundColor: UIColor.label])
         if marked.length > 0 {
-            value.addAttributes([.foregroundColor: UIColor.systemTeal, .backgroundColor: UIColor.systemTeal.withAlphaComponent(0.1),
+            value.addAttributes([.foregroundColor: accent, .backgroundColor: accent.withAlphaComponent(0.1),
                                  .underlineStyle: NSUnderlineStyle.single.rawValue], range: marked)
         }
         // Source character offsets → displayed UTF-16. Unconfirmed text sits at the
@@ -47,7 +47,7 @@ struct BufferComposition {
         if let selection, selection.lowerBound < selection.upperBound {
             let start = display(selection.lowerBound), end = display(selection.upperBound)
             if start < end {
-                value.addAttribute(.backgroundColor, value: UIColor.systemTeal.withAlphaComponent(0.28), range: NSRange(location: start, length: end - start))
+                value.addAttribute(.backgroundColor, value: accent.withAlphaComponent(0.28), range: NSRange(location: start, length: end - start))
             }
         }
         var ranges: [NSRange] = [], active: Int?

@@ -102,30 +102,32 @@ import RimesCore
     private let instruction: String
     /// Turns the finished reply into the blocks to send (e.g. one fixed-width row per line).
     private let shape: ((String) -> [String])?
-    init(id: String, title: String, provider: ProviderConfiguration, key: String, consent: String, instruction: String, shape: ((String) -> [String])? = nil) {
-        self.provider = provider; self.key = key; self.consent = consent; self.instruction = instruction; self.shape = shape
+    private let thinking: AIThinking
+    init(id: String, title: String, provider: ProviderConfiguration, key: String, consent: String, instruction: String,
+         thinking: AIThinking = .minimal, shape: ((String) -> [String])? = nil) {
+        self.provider = provider; self.key = key; self.consent = consent; self.instruction = instruction; self.shape = shape; self.thinking = thinking
         descriptor = .init(id: id, title: title, realtime: false)
     }
     func availability(for request: BufferPluginRequest) async -> BufferPluginAvailability { .ready }
     func execute(_ request: BufferPluginRequest, preview: @escaping @MainActor (String) -> Void) async throws -> BufferPluginResult {
-        // Least thinking first; step down only when this service rejects the parameter.
-        let memory = "ai.reasoning.\(consent)|\(provider.model)"
-        let remembered = UserDefaults.standard.string(forKey: memory).flatMap(AIReasoningEffort.init(rawValue:))
-        let efforts = AIReasoningEffort.allCases.drop { remembered != nil && $0 != remembered }
-        for effort in efforts {
-            let networkRequest = try AIRequest.make(provider: provider, key: key, source: request.source, instruction: instruction, consent: consent, reasoning: effort)
+        // Try this level's spellings in order, starting from the one this service accepted before.
+        let attempts = thinking.attempts(model: provider.model)
+        let memory = "ai.thinking.v2.\(consent)|\(provider.model)|\(thinking.rawValue)"
+        let remembered = min(max(0, UserDefaults.standard.integer(forKey: memory)), attempts.count - 1)
+        for index in remembered..<attempts.count {
+            let networkRequest = try AIRequest.make(provider: provider, key: key, source: request.source, instruction: instruction, consent: consent, extra: attempts[index])
             do {
                 // Thinking streams first (tagged, shown dimmed and unlabelled), then the answer.
                 let text = try await AIClient().generate(networkRequest) { text, reasoning in
                     if !text.isEmpty { await preview(text) }
                     else if !reasoning.isEmpty { await preview(ThinkingText.marker + reasoning) }
                 }
-                if effort != remembered { UserDefaults.standard.set(effort.rawValue, forKey: memory) }
+                if index != remembered { UserDefaults.standard.set(index, forKey: memory) }
                 let reply = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard let shape else { return .init(text: reply, revision: request.revision) }
                 let blocks = shape(reply)
                 return .init(text: blocks.joined(), revision: request.revision, blocks: blocks)
-            } catch CoreError.response(let code) where (code == 400 || code == 422) && effort != .unspecified {
+            } catch CoreError.response(let code) where (code == 400 || code == 422) && index < attempts.count - 1 {
                 continue
             }
         }
@@ -247,8 +249,9 @@ extension TextArtStyle {
     var title: String { self == .blocks ? L("彩色方块", "Colour blocks") : L("任意字符", "Any characters") }
 }
 
-/// Looks for the Buffer status light. Shared by the app (which picks the rotation) and the keyboard.
-enum StatusSkin: String, CaseIterable, Identifiable {
+/// The pet and keyboard share one theme. `light` is retained for decoding older preferences.
+enum StatusSkin: String, Codable, CaseIterable, Identifiable {
+    case apple
     case light
     /// The RIMES rhino mascot (the owner's Scholay Rhino pixel animations): acts out each state.
     case rhino
@@ -260,6 +263,7 @@ enum StatusSkin: String, CaseIterable, Identifiable {
     var isNoto: Bool { rawValue.hasPrefix("noto-") }
     var title: String {
         switch self {
+        case .apple: return L("苹果原生", "Apple native")
         case .light: return L("光点", "Dot"); case .rhino: return L("RIMES 犀牛", "RIMES Rhino"); case .crab: return L("寄居蟹", "Hermit crab")
         case .kitten: return L("小猫", "Kitten"); case .puppy: return L("小狗", "Puppy"); case .piglet: return L("小猪", "Piglet")
         case .dog: return L("狗狗", "Dog"); case .poodle: return L("贵宾犬", "Poodle"); case .pig: return L("猪", "Pig")
@@ -268,10 +272,13 @@ enum StatusSkin: String, CaseIterable, Identifiable {
         case .octopus: return L("章鱼", "Octopus"); case .frog: return L("青蛙", "Frog"); case .chick: return L("小鸡", "Chick")
         }
     }
+    var canonical: StatusSkin { self == .light ? .apple : self }
+    var usesDot: Bool { canonical == .apple }
+    static var themes: [StatusSkin] { allCases.filter { $0 != .light } }
     /// The skins a tap rotates through; an empty or unknown list means all of them.
     static func rotation(_ ids: [String]) -> [StatusSkin] {
-        let chosen = ids.compactMap(StatusSkin.init(rawValue:))
-        return chosen.isEmpty ? allCases : allCases.filter(chosen.contains)
+        let chosen = ids.compactMap(StatusSkin.init(rawValue:)).map(\.canonical)
+        return chosen.isEmpty ? themes : themes.filter(chosen.contains)
     }
 }
 
@@ -279,4 +286,13 @@ enum StatusSkin: String, CaseIterable, Identifiable {
 /// never typed and never inserted.
 enum ThinkingText {
     static let marker = "\u{E000}"
+}
+
+extension AIThinking {
+    var title: String {
+        switch self {
+        case .off: return L("关闭", "Off"); case .minimal: return L("最低", "Minimal"); case .low: return L("低", "Low")
+        case .medium: return L("中", "Medium"); case .high: return L("高", "High"); case .auto: return L("自动", "Auto")
+        }
+    }
 }

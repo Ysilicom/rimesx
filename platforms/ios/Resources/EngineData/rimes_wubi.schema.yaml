@@ -1,4 +1,4 @@
-# RIMES iOS original minimal schema (MIT). No desktop includes or Lua.
+# RIMES iOS original minimal schema (Apache-2.0). No desktop includes or Lua.
 schema:
   schema_id: rimes_wubi
   name: RIMES wubi
@@ -20,6 +20,8 @@ translator:
   enable_user_dict: true
   enable_sentence: true
   enable_completion: true
+  spelling_hints: 0
+  always_show_comments: false
   preedit_format: []
 punctuator:
   half_shape:

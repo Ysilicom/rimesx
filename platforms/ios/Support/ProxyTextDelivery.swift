@@ -27,11 +27,14 @@ import RimesCore
         writeDepth += 1; defer { writeDepth -= 1 }
         guard !text.isEmpty, let proxy = proxy(for: target) else { return false }
         if markedTarget == target {
-            // Replace the entire composition explicitly; insertText can replace
-            // only the selected portion of marked text in some input views.
-            wrote(); proxy.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))
+            // Clear the whole old composition before committing through insertText.
+            // A remote host can coalesce unmarkText with the next setMarkedText;
+            // putting a commit in the marked range lets a same-key continuation
+            // (for example top-up: commit "你好", preedit "n") replace that commit.
+            wrote(); proxy.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
             proxy.unmarkText(); forgetMarkedText()
-        } else { wrote(); proxy.insertText(text) }
+        }
+        wrote(); proxy.insertText(text)
         return true
     }
     @discardableResult func updateMarkedText(_ text: String, target: UUID) -> Bool {

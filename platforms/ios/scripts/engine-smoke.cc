@@ -13,7 +13,8 @@ int main(int argc, char** argv) {
     auto api = rime_get_api(); api->setup(&traits); api->initialize(&traits);
     const auto session = api->create_session();
     struct Case { const char* schema; const char* code; const char* expected; };
-    Case cases[] = {{"rimes_pinyin","nihao","你好"},{"rimes_ziranma","nihk","你好"},{"rimes_wubi","wq","你"}};
+    Case cases[] = {{"rimes_pinyin","nihao","你好"},{"rimes_ziranma","nihk","你好"},{"rimes_wubi","wq","你"},
+                    {"rimes_pinyin9","64426","你好"},{"rimes_pinyin9","ni'426","你好"},{"rimes_pinyin9","94'26","西安"}};
     int failures = 0;
     for (const auto& c : cases) {
         if (!api->select_schema(session,c.schema)) { std::printf("FAIL schema %s\n",c.schema); ++failures; continue; }

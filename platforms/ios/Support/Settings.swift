@@ -27,6 +27,8 @@ struct AppConfiguration: Codable {
     var statusSkins: [String]?
     /// Changes with each app edit so the keyboard applies it once, like the scheme.
     var statusSkinsRevision: UUID?
+    /// App-confirmed reset request; contains no learned words. Applied once by the keyboard.
+    var associationResetRevision: UUID?
     var provider: ProviderConfiguration? { providers.first { $0.id == selectedProvider } }
 }
 /// Only the containing app writes this snapshot. The keyboard never requires group write access.
