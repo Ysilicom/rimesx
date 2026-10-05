@@ -2618,14 +2618,15 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
                              detail: String,
                              symbolName: String,
                              control: NSView,
-                             width: CGFloat = 650) -> NSView {
+                             width: CGFloat = 650,
+                             nameSize: CGFloat = 11) -> NSView {
         control.removeFromSuperview()
         let icon = SettingsIconTileView(
             symbolName: symbolName,
             accessibilityDescription: title
         )
         let name = NSTextField(labelWithString: title)
-        name.font = .systemFont(ofSize: 11, weight: .semibold)
+        name.font = .systemFont(ofSize: nameSize, weight: .semibold)
         name.textColor = RimeUI.textPrimary
         name.alignment = .left
         name.lineBreakMode = .byTruncatingTail
@@ -4526,93 +4527,53 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         ])
     }
 
-    /// One row per permission RIMES actually uses, each stating what it
-    /// enables and what happens without it. A grant that fails silently is
-    /// indistinguishable from a broken feature, which is the whole reason
-    /// this page exists.
+    /// One short instruction; recovery is an explicit, collapsed choice.
     private func permissionsPage() -> NSView {
-        var rows: [NSView] = [caption("只在使用对应功能时授权。这里显示当前进程的预检查结果；系统开关已打开但功能不可用时，请进入「授权与检测」。")]
-        rows.append(sectionLabel("找不到 RIMES？重新添加应用"))
-        rows.append(PermissionApplicationCard(width: 650))
-        rows.append(caption("上方拖动与「＋」适用于屏幕录制、辅助功能和输入监控。摄像头、麦克风需从「授权与检测」请求，不能手动添加。"))
+        let intro = NSTextField(labelWithString: "正常打字无需授权，用到扩展功能时再开启。")
+        intro.font = .systemFont(ofSize: 13)
+        intro.textColor = RimeUI.textSecondary
+        var rows: [NSView] = [intro]
         for report in SystemPermissionAudit.reportAll() {
             let status: String
             let symbol: String
             switch report.status {
             case .granted:
-                status = "已授权"
-                symbol = "checkmark.seal"
+                status = "已开启"; symbol = "checkmark.circle"
             case .denied:
-                status = report.permission == .screenRecording ? "当前进程待验证" : "当前进程未获授权"
-                symbol = "exclamationmark.triangle"
+                // A negative screen preflight is not proof that the system
+                // switch is off; the guide verifies the actual capability.
+                status = report.permission == .screenRecording ? "待确认" : "未开启"
+                symbol = "circle"
             case .undeterminable:
-                status = "系统未提供查询接口"
-                symbol = "questionmark.circle"
+                status = "按需开启"; symbol = "network"
             }
             let button = SettingsPointingButton(
-                title: report.permission == .localNetwork ? "打开设置" : "授权与检测",
-                target: self,
-                action: #selector(permissionActionTapped(_:))
-            )
-            button.tag = SystemPermission.allCases
-                .firstIndex(of: report.permission) ?? 0
+                title: report.permission == .localNetwork ? "系统设置"
+                    : report.status == .granted ? "检查" : "开启",
+                target: self, action: #selector(permissionActionTapped(_:)))
+            button.font = .systemFont(ofSize: 13)
+            button.tag = SystemPermission.allCases.firstIndex(of: report.permission) ?? 0
+            button.setAccessibilityLabel("\(button.title)\(report.permission.title)")
             rows.append(settingsRow(
                 title: "\(report.permission.title) · \(status)",
-                detail: "用于：\(report.permission.enables)\n"
-                    + "未授权时：\(report.permission.whenMissing)",
-                symbolName: symbol,
-                control: button
-            ))
+                detail: report.permission.shortPurpose,
+                symbolName: symbol, control: button, nameSize: 13))
         }
-        // Bundle-ID suffixes need not equal display names; do not mistake
-        // the intentional "isaac" identifier for a stale installation.
+        let refresh = SettingsPointingButton(title: "重新检测", target: self,
+                                             action: #selector(refreshPermissionsPage))
+        let reset = SettingsPointingButton(title: "重置辅助功能…", target: self,
+                                           action: #selector(resetAccessibilityRecordTapped))
+        reset.toolTip = "仅重置 RIMES 的辅助功能授权；执行前会确认"
         let identity = SystemPermissionAudit.identity()
-        let identityNote = NSTextField(wrappingLabelWithString:
-            "系统会结合应用身份与代码签名判断授权，请核对当前应用：\n"
-            + "标识符：\(identity.bundleIdentifier)\n"
-            + "显示名：\(identity.bundleName)　可执行文件：\(identity.executableName)\n"
-            + "位置：\(identity.bundlePath)")
-        identityNote.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
-        identityNote.textColor = RimeUI.textSecondary
-        rows.append(spacer(12))
-        rows.append(sectionLabel("应用标识"))
-        rows.append(identityNote)
+        refresh.toolTip = "\(identity.bundleIdentifier)\n\(identity.bundlePath)"
         if let authority = SystemPermissionAudit.signingAuthority() {
-            let signed = NSTextField(wrappingLabelWithString:
-                "签名证书：\(authority)。保持稳定的签名身份有助于在更新后保留授权；"
-                + "最终以系统和当前进程的实际检测结果为准。")
-            signed.font = .systemFont(ofSize: 11)
-            signed.textColor = RimeUI.textMuted
-            rows.append(spacer(8))
-            rows.append(signed)
+            refresh.toolTip! += "\n\(authority)"
         }
-        if SystemPermissionAudit.isAdHocSigned() {
-            // The single most useful sentence on this page for this build.
-            let note = NSTextField(wrappingLabelWithString:
-                "当前为临时签名（ad-hoc）开发版：重新构建后，旧授权可能不再匹配，"
-                + "即使系统开关仍显示开启。请先检测、重启；仍失败时再在对应系统面板"
-                + "移除旧 RIMES 并添加当前应用。稳定的开发签名可减少反复授权。")
-            note.font = .systemFont(ofSize: 11)
-            note.textColor = RimeUI.textMuted
-            rows.append(spacer(12))
-            rows.append(note)
-        }
-        rows.append(spacer(12))
-        let refresh = SettingsPointingButton(
-            title: "重新检测",
-            target: self,
-            action: #selector(refreshPermissionsPage)
-        )
-        let reset = SettingsPointingButton(
-            title: "重置辅助功能授权…",
-            target: self,
-            action: #selector(resetAccessibilityRecordTapped)
-        )
-        let actions = NSStackView(views: [refresh, reset])
-        actions.orientation = .horizontal
-        actions.spacing = 8
-        reset.toolTip = "仅重置 RIMES 的辅助功能授权，不处理屏幕录制或其他权限；执行前会确认。"
-        rows.append(actions)
+        let help = PermissionHelpDisclosure(details: CaptureUI.column([
+            PermissionApplicationCard(width: 650), CaptureUI.row([refresh, reset])
+        ]), width: 650)
+        help.didToggle = { [weak intro, weak help] in intro?.isHidden = help?.expanded == true }
+        rows.append(help)
         return contentColumn(rows)
     }
 
@@ -4851,10 +4812,8 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
             : .off
         clipboardAutoPasteCheck.state = ClipboardAutoPaste.enabled ? .on : .off
         clipboardAutoPasteStatusLabel.stringValue = ClipboardAutoPaste.isPermitted
-            ? "已授权辅助功能：图片、文件等内容会在窗口关闭后自动粘贴到目标输入框。"
-            : "未授权辅助功能：打开开关会请求权限。注意本应用为临时签名（ad-hoc），"
-                + "每次重新构建都会更换代码签名，系统会因此作废已授予的权限——"
-                + "在「系统设置 → 隐私与安全性 → 辅助功能」中移除本应用后重新添加即可恢复。"
+            ? "已开启，图片和文件会自动粘贴。"
+            : "开启辅助功能后可自动粘贴，也可手动按 ⌘V。"
         closeAfterLastDeliveryCheck.state = BufferWindowController.shared
             .closeAfterLastDeliveryEnabled ? .on : .off
         resetOnAppSwitchCheck.state = BufferModel.shared.resetOnAppSwitch ? .on : .off

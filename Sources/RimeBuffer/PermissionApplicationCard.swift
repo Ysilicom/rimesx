@@ -79,49 +79,33 @@ final class PermissionApplicationCard: NSView {
          bundleURL: URL = Bundle.main.bundleURL) {
         applicationURL = PermissionApplication.appURL(bundleURL: bundleURL)
         self.allowsSystemActions = allowsSystemActions
-        feedback = NSTextField(wrappingLabelWithString: applicationURL == nil
-            ? "当前不是可添加的 RIMES.app，请从已安装的输入法打开此页。"
-            : "列表里没有 RIMES？拖动图标到权限列表，或点「＋」选择应用。")
+        feedback = NSTextField(labelWithString: applicationURL == nil
+            ? "请从已安装的 RIMES 打开此页。" : "将图标拖到系统设置的权限列表。")
         super.init(frame: .zero)
         let innerWidth = width - 28
-        func label(_ text: String, size: CGFloat = 11) -> NSTextField {
-            let label = NSTextField(wrappingLabelWithString: text)
-            label.font = .systemFont(ofSize: size)
-            label.textColor = RimeUI.textSecondary
-            label.preferredMaxLayoutWidth = innerWidth
-            return label
-        }
         let icon = PermissionApplicationIcon(applicationURL: applicationURL, allowsSystemActions: allowsSystemActions)
         icon.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            icon.widthAnchor.constraint(equalToConstant: 56),
-            icon.heightAnchor.constraint(equalToConstant: 56),
+            icon.widthAnchor.constraint(equalToConstant: 40),
+            icon.heightAnchor.constraint(equalToConstant: 40),
         ])
         let title = CaptureUI.label("RIMES.app", size: 15)
         title.font = .systemFont(ofSize: 15, weight: .semibold)
-        let hint = label("拖动左侧图标 → 系统权限列表")
-        let header = CaptureUI.row([icon, CaptureUI.column([title, hint], spacing: 5)], spacing: 12)
-        let location = label(applicationURL?.path ?? "未找到当前应用包")
-        location.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
-        location.isSelectable = true
-        location.lineBreakMode = .byCharWrapping
+        let header = CaptureUI.row([icon, CaptureUI.column([title, feedback], spacing: 5)], spacing: 12)
+        title.toolTip = applicationURL?.path
         let reveal = CaptureButton("在 Finder 中显示", symbol: "folder") { [weak self] in self?.reveal() }
-        let copy = CaptureButton("复制应用路径", symbol: "doc.on.doc") { [weak self] in self?.copyPath() }
+        let copy = CaptureButton("复制路径", symbol: "doc.on.doc") { [weak self] in self?.copyPath() }
         reveal.isEnabled = allowsSystemActions && applicationURL != nil
         copy.isEnabled = reveal.isEnabled
         reveal.toolTip = "选中正在运行的 RIMES.app，不复制、不移动应用"
         copy.toolTip = "在系统设置的添加窗口按 ⇧⌘G，粘贴此路径即可定位应用"
-        feedback.font = .systemFont(ofSize: 11)
+        feedback.font = .systemFont(ofSize: 13)
         feedback.textColor = RimeUI.textSecondary
         feedback.preferredMaxLayoutWidth = innerWidth
-        let fallback = label("拖不进去时：点列表下方「＋」→ 按 ⇧⌘G → 粘贴应用路径 → 添加。\n添加后打开 RIMES 的开关，再返回检测。无需把输入法搬到「应用程序」。")
-        let body = CaptureUI.column([header, location, CaptureUI.row([reveal, copy]), feedback, fallback], spacing: 9)
+        let body = CaptureUI.column([header, CaptureUI.row([reveal, copy])], spacing: 10)
         CaptureUI.fill(body, in: self, inset: 14)
         translatesAutoresizingMaskIntoConstraints = false
         widthAnchor.constraint(equalToConstant: width).isActive = true
-        for view in [location, feedback, fallback] {
-            view.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
-        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -135,6 +119,7 @@ final class PermissionApplicationCard: NSView {
         guard allowsSystemActions, !IsSecureEventInputEnabled(), let applicationURL else { return nil }
         guard let url = PermissionApplication.appURL(bundleURL: applicationURL) else {
             feedback.stringValue = "应用位置已变化，请关闭此页后重新打开。"
+            feedback.isHidden = false
             return nil
         }
         return url
@@ -150,7 +135,8 @@ final class PermissionApplicationCard: NSView {
         NSPasteboard.general.clearContents()
         let copied = NSPasteboard.general.setString(url.path, forType: .string)
         feedback.stringValue = copied
-            ? "路径已复制。在系统设置的「＋」添加窗口按 ⇧⌘G，再粘贴。"
-            : "复制未成功，请使用「在 Finder 中显示」定位应用。"
+            ? "已复制。点「＋」后按 ⇧⌘G 粘贴。"
+            : "未能复制，请在 Finder 中定位应用。"
+        feedback.isHidden = false
     }
 }

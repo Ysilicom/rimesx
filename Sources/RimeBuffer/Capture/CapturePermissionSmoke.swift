@@ -9,6 +9,16 @@ enum CapturePermissionSmoke {
         func require(_ condition: Bool, _ message: String) throws {
             if !condition { throw CaptureError.message("permission: " + message) }
         }
+        let firstUse = CapturePermissionPresentation(preflight: false, requested: false, state: .idle, continuing: true)
+        try require(firstUse.action == .request && !firstUse.showsVerify, "first use offers one primary action")
+        let requested = CapturePermissionPresentation(preflight: false, requested: true, state: .idle, continuing: true)
+        try require(requested.action == .openSettings && requested.showsVerify, "denied request exposes settings and explicit verification")
+        let revoked = CapturePermissionPresentation(preflight: true, requested: true, state: .blocked, continuing: true)
+        try require(revoked.action == .openSettings, "actual denial overrides a stale granted preflight")
+        let serviceFailure = CapturePermissionPresentation(preflight: true, requested: true, state: .failed("service"), continuing: true)
+        try require(serviceFailure.action == .verify && serviceFailure.primaryTitle == "重试", "service failure offers retry, not another permission request")
+        let granted = CapturePermissionPresentation(preflight: true, requested: true, state: .idle, continuing: true)
+        try require(granted.action == .verify && granted.primaryTitle == "继续", "returning from settings still requires explicit continuation")
         let denied = NSError(domain: SCStreamErrorDomain, code: SCStreamError.Code.userDeclined.rawValue)
         try require(CapturePermissionCheck.isPermissionFailure(denied), "recognizes framework denial")
         try require(CapturePermissionCheck.isPermissionFailure(NSError(domain: "wrapper", code: 1, userInfo: [NSUnderlyingErrorKey: denied])), "wrapped denial")
