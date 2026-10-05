@@ -406,6 +406,17 @@ func runThemeAppKitSmokeTest() -> Bool {
           "Glass candidate backing must leave clicks to the candidate button")
     check(SettingsWindowController.shared.validateChoiceCardHitTestingForSmoke(),
           "all settings choices should remain reachable with Glass enabled")
+    check(RimeUI.accentBlue == NSColor.controlAccentColor
+            && RimeUI.accentSecondary == NSColor.controlAccentColor,
+          "Glass primary and secondary accents must use the user's system accent")
+    let beforeSystemColorChange = appearanceNotificationCount
+    let beforeSystemColorRender = buffer.themeSurfaceSnapshotForSmoke.renderPasses
+    NotificationCenter.default.post(name: NSColor.systemColorsDidChangeNotification, object: nil)
+    drainMainRunLoop { appearanceNotificationCount > beforeSystemColorChange }
+    check(appearanceNotificationCount > beforeSystemColorChange,
+          "changing system colors must refresh existing Glass windows without a restart")
+    check(buffer.themeSurfaceSnapshotForSmoke.renderPasses > beforeSystemColorRender,
+          "system color changes must invalidate cached Buffer text even with the same theme and content")
     let previousAppAppearance = app.appearance
     app.appearance = NSAppearance(named: .aqua)
     check(!RimeUI.isDark && RimeUI.palette.candidateBackground == RimeThemePalettes.day.candidateBackground,

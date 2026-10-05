@@ -133,11 +133,16 @@ final class RimeCandidateSurfaceView: NSView {
 final class RimeSystemAppearanceObservation {
     private var appearance: NSKeyValueObservation?
     private var accessibility: NSObjectProtocol?
+    private var systemColors: NSObjectProtocol?
 
     init() {
         appearance = NSApplication.shared.observe(\.effectiveAppearance, options: [.new]) { _, _ in
             Self.refresh()
         }
+        systemColors = NotificationCenter.default.addObserver(
+            forName: NSColor.systemColorsDidChangeNotification,
+            object: nil, queue: .main
+        ) { _ in Self.refresh() }
         accessibility = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
             object: nil, queue: .main
@@ -152,6 +157,7 @@ final class RimeSystemAppearanceObservation {
     }
 
     deinit {
+        if let systemColors { NotificationCenter.default.removeObserver(systemColors) }
         if let accessibility {
             NSWorkspace.shared.notificationCenter.removeObserver(accessibility)
         }

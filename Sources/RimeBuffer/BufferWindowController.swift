@@ -3157,9 +3157,10 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
     /// Sample the actual source/target fade layers after theme notifications.
     /// Both clusters exist before switching, including the initially empty one.
     var themeSurfaceSnapshotForSmoke: (source: [CGColor], target: [CGColor],
-                                       glass: Bool, railAlpha: CGFloat) {
+                                       glass: Bool, railAlpha: CGFloat, renderPasses: Int) {
         (sourceActionCluster.renderedFadeColors, railActionCluster.renderedFadeColors,
-         visual.hasVisibleGlass, bufferRail.layer?.backgroundColor?.alpha ?? -1)
+         visual.hasVisibleGlass, bufferRail.layer?.backgroundColor?.alpha ?? -1,
+         bufferRail.renderPassCount)
     }
 
     /// Exercises the approved in-rail action layout against the real view tree
@@ -6558,6 +6559,7 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         observers.append(center.addObserver(forName: .rimeAppearanceDidChange,
                                             object: nil,
                                             queue: .main) { [weak self] _ in
+            self?.bufferRail.invalidateAppearance()
             self?.refresh()
         })
         observers.append(center.addObserver(

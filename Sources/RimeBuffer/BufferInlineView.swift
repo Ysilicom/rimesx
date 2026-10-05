@@ -2077,6 +2077,12 @@ final class BufferInlineView: NSView, NSGestureRecognizerDelegate {
         return true
     }
 
+    /// Cached runs include resolved colors. A system accent/appearance change
+    /// must redraw them even though the selected theme and text did not change.
+    func invalidateAppearance() {
+        lastRenderSignature = nil
+    }
+
     /// Dev-only render seam used by the CLI smoke and visual previews. Runtime
     /// Runtime derived rails still come exclusively from their selected,
     /// trusted workspace.
