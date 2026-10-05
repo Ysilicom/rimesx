@@ -537,9 +537,9 @@ final class CandidateWindow {
     private let panelHost = NSView()
     private let content = NSView()
     private let root = NSStackView()
-    private let preeditPill = NSView()
+    private let preeditPill = RimeCandidateSurfaceView(isPreedit: true)
     private let preeditLabel = NSTextField(labelWithString: "")
-    private let strip = NSView()
+    private let strip = RimeCandidateSurfaceView(isPreedit: false)
     private let candidateScroll = NSScrollView()
     private let candidateStack = NSStackView()
     private var stripHeightConstraint: NSLayoutConstraint!
@@ -2110,12 +2110,8 @@ final class CandidateWindow {
         panel.appearance = RimeUI.appKitAppearance
         content.layer?.backgroundColor = NSColor.clear.cgColor
         preeditLabel.textColor = RimeUI.textPrimary
-        preeditPill.layer?.backgroundColor = RimeUI.candidateBackgroundColor
-            .withAlphaComponent(0.95).cgColor
-        preeditPill.layer?.borderColor = RimeUI.borderStrong
-            .withAlphaComponent(0.72).cgColor
-        strip.layer?.backgroundColor = RimeUI.candidateBackgroundColor.cgColor
-        strip.layer?.borderColor = RimeUI.borderStrong.cgColor
+        preeditPill.applyTheme()
+        strip.applyTheme()
     }
 
     private func applyMetrics() {
@@ -2843,9 +2839,9 @@ final class CandidatePreviewView: NSView {
     private let previewDocument = NSView()
     private let widthStatusLabel = NSTextField(labelWithString: "")
     private let windowMock = NSView()
-    private let preeditPill = NSView()
+    private let preeditPill = RimeCandidateSurfaceView(isPreedit: true)
     private let preeditLabel = NSTextField(labelWithString: "")
-    private let strip = NSView()
+    private let strip = RimeCandidateSurfaceView(isPreedit: false)
     private let candidateRow = NSStackView()
     private var heightConstraint: NSLayoutConstraint!
 
@@ -3002,12 +2998,8 @@ final class CandidatePreviewView: NSView {
         appearance = RimeUI.appKitAppearance
         backdrop.layer?.backgroundColor = RimeUI.surface3.cgColor
         windowMock.layer?.backgroundColor = NSColor.clear.cgColor
-        preeditPill.layer?.backgroundColor = RimeUI.candidateBackgroundColor
-            .withAlphaComponent(0.95).cgColor
-        preeditPill.layer?.borderColor = RimeUI.borderStrong
-            .withAlphaComponent(0.72).cgColor
-        strip.layer?.backgroundColor = RimeUI.candidateBackgroundColor.cgColor
-        strip.layer?.borderColor = RimeUI.borderStrong.cgColor
+        preeditPill.applyTheme()
+        strip.applyTheme()
 
         // Preedit.
         preeditLabel.font = .monospacedSystemFont(ofSize: 12, weight: .regular)

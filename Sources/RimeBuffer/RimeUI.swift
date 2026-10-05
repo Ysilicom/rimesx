@@ -4,11 +4,13 @@ import QuartzCore
 enum RimeThemeFamily: String, CaseIterable {
     case classic
     case rasta
+    case apple
 
     var title: String {
         switch self {
         case .classic: return "经典"
         case .rasta: return "拉斯塔"
+        case .apple: return "Apple"
         }
     }
 }
@@ -21,6 +23,7 @@ enum RimeAppearanceMode: String, CaseIterable {
     case day
     case quiet
     case rasta
+    case liquidGlass
 
     var title: String {
         switch self {
@@ -28,15 +31,24 @@ enum RimeAppearanceMode: String, CaseIterable {
         case .day: return "翡翠"
         case .quiet: return "静谧"
         case .rasta: return "拉斯塔"
+        case .liquidGlass: return "Liquid Glass"
         }
     }
 
     var family: RimeThemeFamily {
-        self == .rasta ? .rasta : .classic
+        switch self {
+        case .night, .day, .quiet: return .classic
+        case .rasta: return .rasta
+        case .liquidGlass: return .apple
+        }
     }
 
     var selectionTitle: String {
-        family == .classic ? "经典 · \(title)" : title
+        switch family {
+        case .classic: return "经典 · \(title)"
+        case .rasta: return title
+        case .apple: return "Apple · \(title)"
+        }
     }
 
     var detailText: String {
@@ -45,6 +57,7 @@ enum RimeAppearanceMode: String, CaseIterable {
         case .day: return "经典浅色配色，柔和边界与固定产品绿。"
         case .quiet: return "经典去色配色，降低视觉刺激。"
         case .rasta: return "深色精致骨架，以红、黄、绿三色共同组织状态与操作。"
+        case .liquidGlass: return "跟随系统明暗，使用液态玻璃材质；旧系统使用半透明材质，减少透明度时使用实色。"
         }
     }
 
@@ -52,6 +65,8 @@ enum RimeAppearanceMode: String, CaseIterable {
         switch self {
         case .night, .quiet, .rasta: return true
         case .day: return false
+        case .liquidGlass:
+            return NSApplication.shared.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         }
     }
 
@@ -61,6 +76,9 @@ enum RimeAppearanceMode: String, CaseIterable {
         case .day: return RimeThemePalettes.day
         case .quiet: return RimeThemePalettes.quiet
         case .rasta: return RimeThemePalettes.rasta
+        // Keep the product accents and readable opaque fallbacks while the
+        // material follows the system light/dark appearance.
+        case .liquidGlass: return usesDarkSurfaces ? RimeThemePalettes.night : RimeThemePalettes.day
         }
     }
 
@@ -74,6 +92,10 @@ enum RimeAppearanceMode: String, CaseIterable {
         case (.quiet, true): return .accessibilityHighContrastDarkAqua
         case (.rasta, false): return .darkAqua
         case (.rasta, true): return .accessibilityHighContrastDarkAqua
+        // RimeUI.appKitAppearance intentionally returns nil for Liquid Glass
+        // so the system appearance drives the native material.
+        case (.liquidGlass, false): return usesDarkSurfaces ? .darkAqua : .aqua
+        case (.liquidGlass, true): return usesDarkSurfaces ? .accessibilityHighContrastDarkAqua : .accessibilityHighContrastAqua
         }
     }
 }
@@ -368,6 +390,7 @@ enum RimeColorContrast {
 }
 
 enum RimeUI {
+    private static let systemAppearanceObservation = RimeSystemAppearanceObservation()
     private static let appearanceKey = "appearanceMode"
     private static let lastClassicAppearanceKey = "appearanceMode.classic.last.v1"
 
@@ -415,7 +438,18 @@ enum RimeUI {
     }
 
     static func selectThemeFamily(_ family: RimeThemeFamily) {
-        appearance = family == .classic ? lastClassicAppearance : .rasta
+        switch family {
+        case .classic: appearance = lastClassicAppearance
+        case .rasta: appearance = .rasta
+        case .apple: appearance = .liquidGlass
+        }
+    }
+
+    static var isLiquidGlass: Bool { appearance == .liquidGlass }
+    static var usesLiquidGlassTransparency: Bool {
+        isLiquidGlass
+            && !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+            && !NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
     }
 
     static var isDark: Bool { appearance.usesDarkSurfaces }
@@ -427,6 +461,8 @@ enum RimeUI {
     }
 
     static var appKitAppearance: NSAppearance? {
+        _ = systemAppearanceObservation
+        guard !isLiquidGlass else { return nil }
         let name = appearance.appKitAppearanceName(
             increasedContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
         )

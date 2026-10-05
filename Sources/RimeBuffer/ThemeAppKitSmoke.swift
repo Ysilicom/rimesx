@@ -294,6 +294,14 @@ func runThemeAppKitSmokeTest() -> Bool {
     let defaults = UserDefaults.standard
     let appearanceKey = "appearanceMode"
     let previousPreference = defaults.object(forKey: appearanceKey)
+    let previousClassicPreference = defaults.object(forKey: "appearanceMode.classic.last.v1")
+    defer {
+        if let previousClassicPreference {
+            defaults.set(previousClassicPreference, forKey: "appearanceMode.classic.last.v1")
+        } else {
+            defaults.removeObject(forKey: "appearanceMode.classic.last.v1")
+        }
+    }
     let previousEnvironment = ProcessInfo.processInfo.environment[
         "RIMEBUFFER_APPEARANCE_MODE"
     ]
@@ -356,6 +364,44 @@ func runThemeAppKitSmokeTest() -> Bool {
           "the same settings window should transition back to 墨竹")
     check(appearanceNotificationCount == 3,
           "墨竹→翡翠→静谧→墨竹 should emit exactly three appearance notifications")
+
+    // Exercise the actual candidate container, not just its palette. Glass is
+    // decorative and must never swallow candidate clicks or move controls.
+    let candidateSurface = RimeCandidateSurfaceView(isPreedit: false)
+    candidateSurface.frame = NSRect(x: 0, y: 0, width: 200, height: 40)
+    let candidate = NSButton(title: "1 你好", target: nil, action: nil)
+    candidate.frame = NSRect(x: 10, y: 5, width: 100, height: 30)
+    candidateSurface.addSubview(candidate)
+    let candidateFrame = candidate.frame
+    RimeUI.appearance = .liquidGlass
+    drainMainRunLoop { settingsWindow?.appearance == nil }
+    check(RimeUI.appearance == .liquidGlass
+            && defaults.string(forKey: appearanceKey) == "liquidGlass",
+          "Glass must persist as an opt-in choice")
+    check(settingsWindow?.appearance == nil,
+          "Glass should inherit the system appearance")
+    check(candidateSurface.hasVisibleMaterial == RimeUI.usesLiquidGlassTransparency,
+          "native or fallback material should respect transparency and contrast settings")
+    check(candidateSurface.hitTest(NSPoint(x: 50, y: 20)) === candidate,
+          "Glass candidate backing must leave clicks to the candidate button")
+    check(SettingsWindowController.shared.validateChoiceCardHitTestingForSmoke(),
+          "all settings choices should remain reachable with Glass enabled")
+    let previousAppAppearance = app.appearance
+    app.appearance = NSAppearance(named: .aqua)
+    check(!RimeUI.isDark && RimeUI.palette.candidateBackground == RimeThemePalettes.day.candidateBackground,
+          "Glass must use a readable light palette in system light appearance")
+    app.appearance = NSAppearance(named: .darkAqua)
+    check(RimeUI.isDark && RimeUI.palette.candidateBackground == RimeThemePalettes.night.candidateBackground,
+          "Glass must use a readable dark palette in system dark appearance")
+    app.appearance = previousAppAppearance
+    RimeUI.selectThemeFamily(.classic)
+    drainMainRunLoop { matches(settingsWindow, mode: .night) }
+    check(RimeUI.appearance == .night && !candidateSurface.hasVisibleMaterial,
+          "switching away from Glass should restore the remembered Classic colorway")
+    check(candidate.frame == candidateFrame && candidate.superview === candidateSurface,
+          "theme switching must preserve candidate geometry and hierarchy")
+    check(candidateSurface.hitTest(NSPoint(x: 50, y: 20)) === candidate,
+          "candidate clicks should survive switching back to a legacy theme")
 
     NotificationCenter.default.removeObserver(observer)
     settingsWindow?.close()

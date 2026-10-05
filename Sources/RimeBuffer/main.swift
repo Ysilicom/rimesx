@@ -11746,8 +11746,8 @@ func runThemeSmokeTest() -> Bool {
           "quiet's visible theme name should be 静谧")
     check(RimeAppearanceMode.rasta.title == "拉斯塔",
           "rasta's visible theme name should be 拉斯塔")
-    check(RimeAppearanceMode.allCases == [.night, .day, .quiet, .rasta],
-          "theme order should keep Classic colorways before Rasta")
+    check(RimeAppearanceMode.allCases == [.night, .day, .quiet, .rasta, .liquidGlass],
+          "theme order should preserve existing themes and append Liquid Glass")
     check(RimeAppearanceMode.night.family == .classic
             && RimeAppearanceMode.day.family == .classic
             && RimeAppearanceMode.quiet.family == .classic

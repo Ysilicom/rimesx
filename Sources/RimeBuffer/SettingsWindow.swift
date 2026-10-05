@@ -8,11 +8,12 @@ import UniformTypeIdentifiers
 /// quieter macOS-like chrome defined by the design system.
 private enum SettingsVisualStyle {
     static var background: NSColor {
-        RimeUI.color(RimeUI.appearance == .day ? 0xECECEC : 0x323232)
+        RimeUI.usesLiquidGlassTransparency ? .clear
+            : RimeUI.color(RimeUI.isDark ? 0x323232 : 0xECECEC)
     }
 
     static var separator: NSColor {
-        RimeUI.color(RimeUI.appearance == .day ? 0xD5D5D5 : 0x464646)
+        RimeUI.color(RimeUI.isDark ? 0x464646 : 0xD5D5D5)
     }
 
     static var selectedNavigation: NSColor {
@@ -107,7 +108,18 @@ private final class SettingsPageDocumentView: NSView {
 }
 
 private final class SettingsBackgroundView: NSView {
-    override var isOpaque: Bool { true }
+    private let glass = RimeGlassBackgroundView()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        glass.frame = bounds
+        glass.autoresizingMask = [.width, .height]
+        addSubview(glass)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override var isOpaque: Bool { !RimeUI.usesLiquidGlassTransparency }
 
     override func draw(_ dirtyRect: NSRect) {
         NSGraphicsContext.saveGraphicsState()
@@ -146,7 +158,7 @@ private final class SettingsChromeView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    override var isOpaque: Bool { true }
+    override var isOpaque: Bool { !RimeUI.usesLiquidGlassTransparency }
 
     override func draw(_ dirtyRect: NSRect) {
         // `dirtyRect` is not guaranteed to be clipped to this arranged
@@ -158,7 +170,8 @@ private final class SettingsChromeView: NSView {
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         NSBezierPath(rect: bounds).addClip()
-        let fillColor = fill == .settings ? SettingsVisualStyle.background : RimeUI.surface2
+        let fillColor = fill == .settings ? SettingsVisualStyle.background
+            : RimeUI.surface2.withAlphaComponent(RimeUI.usesLiquidGlassTransparency ? 0.35 : 1)
         fillColor.setFill()
         bounds.fill()
         guard border != .none else { return }
@@ -473,7 +486,7 @@ private final class SettingsThemeCardButton: SettingsPointingButton {
         name.translatesAutoresizingMaskIntoConstraints = false
         addSubview(name)
 
-        let family = NSTextField(labelWithString: mode.family == .classic ? "经典" : "拉斯塔")
+        let family = NSTextField(labelWithString: mode.family.title)
         family.font = .systemFont(ofSize: 9)
         family.textColor = RimeUI.color(palette.textMuted)
         family.translatesAutoresizingMaskIntoConstraints = false
@@ -1469,6 +1482,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         win.minSize = NSSize(width: 860, height: 600)
         win.appearance = RimeUI.appKitAppearance
         win.backgroundColor = SettingsVisualStyle.background
+        win.isOpaque = !RimeUI.usesLiquidGlassTransparency
         win.titlebarAppearsTransparent = true
 
         configureControls()
@@ -1481,7 +1495,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         sidebar.identifier = NSUserInterfaceItemIdentifier("settings.sidebar-content")
         rebuildSidebar()
 
-        sidebarScrollView.drawsBackground = true
+        sidebarScrollView.drawsBackground = !RimeUI.usesLiquidGlassTransparency
         sidebarScrollView.backgroundColor = SettingsVisualStyle.background
         sidebarScrollView.borderType = .noBorder
         sidebarScrollView.hasVerticalScroller = true
@@ -1671,6 +1685,8 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         guard let window else { return }
         window.appearance = RimeUI.appKitAppearance
         window.backgroundColor = SettingsVisualStyle.background
+        window.isOpaque = !RimeUI.usesLiquidGlassTransparency
+        sidebarScrollView.drawsBackground = !RimeUI.usesLiquidGlassTransparency
         sidebarScrollView.backgroundColor = SettingsVisualStyle.background
         pluginConfigurationSheet?.appearance = RimeUI.appKitAppearance
         settingsStatusLabel.textColor = RimeUI.textMuted
