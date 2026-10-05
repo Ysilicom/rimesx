@@ -394,8 +394,15 @@ func runThemeAppKitSmokeTest() -> Bool {
     check(glassBuffer.glass == RimeUI.usesLiquidGlassTransparency
             && glassBuffer.railAlpha == (RimeUI.usesLiquidGlassTransparency ? 0 : 1),
           "Buffer must expose its native material without an opaque rail covering it")
-    check(settingsWindow?.titlebarAppearsTransparent == !RimeUI.usesLiquidGlassTransparency,
-          "Glass settings must retain a native titlebar above the material content area")
+    check(SettingsWindowController.shared.validateTitlebarCoverageForSmoke(),
+          "Glass must cover the entire native titlebar while keeping controls below it")
+    check(SettingsWindowController.shared.validateSidebarLayoutForSmoke(),
+          "sidebar icons, labels, focus rings and click targets must share consistent row geometry")
+    let settingsFrame = settingsWindow?.frame
+    settingsWindow?.setContentSize(NSSize(width: 860, height: 600))
+    check(SettingsWindowController.shared.validateTitlebarCoverageForSmoke(),
+          "Glass titlebar coverage must survive resizing to the minimum window size")
+    if let settingsFrame { settingsWindow?.setFrame(settingsFrame, display: false) }
     check(settingsWindow?.appearance == nil,
           "Glass should inherit the system appearance")
     check(candidateSurface.layer?.cornerRadius == 12,
@@ -429,6 +436,8 @@ func runThemeAppKitSmokeTest() -> Bool {
     drainMainRunLoop { matches(settingsWindow, mode: .night) }
     check(RimeUI.appearance == .night && !candidateSurface.hasVisibleMaterial,
           "switching away from Glass should restore the remembered Classic colorway")
+    check(SettingsWindowController.shared.validateTitlebarCoverageForSmoke(),
+          "Classic settings must retain the same safe titlebar/content geometry")
     check(candidateSurface.layer?.cornerRadius == 6,
           "leaving Glass should restore the Classic candidate corners")
     check(candidate.frame == candidateFrame && candidate.superview === candidateSurface,

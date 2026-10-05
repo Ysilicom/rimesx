@@ -20,7 +20,8 @@ private enum SettingsVisualStyle {
     }
 
     static var selectedNavigation: NSColor {
-        SettingsVisualStyle.background.blended(
+        if RimeUI.isLiquidGlass { return NSColor.controlAccentColor.withAlphaComponent(0.14) }
+        return SettingsVisualStyle.background.blended(
             withFraction: 0.16,
             of: RimeUI.accentGreen
         ) ?? RimeUI.accentGreen.withAlphaComponent(0.16)
@@ -82,6 +83,84 @@ private final class SettingsRouteButton: SettingsPointingButton {
         didSet { updateVisualState() }
     }
     private var pointerInside = false
+    private let rowContent = NSView()
+    private let routeIcon = NSImageView()
+    private let routeLabel = NSTextField(labelWithString: "")
+
+    func configure(title: String, symbolName: String) {
+        // The button owns interaction and accessibility; its decorative views
+        // use fixed slots instead of NSButtonCell's variable symbol metrics.
+        self.title = ""
+        image = nil
+        isBordered = false
+        bezelStyle = .regularSquare
+        setAccessibilityLabel(title)
+        toolTip = title
+        routeIcon.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 17, weight: .regular))
+        routeIcon.imageScaling = .scaleProportionallyDown
+        routeLabel.stringValue = title
+        routeLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        routeLabel.lineBreakMode = .byTruncatingTail
+        rowContent.translatesAutoresizingMaskIntoConstraints = false
+        rowContent.setAccessibilityElement(false)
+        addSubview(rowContent)
+        for view in [routeIcon, routeLabel] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            view.setAccessibilityElement(false)
+            rowContent.addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            rowContent.leadingAnchor.constraint(equalTo: leadingAnchor),
+            rowContent.trailingAnchor.constraint(equalTo: trailingAnchor),
+            rowContent.topAnchor.constraint(equalTo: topAnchor),
+            rowContent.bottomAnchor.constraint(equalTo: bottomAnchor),
+            routeIcon.leadingAnchor.constraint(equalTo: rowContent.leadingAnchor, constant: 10),
+            routeIcon.centerYAnchor.constraint(equalTo: rowContent.centerYAnchor),
+            routeIcon.widthAnchor.constraint(equalToConstant: 20),
+            routeIcon.heightAnchor.constraint(equalToConstant: 20),
+            routeLabel.leadingAnchor.constraint(equalTo: routeIcon.trailingAnchor, constant: 8),
+            routeLabel.trailingAnchor.constraint(equalTo: rowContent.trailingAnchor, constant: -10),
+            routeLabel.centerYAnchor.constraint(equalTo: rowContent.centerYAnchor),
+        ])
+        updateVisualState()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        super.hitTest(point) == nil ? nil : self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        // Move keyboard focus with mouse navigation, so a previously focused
+        // route does not keep a second highlight after another row is chosen.
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
+
+    override var focusRingMaskBounds: NSRect { bounds.insetBy(dx: 2, dy: 2) }
+
+    override func drawFocusRingMask() {
+        NSBezierPath(roundedRect: focusRingMaskBounds,
+                     xRadius: RimeUI.isLiquidGlass ? 9 : 5,
+                     yRadius: RimeUI.isLiquidGlass ? 9 : 5).fill()
+    }
+
+    var hasAlignedContent: Bool {
+        layoutSubtreeIfNeeded()
+        // SF Symbols and text fields have optical alignment insets; their
+        // frame can extend outside the slot while the alignment rect is exact.
+        let icon = routeIcon.alignmentRect(forFrame: routeIcon.frame)
+        let label = routeLabel.alignmentRect(forFrame: routeLabel.frame)
+        let aligned = abs(icon.minX - 10) < 0.5
+            && abs(icon.midY - bounds.midY) < 0.5
+            && abs(icon.width - 20) < 0.5 && abs(icon.height - 20) < 0.5
+            && abs(label.minX - 38) < 0.5
+            && abs(label.midY - bounds.midY) <= 0.5
+            && label.maxX <= bounds.maxX - 9.5
+            && focusRingMaskBounds.width > icon.width
+            && accessibilityLabel() == routeLabel.stringValue
+        return aligned
+    }
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
@@ -103,10 +182,13 @@ private final class SettingsRouteButton: SettingsPointingButton {
     func updateVisualState() {
         wantsLayer = true
         layer?.cornerRadius = RimeUI.isLiquidGlass ? 11 : 7
+        layer?.cornerCurve = .continuous
         layer?.backgroundColor = (isRouteSelected
             ? SettingsVisualStyle.selectedNavigation
             : (pointerInside ? RimeUI.surface3 : .clear)).cgColor
-        contentTintColor = isRouteSelected ? RimeUI.textPrimary : RimeUI.textSecondary
+        let foreground = isRouteSelected ? RimeUI.textPrimary : RimeUI.textSecondary
+        routeIcon.contentTintColor = foreground
+        routeLabel.textColor = foreground
     }
 }
 
@@ -960,6 +1042,42 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         showCurrentRoute()
     }
 
+    func validateSidebarLayoutForSmoke() -> Bool {
+        sidebar.layoutSubtreeIfNeeded()
+        return !navButtons.isEmpty && navButtons.values.allSatisfy { button in
+            guard let row = button as? SettingsRouteButton else { return false }
+            let iconPoint = row.convert(NSPoint(x: 20, y: row.bounds.midY), to: row.superview)
+            let labelPoint = row.convert(NSPoint(x: 60, y: row.bounds.midY), to: row.superview)
+            let aligned = row.hasAlignedContent
+            let iconHit = row.hitTest(iconPoint) === row
+            let labelHit = row.hitTest(labelPoint) === row
+            if !aligned || !iconHit || !labelHit {
+                print("sidebar row \(row.routeID): aligned=\(aligned) iconHit=\(iconHit) labelHit=\(labelHit) frame=\(row.frame)")
+            }
+            return aligned && iconHit && labelHit
+        }
+    }
+
+    func validateTitlebarCoverageForSmoke() -> Bool {
+        guard let window, let background = window.contentView as? SettingsBackgroundView,
+              let guide = window.contentLayoutGuide as? NSLayoutGuide else { return false }
+        background.layoutSubtreeIfNeeded()
+        let material = background.subviews.compactMap { $0 as? RimeGlassBackgroundView }.first
+        let fullFrame = background.convert(background.bounds, to: nil)
+        let titlebarHeight = background.bounds.height - guide.frame.height
+        let titlebar = NSRect(x: fullFrame.minX, y: fullFrame.maxY - titlebarHeight,
+                              width: fullFrame.width, height: titlebarHeight)
+        guard let material else { return false }
+        let materialFrame = material.convert(material.bounds, to: nil)
+        let controlsFrame = contentHost.convert(contentHost.bounds, to: nil)
+        return window.styleMask.contains(.fullSizeContentView)
+            && titlebarHeight > 0
+            && abs(fullFrame.maxY - window.frame.height) < 0.5
+            && materialFrame.insetBy(dx: -0.5, dy: -0.5).contains(titlebar)
+            && controlsFrame.maxY <= titlebar.minY + 0.5
+            && material.hasVisibleMaterial == RimeUI.usesLiquidGlassTransparency
+    }
+
     /// AppKit delivers `hitTest(_:)` points in each receiver's superview
     /// coordinate system. Keep a smoke over the actual Settings page hierarchy
     /// so a full-card override cannot accidentally compare those points with
@@ -1467,7 +1585,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
 
     private func build() {
         let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 980, height: 680),
-                           styleMask: [.titled, .closable, .resizable],
+                           styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
                            backing: .buffered, defer: false)
         win.title = "\(ProductIdentity.displayName) 设置"
         win.isReleasedWhenClosed = false
@@ -1476,7 +1594,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         win.appearance = RimeUI.appKitAppearance
         win.backgroundColor = SettingsVisualStyle.background
         win.isOpaque = !RimeUI.usesLiquidGlassTransparency
-        win.titlebarAppearsTransparent = !RimeUI.usesLiquidGlassTransparency
+        win.titlebarAppearsTransparent = true
 
         configureControls()
 
@@ -1509,6 +1627,10 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
 
         let background = SettingsBackgroundView()
         win.contentView = background
+        // Material covers the whole window, including the native titlebar.
+        // Controls stay inside AppKit's content layout guide so they never
+        // overlap the traffic lights or the titlebar's drag region.
+        let contentGuide = win.contentLayoutGuide as! NSLayoutGuide
         background.addSubview(sidebarScrollView)
         background.addSubview(divider)
         background.addSubview(contentHost)
@@ -1516,7 +1638,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         contentHost.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         NSLayoutConstraint.activate([
             sidebarScrollView.leadingAnchor.constraint(equalTo: background.leadingAnchor),
-            sidebarScrollView.topAnchor.constraint(equalTo: background.topAnchor),
+            sidebarScrollView.topAnchor.constraint(equalTo: contentGuide.topAnchor),
             sidebarScrollView.bottomAnchor.constraint(equalTo: background.bottomAnchor),
             sidebarScrollView.widthAnchor.constraint(equalToConstant: 160),
             sidebarDocumentView.leadingAnchor.constraint(equalTo: sidebarScrollView.contentView.leadingAnchor),
@@ -1529,12 +1651,12 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
             sidebar.topAnchor.constraint(equalTo: sidebarDocumentView.topAnchor),
             sidebar.bottomAnchor.constraint(equalTo: sidebarDocumentView.bottomAnchor),
             divider.leadingAnchor.constraint(equalTo: sidebarScrollView.trailingAnchor),
-            divider.topAnchor.constraint(equalTo: background.topAnchor),
+            divider.topAnchor.constraint(equalTo: contentGuide.topAnchor),
             divider.bottomAnchor.constraint(equalTo: background.bottomAnchor),
             divider.widthAnchor.constraint(equalToConstant: 1),
             contentHost.leadingAnchor.constraint(equalTo: divider.trailingAnchor),
             contentHost.trailingAnchor.constraint(equalTo: background.trailingAnchor),
-            contentHost.topAnchor.constraint(equalTo: background.topAnchor),
+            contentHost.topAnchor.constraint(equalTo: contentGuide.topAnchor),
             contentHost.bottomAnchor.constraint(equalTo: background.bottomAnchor),
         ])
 
@@ -1679,7 +1801,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         window.appearance = RimeUI.appKitAppearance
         window.backgroundColor = SettingsVisualStyle.background
         window.isOpaque = !RimeUI.usesLiquidGlassTransparency
-        window.titlebarAppearsTransparent = !RimeUI.usesLiquidGlassTransparency
+        window.titlebarAppearsTransparent = true
         sidebarScrollView.drawsBackground = !RimeUI.usesLiquidGlassTransparency
         sidebarScrollView.backgroundColor = SettingsVisualStyle.background
         pluginConfigurationSheet?.appearance = RimeUI.appKitAppearance
@@ -2047,17 +2169,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
                     action: #selector(routeChosen(_:))
                 )
                 button.routeID = route.id
-                button.bezelStyle = .regularSquare
-                button.isBordered = false
-                button.alignment = .left
-                button.font = .systemFont(ofSize: 12, weight: .medium)
-                button.image = NSImage(systemSymbolName: route.symbolName,
-                                       accessibilityDescription: route.title)?
-                    .withSymbolConfiguration(.init(pointSize: 18, weight: .regular))
-                button.imagePosition = .imageLeading
-                button.imageHugsTitle = true
-                button.lineBreakMode = .byTruncatingTail
-                button.toolTip = route.title
+                button.configure(title: route.title, symbolName: route.symbolName)
                 button.translatesAutoresizingMaskIntoConstraints = false
                 sidebar.addArrangedSubview(button)
                 button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -5174,6 +5286,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
     }
 
     @objc private func routeChosen(_ sender: SettingsRouteButton) {
+        window?.makeFirstResponder(sender)
         if sender.routeID == navigation.currentRouteID {
             refreshSidebarSelection()
             return
