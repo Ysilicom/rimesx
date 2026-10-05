@@ -260,7 +260,6 @@ final class KeyboardViewController: UIInputViewController {
     }
     override func viewDidLoad() {
         super.viewDidLoad()
-        HeightTrace.start(self); HeightTrace.log("viewDidLoad", self)
         preferences = preferencesStore.load(); surface.feedback.enabled = preferences.haptics; surface.feedback.strength = preferences.hapticStrength
         surface.feedback.soundEnabled = preferences.keySounds
         view.backgroundColor = .systemGroupedBackground
@@ -480,7 +479,6 @@ final class KeyboardViewController: UIInputViewController {
         // must not advertise a default layout and correct it after presentation.
         preparePresentation()
         height.isActive = true
-        HeightTrace.log("viewDidLoad.end", self)
     }
     private func preparePresentation() {
         preparingPresentation = true
@@ -490,13 +488,11 @@ final class KeyboardViewController: UIInputViewController {
     }
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated); onscreen = true
-        HeightTrace.log("viewWillAppear", self)
         if currentDocument != DocumentIdentity.read(textDocumentProxy) { delivery.abandonMarkedText(); cancelRequest(); buffer = .init() }
         currentDocument = DocumentIdentity.read(textDocumentProxy); preparePresentation()
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        HeightTrace.log("viewDidAppear", self)
         #if DEBUG
         SharedStorageDeviceSmoke.keyboard(fullAccess: hasFullAccess)
         #endif
@@ -1165,7 +1161,6 @@ final class KeyboardViewController: UIInputViewController {
     }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        HeightTrace.log("didLayout", self)
         let rows = layoutRows(width: view.bounds.width)
         var y = view.bounds.height - 5
         for (item, rowHeight) in rows.reversed() {
@@ -2186,29 +2181,5 @@ final class KeyboardViewController: UIInputViewController {
         let tail = current.trimmingCharacters(in: .whitespaces)
         if let last = sentences.last, tail.count < 24 { return String(last.suffix(80)) }
         return tail.count >= 10 ? String(tail.suffix(80)) : ""
-    }
-}
-
-// TEMP-TRACE
-enum HeightTrace {
-    static var lines = [String](), last = "", link: CADisplayLink?, target: Ticker?, t0 = ProcessInfo.processInfo.systemUptime
-    final class Ticker: NSObject { weak var c: KeyboardViewController?; var n = 0
-        @objc func tick() { n += 1; if let c { HeightTrace.log("tick", c, dedupe: true) }; if n > 600 { HeightTrace.link?.invalidate() } } }
-    static func start(_ c: KeyboardViewController) {
-        t0 = ProcessInfo.processInfo.systemUptime; lines = []; last = ""
-        let t = Ticker(); t.c = c; target = t
-        link?.invalidate(); link = CADisplayLink(target: t, selector: #selector(Ticker.tick)); link?.add(to: .main, forMode: .common)
-    }
-    static func log(_ event: String, _ c: KeyboardViewController, dedupe: Bool = false) {
-        var chain = [String](); var node: UIView? = c.viewIfLoaded
-        while let v = node { let f = v.frame; chain.append("\(String(describing: type(of: v))):\(Int(f.minX)),\(Int(f.minY)),\(Int(f.width))x\(Int(f.height))"); node = v.superview }
-        let cs = (c.viewIfLoaded?.constraints ?? []).filter { $0.firstAttribute == .height && $0.secondItem == nil }.map { "\($0.identifier ?? "?")=\($0.constant)@\($0.priority.rawValue)\($0.isActive ? "" : "off")" }.joined(separator: ";")
-        let state = chain.joined(separator: " < ") + " | pcs=\(Int(c.preferredContentSize.height)) alpha=\(c.viewIfLoaded?.alpha ?? -1) | " + cs
-        if dedupe && state == last { return }
-        last = state
-        lines.append(String(format: "%7.1f ", (ProcessInfo.processInfo.systemUptime - t0) * 1000) + event + " " + state)
-        let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try? lines.joined(separator: "\n").write(to: root.appendingPathComponent("height-trace.log"), atomically: true, encoding: .utf8)
     }
 }
