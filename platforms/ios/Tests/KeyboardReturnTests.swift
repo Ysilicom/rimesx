@@ -47,6 +47,94 @@ import RimesCore
         }
     }
 
+    func testOrdinaryTypingWorkAcrossBuiltInSchemes() async throws {
+        let (window, keyboard) = host(.qwerty); defer { window.isHidden = true }
+        keyboard.developmentBuffer(nil)
+        for (scheme, text) in [(InputScheme.pinyin, "lupinghenka"), (.ziranma, "lupkhfka"), (.wubi86, "wqivbg")] {
+            keyboard.developmentChoose(scheme)
+            var durations = [Double]()
+            for _ in 0..<10 {
+                for character in text {
+                    let start = ProcessInfo.processInfo.systemUptime
+                    keyboard.developmentType(String(character))
+                    window.layoutIfNeeded()
+                    durations.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+                }
+                keyboard.developmentSpace()
+                await keyboard.developmentWaitForDelivery()
+            }
+            let sorted = durations.sorted()
+            print("IOS_TYPING_BENCH scheme=\(scheme.rawValue) samples=\(sorted.count) p50ms=\(sorted[sorted.count / 2]) p95ms=\(sorted[Int(Double(sorted.count - 1) * 0.95)]) maxms=\(sorted.last!)")
+            XCTAssertFalse(keyboard.layoutProxy.native.text.isEmpty)
+        }
+    }
+
+    func testTypingKeepsSettingsMenuAndHiddenBufferStableButRealSettingsChangesRefreshIt() throws {
+        let (window, keyboard) = host(.qwerty); defer { window.isHidden = true }
+        keyboard.developmentBuffer(nil)
+        let menu = try XCTUnwrap(keyboard.layoutViews.settings.menu)
+        for character in "nihao" {
+            keyboard.developmentType(String(character)); window.layoutIfNeeded()
+            XCTAssertTrue(keyboard.layoutViews.settings.menu === menu)
+            XCTAssertTrue(keyboard.layoutViews.source.text.isEmpty)
+            XCTAssertTrue(keyboard.layoutViews.result.text.isEmpty)
+        }
+        keyboard.developmentSkin(.rhino)
+        let themedMenu = try XCTUnwrap(keyboard.layoutViews.settings.menu)
+        XCTAssertFalse(themedMenu === menu)
+        XCTAssertEqual((menuEntries(themedMenu).first { $0.title == StatusSkin.rhino.title } as? UIAction)?.state, .on)
+        keyboard.developmentChoose(.chord)
+        let chordMenu = try XCTUnwrap(keyboard.layoutViews.settings.menu)
+        XCTAssertFalse(chordMenu === themedMenu)
+        XCTAssertFalse(menuEntries(chordMenu).contains { $0.title == L("键位布局", "Key layout") })
+        keyboard.developmentChoose(.pinyin)
+        keyboard.developmentOrdinaryAppearance(layout: .nineKey)
+        XCTAssertEqual((menuEntries(try XCTUnwrap(keyboard.layoutViews.settings.menu)).first { $0.title == "9 键 · 全拼" } as? UIAction)?.state, .on)
+    }
+
+    /// Opt-in: copy a deployed package to the test app's Documents/RIMESTypingBenchmark.
+    /// Fixtures and learned data get independent IDs; no installed package is activated.
+    func testImportedFlypyTypingWork() async throws {
+        let files = FileManager.default
+        let fixture = files.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("RIMESTypingBenchmark")
+        guard files.fileExists(atPath: fixture.appendingPathComponent("build/double_pinyin_flypy.schema.yaml").path) else {
+            throw XCTSkip("Opt-in deployed Flypy package is not installed in the test app")
+        }
+        let root = files.temporaryDirectory.appendingPathComponent("Flypy-bench-\(UUID())")
+        let store = RimeSchemeStore(root: root), id = UUID().uuidString
+        let package = RimeSchemePackage(id: id, name: "Flypy benchmark", schemas: [.init(id: "double_pinyin_flypy", name: "Flypy")],
+            importedAt: Date(), sourceDigest: String(repeating: "a", count: 64), warnings: [])
+        let user = files.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("RimeImported/\(id)")
+        defer { try? files.removeItem(at: root); try? files.removeItem(at: user) }
+        try files.createDirectory(at: store.stagingRoot, withIntermediateDirectories: true)
+        let staged = store.stagingRoot.appendingPathComponent(id)
+        try files.copyItem(at: fixture, to: staged)
+        try store.publish(stagedURL: staged, package: package)
+        let (window, keyboard) = host(.qwerty); defer { window.isHidden = true }
+        keyboard.developmentBuffer(nil)
+        let selection = RimeSchemeSelection(packageID: id, schemaID: "double_pinyin_flypy")
+        keyboard.developmentChooseImported(selection, store: store)
+        XCTAssertEqual(keyboard.developmentImportedSelection, selection)
+        var durations = [Double]()
+        for _ in 0..<10 {
+            for code in ["lupk", "hf", "ka", "nihc", "xtxi", "uijp"] {
+                for character in code {
+                    let start = ProcessInfo.processInfo.systemUptime
+                    keyboard.developmentType(String(character)); window.layoutIfNeeded()
+                    durations.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+                }
+                if code == "lupk" { XCTAssertTrue(keyboard.layoutViews.candidates.buttons.contains { $0.currentTitle == "录屏" }) }
+                keyboard.developmentSpace(); await keyboard.developmentWaitForDelivery()
+            }
+        }
+        let sorted = durations.sorted()
+        print("IOS_TYPING_BENCH scheme=flypy samples=\(sorted.count) p50ms=\(sorted[sorted.count / 2]) p95ms=\(sorted[Int(Double(sorted.count - 1) * 0.95)]) maxms=\(sorted.last!)")
+        XCTAssertTrue(keyboard.layoutProxy.native.text.contains("录屏"))
+        XCTAssertTrue(keyboard.layoutProxy.native.text.contains("你好"))
+        XCTAssertNil(store.load().active)
+        keyboard.developmentChoose(.pinyin)
+    }
+
     func testDeleteFeedbackPrecedesTextMutation() {
         let (window, keyboard) = host(.qwerty); defer { window.isHidden = true }
         keyboard.developmentChoose(.english)

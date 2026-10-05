@@ -11,6 +11,8 @@ final class SingleLineTextView: UIScrollView {
     private let canvas = UIView(), canvasClip = CAShapeLayer()
     private static let clipInset: CGFloat = 2.5
     private let placeholderLabel = UILabel()
+    /// Space for a stationary action drawn over the trailing edge of this line.
+    var trailingAccessoryWidth: CGFloat = 0 { didSet { if oldValue != trailingAccessoryWidth { followedSignature = ""; setNeedsLayout() } } }
     /// Hint shown while the line is empty; never part of the text.
     var placeholder = "" { didSet { if placeholder != oldValue { placeholderLabel.text = placeholder; setNeedsLayout() } } }
     private var blockViews: [UIView] = []
@@ -166,7 +168,7 @@ final class SingleLineTextView: UIScrollView {
         super.layoutSubviews()
         let width = ceil(label.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: bounds.height)).width)
         label.frame = CGRect(x: Self.inset, y: 0, width: width, height: bounds.height)
-        contentSize = CGSize(width: max(bounds.width, width + 2 * Self.inset), height: bounds.height)
+        contentSize = CGSize(width: max(bounds.width, width + 2 * Self.inset + trailingAccessoryWidth), height: bounds.height)
         if contentOffset.y != 0 || contentOffset.x > contentSize.width - bounds.width {
             contentOffset = CGPoint(x: max(0, min(contentOffset.x, contentSize.width - bounds.width)), y: 0)
         }
@@ -177,14 +179,14 @@ final class SingleLineTextView: UIScrollView {
         dots.instanceTransform = CATransform3DMakeTranslation(size * 1.8, 0, 0)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         // The visible window, in canvas coordinates, moves with the scroll position.
-        let window = CGRect(x: contentOffset.x, y: 0, width: bounds.width, height: bounds.height).insetBy(dx: Self.clipInset, dy: Self.clipInset)
+        let window = CGRect(x: contentOffset.x, y: 0, width: max(0, bounds.width - trailingAccessoryWidth), height: bounds.height).insetBy(dx: Self.clipInset, dy: Self.clipInset)
         canvasClip.frame = canvas.bounds
         canvasClip.path = UIBezierPath(roundedRect: window, cornerRadius: max(0, layer.cornerRadius - Self.clipInset)).cgPath
         CATransaction.commit()
         let attributed = label.attributedText ?? NSAttributedString()
         placeholderLabel.isHidden = attributed.length > 0 || placeholder.isEmpty
         placeholderLabel.font = font
-        placeholderLabel.frame = CGRect(x: Self.inset + 4, y: 0, width: max(0, bounds.width - 2 * Self.inset - 4), height: bounds.height)
+        placeholderLabel.frame = CGRect(x: Self.inset + 4, y: 0, width: max(0, bounds.width - 2 * Self.inset - 4 - trailingAccessoryWidth), height: bounds.height)
         layoutBlocks(in: attributed)
         let lineHeight = min(bounds.height - 8, ceil((attributed.length > 0 ? (attributed.attribute(.font, at: 0, effectiveRange: nil) as? UIFont) : nil)?.lineHeight ?? font.lineHeight) + 2)
         if role == .input, let caretLocation {
@@ -196,7 +198,7 @@ final class SingleLineTextView: UIScrollView {
         guard signature != followedSignature else { return }
         followedSignature = signature
         let target = x(at: NSMaxRange(focus), in: attributed)
-        scrollRectToVisible(CGRect(x: max(0, target - 24), y: 0, width: 48, height: bounds.height), animated: false)
+        scrollRectToVisible(CGRect(x: max(0, target - 24), y: 0, width: 48 + trailingAccessoryWidth, height: bounds.height), animated: false)
     }
     private func layoutBlocks(in attributed: NSAttributedString) {
         while blockViews.count > blockRanges.count { blockViews.removeLast().removeFromSuperview() }

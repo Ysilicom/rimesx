@@ -8,80 +8,273 @@ struct CandidateLayout {
     let frames: [CGRect]
     let contentSize: CGSize
     let height: CGFloat
-    static func measure(_ texts: [String], width: CGFloat, expanded: Bool, landscape: Bool) -> CandidateLayout {
+    static func rowHeight(landscape: Bool) -> CGFloat { ceil(UIFont.systemFont(ofSize: landscape ? 18 : 20).lineHeight) + 6 }
+    static func measure(_ texts: [String], width: CGFloat, expanded: Bool, landscape: Bool, controlInsets: UIEdgeInsets = .zero, reservedRows: Set<Int> = [0]) -> CandidateLayout {
         let font = UIFont.systemFont(ofSize: landscape ? 18 : 20)
-        let rowHeight = ceil(font.lineHeight) + 6
+        let rowHeight = rowHeight(landscape: landscape)
         let available = max(1, width)
-        var x: CGFloat = 0, y: CGFloat = 0, frames: [CGRect] = []
+        func insets(_ row: Int) -> UIEdgeInsets { expanded && reservedRows.contains(row) ? controlInsets : .zero }
+        var row = 0, x = insets(0).left, frames: [CGRect] = []
         for text in texts {
             let natural = max(32, ceil((text as NSString).size(withAttributes: [.font: font]).width) + 12)
-            let w = expanded ? min(available, natural) : natural
-            if expanded && x > 0 && x + w > available { x = 0; y += rowHeight + 4 }
-            frames.append(CGRect(x: x, y: y, width: w, height: rowHeight)); x += w + 4
+            if expanded && x > insets(row).left && x + natural > available - insets(row).right {
+                row += 1; x = insets(row).left
+            }
+            let rowWidth = available - insets(row).left - insets(row).right
+            let w = expanded ? min(max(1, rowWidth), natural) : natural
+            frames.append(CGRect(x: x, y: CGFloat(row) * (rowHeight + 4), width: w, height: rowHeight)); x += w + 4
         }
-        let contentHeight = texts.isEmpty ? 0 : y + rowHeight
+        let contentHeight = texts.isEmpty ? 0 : CGFloat(row) * (rowHeight + 4) + rowHeight
         let contentWidth = expanded ? available : max(0, x - 4)
         return CandidateLayout(frames: frames, contentSize: CGSize(width: contentWidth, height: contentHeight), height: min(contentHeight, expanded ? (landscape ? 2 : 3) * rowHeight + (landscape ? 1 : 2) * 4 : rowHeight))
     }
 }
 
-final class CandidateStrip: UIView {
-    let scroll = UIScrollView()
+private final class CandidateScrollView: UIScrollView {
+    override func touchesShouldCancel(in view: UIView) -> Bool { true }
+}
+
+final class CandidateStrip: UIView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
+    let scroll: UIScrollView = CandidateScrollView()
     let expandButton = CandidateButton()
     private let content = UIView()
     private(set) var buttons: [CandidateButton] = []
     private var texts: [String] = []
+    private var context = ""
+    private lazy var hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
+    private var selectionPoint: CGPoint?
+    private var selectionTimer: Timer?
+    private var lastSelectionTick: TimeInterval = 0
+    private(set) var selectedIndex: Int?
+    private var lastFeedbackIndex: Int?
+    private var layoutWidth: CGFloat = 0
+    private var layingOutCandidates = false
+    private var laidOutReservedRows: Set<Int> = []
+    private var matrixMaximumOffset: CGFloat = 0
     var onSelect: ((Int) -> Void)?
+    var onSelectionChanged: (() -> Void)?
     var onExpand: (() -> Void)?
     var onPress: (() -> Void)?
-    var expanded = false
-    var landscape = false
+    var expanded = false { didSet { if expanded != oldValue { cancelSelection(); setNeedsLayout() } } }
+    var landscape = false { didSet { if landscape != oldValue { cancelSelection(); setNeedsLayout() } } }
+    override var isHidden: Bool { didSet { if isHidden { cancelSelection() } } }
+    /// Fixed controls occupy only their visible corner rectangles, not an entire column.
+    var controlInsets = UIEdgeInsets.zero { didSet { if controlInsets != oldValue { cancelSelection(); setNeedsLayout() } } }
     override init(frame: CGRect) {
         super.init(frame: frame)
         addSubview(scroll); scroll.addSubview(content); addSubview(expandButton)
-        scroll.showsHorizontalScrollIndicator = false; scroll.hideEdgeEffects()
+        scroll.delegate = self; scroll.delaysContentTouches = false
+        scroll.showsHorizontalScrollIndicator = false; scroll.showsVerticalScrollIndicator = false; scroll.hideEdgeEffects()
+        hold.minimumPressDuration = 0.45; hold.allowableMovement = 10; hold.delegate = self
+        addGestureRecognizer(hold)
+        // A quick swipe still scrolls normally. Once the hold wins, dragging selects
+        // instead; approaching an edge scrolls without ending that same gesture.
+        scroll.panGestureRecognizer.require(toFail: hold)
         expandButton.accessibilityIdentifier = "keyboard.candidates.expand"
         expandButton.addAction(UIAction { [weak self] _ in self?.onPress?() }, for: .touchDown)
         expandButton.addAction(UIAction { [weak self] _ in self?.onExpand?() }, for: .touchUpInside)
     }
     required init?(coder: NSCoder) { fatalError() }
-    func update(_ values: [String]) {
+    deinit { selectionTimer?.invalidate() }
+    func update(_ values: [String], context: String = "") {
+        if context != self.context { cancelSelection(); self.context = context }
         guard values != texts else { return }
-        texts = values; buttons.forEach { $0.removeFromSuperview() }; buttons = []
+        cancelSelection()
+        texts = values
+        // Keep idle buttons across compositions instead of constructing sixty
+        // UIKit controls on every key. A button under a finger is retired so its
+        // eventual release cannot select a different word at the reused index.
+        while buttons.count > values.count { buttons.removeLast().removeFromSuperview() }
         scroll.setContentOffset(.zero, animated: false)
         for (index, text) in values.enumerated() {
-            let button = CandidateButton(); button.setTitle(text, for: .normal)
-            button.accessibilityLabel = text; button.accessibilityIdentifier = "keyboard.candidate.\(index)"
-            button.addAction(UIAction { [weak self] _ in self?.onPress?() }, for: .touchDown)
-            button.addAction(UIAction { [weak self] _ in self?.onSelect?(index) }, for: .touchUpInside)
-            content.addSubview(button); buttons.append(button)
+            if index == buttons.count { buttons.append(makeButton(at: index)) }
+            else if buttons[index].isTracking || buttons[index].isHighlighted {
+                buttons[index].removeFromSuperview(); buttons[index] = makeButton(at: index)
+            }
+            let button = buttons[index]
+            if button.currentTitle != text { button.setTitle(text, for: .normal); button.accessibilityLabel = text }
         }
         setNeedsLayout()
     }
+    private func makeButton(at index: Int) -> CandidateButton {
+        let button = CandidateButton()
+        button.accessibilityIdentifier = "keyboard.candidate.\(index)"
+        button.addAction(UIAction { [weak self] _ in self?.onPress?() }, for: .touchDown)
+        button.addAction(UIAction { [weak self, weak button] _ in
+            guard let self, self.selectionPoint == nil, self.buttons.indices.contains(index),
+                  self.buttons[index] === button else { return }
+            self.onSelect?(index)
+        }, for: .touchUpInside)
+        content.addSubview(button)
+        return button
+    }
+    private var reservedInsets: UIEdgeInsets {
+        .init(top: 0, left: controlInsets.left, bottom: 0, right: controlInsets.right + (texts.isEmpty ? 0 : 36))
+    }
     func fittingHeight(width: CGFloat) -> CGFloat {
-        CandidateLayout.measure(texts, width: width - 36, expanded: expanded, landscape: landscape).height
+        // A collapsed strip always has one row; measuring every candidate here
+        // repeats text shaping during each host sizing/layout callback.
+        guard expanded else { return texts.isEmpty ? 0 : CandidateLayout.rowHeight(landscape: landscape) }
+        return CandidateLayout.measure(texts, width: width, expanded: true, landscape: landscape, controlInsets: reservedInsets).height
     }
     override func layoutSubviews() {
         super.layoutSubviews()
-        scroll.frame = CGRect(x: 0, y: 0, width: max(1, bounds.width - 36), height: bounds.height)
-        let layout = CandidateLayout.measure(texts, width: scroll.bounds.width, expanded: expanded, landscape: landscape)
-        content.frame = CGRect(origin: .zero, size: layout.contentSize); scroll.contentSize = layout.contentSize
+        if layoutWidth != bounds.width { cancelSelection(); layoutWidth = bounds.width }
+        layoutCandidates(recalculateExtent: true)
+    }
+    /// Rows passing behind a fixed corner control reflow around it. Every candidate
+    /// remains in the same scrolling content view, including the original first row.
+    private func reservedRows(at offset: CGFloat) -> Set<Int> {
+        guard expanded else { return [] }
+        let height = CandidateLayout.rowHeight(landscape: landscape), pitch = height + 4
+        let top = max(0, offset), bottom = top + height
+        return Set((Int(top / pitch)...Int(bottom / pitch)).filter {
+            CGFloat($0) * pitch < bottom && CGFloat($0) * pitch + height > top
+        })
+    }
+    private func maximumMatrixOffset(width: CGFloat) -> CGFloat {
+        let pitch = CandidateLayout.rowHeight(landscape: landscape) + 4
+        let plain = CandidateLayout.measure(texts, width: width, expanded: true, landscape: landscape)
+        var offset = max(0, ceil((plain.contentSize.height - bounds.height) / pitch) * pitch)
+        // Fix the scroll range for this geometry. A live content-size clamp can
+        // otherwise bounce between two reflows and make the last words unreachable.
+        while true {
+            let end = CandidateLayout.measure(texts, width: width, expanded: true, landscape: landscape,
+                controlInsets: reservedInsets, reservedRows: reservedRows(at: offset))
+            if end.contentSize.height <= offset + bounds.height { return offset }
+            offset += pitch
+        }
+    }
+    private func layoutCandidates(recalculateExtent: Bool = false) {
+        guard !layingOutCandidates else { return }
+        layingOutCandidates = true
+        defer { layingOutCandidates = false; refreshSelection() }
+        let insets = reservedInsets
+        let width = expanded ? bounds.width : max(1, bounds.width - insets.left - insets.right)
+        scroll.frame = CGRect(x: expanded ? 0 : insets.left, y: 0, width: width, height: bounds.height)
+        if expanded && recalculateExtent { matrixMaximumOffset = maximumMatrixOffset(width: width) }
+        var offset = CGPoint(x: expanded ? 0 : max(0, scroll.contentOffset.x), y: expanded ? min(matrixMaximumOffset, max(0, scroll.contentOffset.y)) : 0)
+        let layout = CandidateLayout.measure(texts, width: width, expanded: expanded, landscape: landscape,
+            controlInsets: insets, reservedRows: reservedRows(at: offset.y))
+        offset.x = min(offset.x, max(0, layout.contentSize.width - scroll.bounds.width))
+        laidOutReservedRows = reservedRows(at: offset.y)
+        let size = CGSize(width: layout.contentSize.width, height: expanded ? matrixMaximumOffset + bounds.height : layout.contentSize.height)
+        content.frame = CGRect(x: 0, y: 0, width: size.width, height: max(size.height, layout.contentSize.height))
+        scroll.contentSize = size
         let rowHeight = layout.frames.first?.height ?? 32
         expandButton.isHidden = texts.isEmpty
-        expandButton.frame = CGRect(x: bounds.width - 32, y: 0, width: 32, height: rowHeight)
+        expandButton.frame = CGRect(x: bounds.width - controlInsets.right - 32, y: 0, width: 32, height: rowHeight)
         expandButton.symbol(expanded ? "chevron.down" : "chevron.up", label: expanded ? L("收起候选", "Collapse candidates") : L("展开候选", "Expand candidates"))
         for (button, frame) in zip(buttons, layout.frames) {
             button.titleLabel?.font = .systemFont(ofSize: landscape ? 18 : 20)
             button.frame = frame
         }
-        // Clamp after wrapping/orientation changes without losing horizontal scrolling.
-        let offset = CGPoint(x: expanded ? 0 : min(scroll.contentOffset.x, max(0, layout.contentSize.width - scroll.bounds.width)), y: expanded ? min(scroll.contentOffset.y, max(0, layout.contentSize.height - scroll.bounds.height)) : 0)
         if offset != scroll.contentOffset { scroll.contentOffset = offset }
     }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { cancelSelection() }
+    }
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer !== hold { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
+        return candidate(at: gestureRecognizer.location(in: self)) != nil
+    }
+    @objc private func held(_ gesture: UILongPressGestureRecognizer) {
+        let point = gesture.location(in: self)
+        switch gesture.state {
+        case .began: beginSelection(at: point)
+        case .changed: moveSelection(to: point)
+        case .ended: finishSelection(at: point)
+        case .cancelled, .failed: cancelSelection()
+        default: break
+        }
+    }
+    private func candidate(at point: CGPoint) -> Int? {
+        guard bounds.contains(point), !isHidden else { return nil }
+        for (index, button) in buttons.enumerated() {
+            let viewport = scroll.frame
+            guard viewport.contains(point) else { continue }
+            let visible = button.convert(button.bounds, to: self).intersection(viewport)
+            if !visible.isNull && visible.insetBy(dx: -2, dy: -2).contains(point) { return index }
+        }
+        return nil
+    }
+    private func beginSelection(at point: CGPoint) {
+        guard candidate(at: point) != nil else { return }
+        cancelSelection()
+        scroll.setContentOffset(scroll.contentOffset, animated: false)
+        selectionPoint = point; refreshSelection()
+        lastSelectionTick = CACurrentMediaTime()
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let now = CACurrentMediaTime()
+            self.advanceSelection(by: min(0.05, now - self.lastSelectionTick))
+            self.lastSelectionTick = now
+        }
+        selectionTimer = timer; RunLoop.main.add(timer, forMode: .common)
+    }
+    private func moveSelection(to point: CGPoint) {
+        guard selectionPoint != nil else { return }
+        selectionPoint = point; refreshSelection()
+    }
+    private func finishSelection(at point: CGPoint) {
+        guard selectionPoint != nil else { return }
+        // Resolve the release against the current scroll position, not the button
+        // where the gesture began or a highlight from before the last scroll tick.
+        moveSelection(to: point)
+        let index = selectedIndex
+        cancelSelection()
+        if let index { onSelect?(index) }
+    }
+    func cancelSelection() {
+        selectionPoint = nil; selectionTimer?.invalidate(); selectionTimer = nil
+        setSelection(nil); lastFeedbackIndex = nil
+    }
+    private func setSelection(_ index: Int?) {
+        guard selectedIndex != index else { return }
+        if let old = selectedIndex, buttons.indices.contains(old) { buttons[old].isDragTarget = false }
+        selectedIndex = index
+        if let index {
+            buttons[index].isDragTarget = true
+            if lastFeedbackIndex != index { lastFeedbackIndex = index; onSelectionChanged?() }
+        }
+    }
+    private func refreshSelection() {
+        guard let point = selectionPoint else { return }
+        setSelection(candidate(at: point))
+    }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard !layingOutCandidates else { return }
+        if expanded && reservedRows(at: scroll.contentOffset.y) != laidOutReservedRows { layoutCandidates() }
+        else { refreshSelection() }
+    }
+    private func advanceSelection(by elapsed: TimeInterval) {
+        guard let point = selectionPoint, scroll.frame.contains(point) else { return }
+        let position = expanded ? point.y - scroll.frame.minY : point.x - scroll.frame.minX
+        let length = expanded ? scroll.bounds.height : scroll.bounds.width
+        let edge = min(24, length / 3)
+        guard edge > 0 else { return }
+        let velocity: CGFloat
+        if position < edge { velocity = -260 * (1 - position / edge) }
+        else if position > length - edge { velocity = 260 * (1 - (length - position) / edge) }
+        else { return }
+        let limit = max(0, expanded ? scroll.contentSize.height - length : scroll.contentSize.width - length)
+        let old = expanded ? scroll.contentOffset.y : scroll.contentOffset.x
+        let next = min(limit, max(0, old + velocity * elapsed))
+        scroll.contentOffset = expanded ? CGPoint(x: 0, y: next) : CGPoint(x: next, y: 0)
+        refreshSelection()
+    }
+    #if KEYBOARD_LAYOUT_TESTS
+    func developmentBeginSelection(at point: CGPoint) { beginSelection(at: point) }
+    func developmentMoveSelection(to point: CGPoint) { moveSelection(to: point) }
+    func developmentFinishSelection(at point: CGPoint) { finishSelection(at: point) }
+    func developmentAdvanceSelection(by elapsed: TimeInterval) { advanceSelection(by: elapsed) }
+    #endif
 }
 
 /// Candidates read as text, with a transient touch highlight and no keycap base.
 final class CandidateButton: UIButton {
+    var isDragTarget = false { didSet { if oldValue != isDragTarget { updateHighlight(); setNeedsLayout() } } }
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear; layer.cornerRadius = 4
@@ -93,12 +286,13 @@ final class CandidateButton: UIButton {
     }
     required init?(coder: NSCoder) { fatalError() }
     override var isHighlighted: Bool {
-        didSet { updateHighlight() }
+        didSet { if oldValue != isHighlighted { updateHighlight() } }
     }
     override func tintColorDidChange() { super.tintColorDidChange(); updateHighlight() }
     private func updateHighlight() {
         let accent = tintColor ?? UIColor.systemBlue
-        backgroundColor = isHighlighted ? accent : .clear
+        backgroundColor = isHighlighted || isDragTarget ? accent : .clear
+        setTitleColor(isDragTarget ? KeyboardPalette.contrastingInk(on: accent) : .label, for: .normal)
         setTitleColor(KeyboardPalette.contrastingInk(on: accent), for: .highlighted)
         imageView?.tintColor = isHighlighted ? KeyboardPalette.contrastingInk(on: accent) : .label
     }
@@ -108,7 +302,10 @@ final class CandidateButton: UIButton {
     override func layoutSubviews() {
         super.layoutSubviews()
         let textHeight = min(bounds.height, ceil(titleLabel?.font.lineHeight ?? 0))
-        titleLabel?.frame = CGRect(x: 6, y: (bounds.height - textHeight) / 2, width: max(0, bounds.width - 12), height: textHeight)
+        titleLabel?.bounds = CGRect(x: 0, y: 0, width: max(0, bounds.width - 12), height: textHeight)
+        titleLabel?.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let scale = isDragTarget ? min(1.08, (bounds.width - 2) / max(1, bounds.width - 12)) : 1
+        titleLabel?.transform = CGAffineTransform(scaleX: scale, y: scale)
         if let imageView, let image = imageView.image {
             imageView.frame = CGRect(x: (bounds.width - image.size.width) / 2, y: (bounds.height - image.size.height) / 2, width: image.size.width, height: image.size.height)
         }

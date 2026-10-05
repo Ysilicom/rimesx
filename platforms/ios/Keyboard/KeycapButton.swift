@@ -44,8 +44,8 @@ class KeycapButton: UIButton {
     var skin: KeyboardSkin { theme.keyboardStyle }
     var functionalCap = false { didSet { if oldValue != functionalCap { setNeedsDisplay() } } }
     var accentCap = false { didSet { if oldValue != accentCap { updateAppearance() } } }
-    var compactCap = false { didSet { setNeedsDisplay(); setNeedsLayout() } }
-    var titleHorizontalInset: CGFloat = 6 { didSet { setNeedsLayout() } }
+    var compactCap = false { didSet { if oldValue != compactCap { setNeedsDisplay(); setNeedsLayout() } } }
+    var titleHorizontalInset: CGFloat = 6 { didSet { if oldValue != titleHorizontalInset { setNeedsLayout() } } }
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear; isOpaque = false; contentMode = .redraw
@@ -62,9 +62,9 @@ class KeycapButton: UIButton {
         updateAppearance()
     }
     required init?(coder: NSCoder) { fatalError() }
-    override var isHighlighted: Bool { didSet { updateAppearance() } }
-    override var isSelected: Bool { didSet { updateAppearance() } }
-    override var isEnabled: Bool { didSet { updateAppearance() } }
+    override var isHighlighted: Bool { didSet { if oldValue != isHighlighted { updateAppearance() } } }
+    override var isSelected: Bool { didSet { if oldValue != isSelected { updateAppearance() } } }
+    override var isEnabled: Bool { didSet { if oldValue != isEnabled { updateAppearance() } } }
     private func updateAppearance() {
         let palette = theme.palette
         let selectedInk: UIColor = skin == .system && !accentCap ? palette.ink : palette.accentInk
@@ -182,17 +182,11 @@ struct CursorDrag {
     }
 }
 
-/// Space: a tap types; holding it and dragging left or right moves the caret
-/// one character per step, and releasing then types nothing. When split (chord
-/// mode), the half first touched decides the hold action: left selects, right moves.
+/// Space: a tap types; holding it and dragging moves by one character per step,
+/// and releasing then types nothing. The controller assigns selection or caret
+/// movement to each independent Space key.
 final class SpaceCursorButton: KeycapButton {
-    enum Half { case left, right }
-    var split = false { didSet { if oldValue != split { finish(); splitChanged() } } }
-    /// Which half the current press began on; always `.right` when not split.
-    var pressedHalf = Half.right
-    var onCursorBegan: ((Half) -> Bool)?
-    private let halfGlyphs = [UIImageView(), UIImageView()]
-    private var fullImage: UIImage?
+    var onCursorBegan: (() -> Bool)?
     var onCursorMove: ((Int) -> Void)?
     private var drag = CursorDrag()
     private var holdTimer: Timer?
@@ -203,14 +197,13 @@ final class SpaceCursorButton: KeycapButton {
     func consumeTap() -> Bool { defer { suppressTap = false }; return !suppressTap }
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
         finish(); suppressTap = false; lastX = touch.location(in: self).x
-        pressedHalf = split && lastX < bounds.midX ? .left : .right
         let timer = Timer(timeInterval: CursorDrag.holdDuration, repeats: false) { [weak self] _ in self?.beginCursor(requireTracking: true) }
         holdTimer = timer; RunLoop.main.add(timer, forMode: .common)
         return super.beginTracking(touch, with: event)
     }
     func beginCursor(requireTracking: Bool) {
         holdTimer?.invalidate(); holdTimer = nil
-        guard isTracking || !requireTracking, !drag.active, onCursorBegan?(pressedHalf) == true else { return }
+        guard isTracking || !requireTracking, !drag.active, onCursorBegan?() == true else { return }
         drag.activate(at: lastX); suppressTap = true; isSelected = true
     }
     func moveCursor(to x: CGFloat) {
@@ -229,36 +222,6 @@ final class SpaceCursorButton: KeycapButton {
     func finish() {
         holdTimer?.invalidate(); holdTimer = nil
         if drag.active { drag.cancel(); isSelected = false }
-    }
-    private func splitChanged() {
-        if split {
-            fullImage = image(for: .normal) ?? fullImage; setImage(nil, for: .normal)
-            for glyph in halfGlyphs where glyph.superview == nil {
-                glyph.image = fullImage; glyph.contentMode = .scaleAspectFit; glyph.isUserInteractionEnabled = false; addSubview(glyph)
-            }
-        } else if let fullImage { setImage(fullImage, for: .normal) }
-        halfGlyphs.forEach { $0.isHidden = !split }
-        setNeedsLayout(); setNeedsDisplay()
-    }
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        guard split, let image = fullImage else { return }
-        let cap = KeycapStyle.capRect(in: bounds, pressed: isHighlighted, compact: compactCap)
-        let size = CGSize(width: min(image.size.width, cap.width / 2 - 8), height: min(image.size.height, cap.height - 6))
-        for (index, glyph) in halfGlyphs.enumerated() {
-            let midX = cap.minX + cap.width * (index == 0 ? 0.25 : 0.75)
-            glyph.frame = CGRect(x: midX - size.width / 2, y: cap.midY - size.height / 2, width: size.width, height: size.height)
-        }
-    }
-    override func draw(_ rect: CGRect) {
-        super.draw(rect)
-        guard split else { return }
-        let cap = KeycapStyle.capRect(in: bounds, pressed: isHighlighted, compact: compactCap)
-        let divider = UIBezierPath()
-        divider.move(to: CGPoint(x: cap.midX, y: cap.minY + cap.height * 0.22))
-        divider.addLine(to: CGPoint(x: cap.midX, y: cap.maxY - cap.height * 0.22))
-        (isHighlighted || isSelected ? tintColor.withAlphaComponent(0.6) : UIColor.separator).setStroke()
-        divider.lineWidth = 1; divider.stroke()
     }
 }
 
