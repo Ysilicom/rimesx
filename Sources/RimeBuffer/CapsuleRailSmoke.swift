@@ -15,6 +15,7 @@ enum CapsuleRailSmoke {
         }
 
         checkRules(expect: expect)
+        checkTabLayout(expect: expect)
         checkLibraryProjection(expect: expect)
         checkPane(expect: expect)
         checkSaveRules(expect: expect)
@@ -28,6 +29,9 @@ enum CapsuleRailSmoke {
     /// `path`. `RIMES_PREVIEW_SCALE=1` renders at 1x instead of the screen's
     /// backing scale.
     static func renderPreview(to path: String, tabName: String) -> Bool {
+        if ProcessInfo.processInfo.environment["RIMES_UI_REVIEW"] == "capsule" {
+            NSApp.setActivationPolicy(.regular); NSApp.finishLaunching()
+        }
         let model = ClipboardHistoryModel(
             configuration: .init(),
             pasteboard: CapsuleRailPasteboardDouble(),
@@ -82,6 +86,19 @@ enum CapsuleRailSmoke {
         }
         pane.layoutSubtreeIfNeeded()
         pane.hoverCardForPreview(at: 1)
+        let previewWindow = NSWindow(contentRect: pane.frame, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        previewWindow.isReleasedWhenClosed = false
+        previewWindow.appearance = RimeUI.appKitAppearance
+        previewWindow.contentView = pane
+        defer { previewWindow.close() }
+        if ProcessInfo.processInfo.environment["RIMES_UI_REVIEW"] == "capsule" {
+            previewWindow.title = "Capsule Preview"
+            previewWindow.center(); previewWindow.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            let end = Date().addingTimeInterval(45)
+            while Date() < end { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        }
+        pane.layoutSubtreeIfNeeded()
         pane.displayIfNeeded()
         let bitmap: NSBitmapImageRep?
         if let scale = ProcessInfo.processInfo.environment["RIMES_PREVIEW_SCALE"]
@@ -108,6 +125,34 @@ enum CapsuleRailSmoke {
             return false
         }
         return (try? data.write(to: URL(fileURLWithPath: path), options: .atomic)) != nil
+    }
+
+    private static func checkTabLayout(expect: (@autoclosure () -> Bool, String) -> Void) {
+        let strip = CapsuleRailTabStrip(frame: NSRect(x: 0, y: 0, width: 350, height: 28))
+        let window = NSWindow(contentRect: strip.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = strip
+        defer { window.close() }
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            window.appearance = NSAppearance(named: appearance)
+            strip.applyAppearance()
+            for width: CGFloat in [350, 170, 350] {
+                window.setContentSize(NSSize(width: width, height: 28))
+                strip.layoutSubtreeIfNeeded()
+                guard let scroll = strip.subviews.compactMap({ $0 as? NSScrollView }).first,
+                      let document = scroll.documentView as? NSStackView else {
+                    expect(false, "tabs retain a scrollable document"); return
+                }
+                let buttons = document.arrangedSubviews.compactMap { $0 as? CapsuleRailTabButton }
+                expect(!buttons.isEmpty && buttons.allSatisfy {
+                    $0.frame.width > 20 && abs($0.frame.height - 22) < 0.5
+                        && $0.frame.minY >= 0 && $0.frame.maxY <= document.bounds.height
+                }, "tab labels remain inside a nonzero viewport after resize and appearance change")
+                if let last = buttons.last {
+                    strip.select(last.tab)
+                    expect(last.visibleRect.width > 0, "last Capsule tab scrolls into view")
+                }
+            }
+        }
     }
 
     /// Renders the Capsule manager with sample notes from temporary stores,

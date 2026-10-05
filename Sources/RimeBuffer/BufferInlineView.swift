@@ -2952,6 +2952,9 @@ func runBufferInlineTrailingActionExclusionProbe() -> Bool {
 
 /// A button that works on the first click inside a never-key panel.
 class FirstMouseButton: NSButton {
+    // AppKit's button alignment insets can enlarge the frame beyond our 22pt
+    // constraints. Custom chrome and hit areas use the same exact square.
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsetsZero }
     var usesPrimarySurface = false
     var showsPersistentInteractionSurface = false {
         didSet { refreshInteractionAppearance() }

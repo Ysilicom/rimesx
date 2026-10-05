@@ -3224,7 +3224,11 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
             lhs.maxX <= rhs.minX + epsilon
                 && abs(lhs.midY - rhs.midY) <= epsilon
         }
-        let finiteFrames = ([railFrameWithTwoActions,
+        let squareControls = actionFrames.allSatisfy {
+            abs($0.width - BufferWorkbenchMetrics.controlSize) <= epsilon
+                && abs($0.height - BufferWorkbenchMetrics.controlSize) <= epsilon
+        }
+        let finiteFrames = squareControls && ([railFrameWithTwoActions,
                              railFrameWithThreeActions,
                              overlayFrame] + actionFrames).allSatisfy { rect in
             [rect.minX, rect.minY, rect.width, rect.height].allSatisfy(\.isFinite)
