@@ -3,7 +3,9 @@ import Carbon.HIToolbox
 import UniformTypeIdentifiers
 
 final class CaptureButton: NSButton {
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsetsZero }
     var perform: () -> Void
+    var isProminent = false { didSet { needsDisplay = true } }
     init(_ title: String, symbol: String? = nil, action: @escaping () -> Void) {
         perform = action
         super.init(frame: .zero)
@@ -19,7 +21,7 @@ final class CaptureButton: NSButton {
         NSSize(width: max(42, (title as NSString).size(withAttributes: [.font: font ?? NSFont.systemFont(ofSize: 12)]).width + (image == nil ? 20 : 40)), height: 28)
     }
     override func draw(_ dirtyRect: NSRect) {
-        let primary = title == "收入 Capsule" || title == "开始录制"
+        let primary = title == "收入 Capsule" || title == "开始录制" || (isProminent && isEnabled)
         let fill = primary ? RimeUI.accentGreen : (isHighlighted ? RimeUI.surface2 : RimeUI.surface3)
         fill.setFill(); NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7).fill()
         RimeUI.border.setStroke(); NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7).stroke()

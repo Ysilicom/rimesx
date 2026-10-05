@@ -345,10 +345,19 @@ func runThemeAppKitSmokeTest() -> Bool {
     check(matches(settingsWindow, mode: .night),
           "settings should initially use 墨竹 AppKit appearance")
 
+    let buffer = BufferWindowController.shared
+    let darkBuffer = buffer.themeSurfaceSnapshotForSmoke
     RimeUI.appearance = .day
     drainMainRunLoop { matches(settingsWindow, mode: .day) }
     check(matches(settingsWindow, mode: .day),
           "the same settings window should transition to 翡翠")
+
+    let jadeBuffer = buffer.themeSurfaceSnapshotForSmoke
+    check(jadeBuffer.source == jadeBuffer.target
+            && jadeBuffer.source != darkBuffer.source,
+          "both Buffer action fades must leave the dark palette when switching to Jade")
+    check(!jadeBuffer.glass && jadeBuffer.railAlpha == 1,
+          "Jade must retain its solid rail without a Glass material")
 
     RimeUI.appearance = .quiet
     drainMainRunLoop {
@@ -378,14 +387,43 @@ func runThemeAppKitSmokeTest() -> Bool {
     check(RimeUI.appearance == .liquidGlass
             && defaults.string(forKey: appearanceKey) == "liquidGlass",
           "Glass must persist as an opt-in choice")
+    let glassBuffer = buffer.themeSurfaceSnapshotForSmoke
+    check(glassBuffer.source.isEmpty && glassBuffer.target.isEmpty
+            && glassBuffer.toolbarAlpha == 0,
+          "Glass must not cover its material with toolbar or action color plates")
+    check(glassBuffer.glass == RimeUI.usesLiquidGlassTransparency
+            && glassBuffer.railAlpha == (RimeUI.usesLiquidGlassTransparency ? 0 : 1),
+          "Buffer must expose its native material without an opaque rail covering it")
+    check(SettingsWindowController.shared.validateTitlebarCoverageForSmoke(),
+          "Glass must cover the entire native titlebar while keeping controls below it")
+    check(SettingsWindowController.shared.validateSidebarLayoutForSmoke(),
+          "sidebar icons, labels, focus rings and click targets must share consistent row geometry")
+    let settingsFrame = settingsWindow?.frame
+    settingsWindow?.setContentSize(NSSize(width: 860, height: 600))
+    check(SettingsWindowController.shared.validateTitlebarCoverageForSmoke(),
+          "Glass titlebar coverage must survive resizing to the minimum window size")
+    if let settingsFrame { settingsWindow?.setFrame(settingsFrame, display: false) }
     check(settingsWindow?.appearance == nil,
           "Glass should inherit the system appearance")
+    check(candidateSurface.layer?.cornerRadius == 12,
+          "Glass candidates should use the rounded Apple shape")
     check(candidateSurface.hasVisibleMaterial == RimeUI.usesLiquidGlassTransparency,
           "native or fallback material should respect transparency and contrast settings")
     check(candidateSurface.hitTest(NSPoint(x: 50, y: 20)) === candidate,
           "Glass candidate backing must leave clicks to the candidate button")
     check(SettingsWindowController.shared.validateChoiceCardHitTestingForSmoke(),
           "all settings choices should remain reachable with Glass enabled")
+    check(RimeUI.accentBlue == NSColor.controlAccentColor
+            && RimeUI.accentSecondary == NSColor.controlAccentColor,
+          "Glass primary and secondary accents must use the user's system accent")
+    let beforeSystemColorChange = appearanceNotificationCount
+    let beforeSystemColorRender = buffer.themeSurfaceSnapshotForSmoke.renderPasses
+    NotificationCenter.default.post(name: NSColor.systemColorsDidChangeNotification, object: nil)
+    drainMainRunLoop { appearanceNotificationCount > beforeSystemColorChange }
+    check(appearanceNotificationCount > beforeSystemColorChange,
+          "changing system colors must refresh existing Glass windows without a restart")
+    check(buffer.themeSurfaceSnapshotForSmoke.renderPasses > beforeSystemColorRender,
+          "system color changes must invalidate cached Buffer text even with the same theme and content")
     let previousAppAppearance = app.appearance
     app.appearance = NSAppearance(named: .aqua)
     check(!RimeUI.isDark && RimeUI.palette.candidateBackground == RimeThemePalettes.day.candidateBackground,
@@ -398,6 +436,10 @@ func runThemeAppKitSmokeTest() -> Bool {
     drainMainRunLoop { matches(settingsWindow, mode: .night) }
     check(RimeUI.appearance == .night && !candidateSurface.hasVisibleMaterial,
           "switching away from Glass should restore the remembered Classic colorway")
+    check(SettingsWindowController.shared.validateTitlebarCoverageForSmoke(),
+          "Classic settings must retain the same safe titlebar/content geometry")
+    check(candidateSurface.layer?.cornerRadius == 6,
+          "leaving Glass should restore the Classic candidate corners")
     check(candidate.frame == candidateFrame && candidate.superview === candidateSurface,
           "theme switching must preserve candidate geometry and hierarchy")
     check(candidateSurface.hitTest(NSPoint(x: 50, y: 20)) === candidate,

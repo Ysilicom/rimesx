@@ -53,6 +53,31 @@ final class CapturePermissionCheck {
     func cancel() { generation = UUID(); state = .idle }
 }
 
+struct CapturePermissionPresentation {
+    enum Action { case request, openSettings, verify }
+    let action: Action
+    let primaryTitle: String
+    let message: String
+    let showsVerify: Bool
+
+    init(preflight: Bool, requested: Bool, state: CapturePermissionCheck.State, continuing: Bool) {
+        if case .failed = state {
+            action = .verify; primaryTitle = "重试"
+            message = "暂时无法继续，请重试。"; showsVerify = false
+        } else if state == .ready || (preflight && state != .blocked) {
+            action = .verify; primaryTitle = continuing ? "继续" : "完成"
+            message = "已开启，可以继续。"; showsVerify = false
+        } else if requested || state == .blocked {
+            action = .openSettings; primaryTitle = "打开系统设置"
+            message = state == .blocked ? "授权还未生效，开启后再试。" : "在系统设置中打开 RIMES 的开关。"
+            showsVerify = true
+        } else {
+            action = .request; primaryTitle = "去开启"
+            message = "macOS 会请你允许 RIMES。"; showsVerify = false
+        }
+    }
+}
+
 /// One guide shared by capture and Settings. No automatic Settings launch,
 /// permission reset, restart or delayed capture when the user merely returns.
 @MainActor
@@ -67,6 +92,8 @@ final class CapturePermissionGuide {
     private var status: NSTextField?
     private var requestButton: CaptureButton?
     private var verifyButton: CaptureButton?
+    private var body: NSView?
+    private var help: PermissionHelpDisclosure?
     private var permission = SystemPermission.screenRecording
     private var continuation: (() -> Void)?
     private var requested = false
@@ -84,69 +111,56 @@ final class CapturePermissionGuide {
     func show(_ permission: SystemPermission, retry: (() -> Void)? = nil) {
         guard !IsSecureEventInputEnabled(), !presentExisting() else { return }
         self.permission = permission; continuation = retry; requested = false
-        let panel = CapturePanel(size: NSSize(width: 560, height: 520))
+        let panel = CapturePanel(size: NSSize(width: 500, height: 280))
         panel.styleMask.remove(.resizable)
         self.panel = panel
         func label(_ text: String) -> NSTextField {
-            let view = NSTextField(wrappingLabelWithString: text)
-            view.font = .systemFont(ofSize: 12); view.textColor = RimeUI.textSecondary
-            view.preferredMaxLayoutWidth = 512
+            let view = NSTextField(labelWithString: text)
+            view.font = .systemFont(ofSize: 13); view.textColor = RimeUI.textSecondary
+            view.preferredMaxLayoutWidth = 456
             return view
         }
         let status = label(""); self.status = status
-        let request = CaptureButton("请求系统授权") { [weak self] in self?.request() }
+        let request = CaptureButton("去开启") { [weak self] in self?.primaryAction() }
+        request.isProminent = true; request.font = .systemFont(ofSize: 13)
         requestButton = request
-        let verify = CaptureButton(retry == nil ? "检测权限" : "检测并继续") { [weak self] in self?.verify() }
+        let verify = CaptureButton("我已开启") { [weak self] in self?.verify() }
+        verify.font = .systemFont(ofSize: 13)
         verifyButton = verify
-        let steps = label("1. 打开系统设置，在「\(permission.title)」中允许 RIMES。\n"
-            + "2. 返回此处，点击「\(verify.title)」。只返回窗口不会自动开始捕获。\n"
-            + "3. 若系统要求重启，或开关已开启但检测仍失败，保存未完成内容后重启 RIMES。")
-        let identity = SystemPermissionAudit.identity()
-        let location = label("当前应用：\(identity.bundlePath)")
-        let signature = label(identity.isAdHocSigned
-            ? "当前是临时签名开发版，重建可能使旧授权不再匹配。重启后仍失败时，可在系统设置中移除旧条目，再用此处的当前应用重新添加。不会自动清除授权。"
-            : "请授权当前运行的 RIMES.app。这里的定位和拖动不会移动、重装应用，也不会自动更改系统权限。")
-        let actions = CaptureUI.row([
-            request,
-            CaptureButton("打开系统设置") { [weak self] in
-                guard let self, self.allowsSystemActions, let url = self.permission.settingsURL else { return }
-                NSWorkspace.shared.open(url)
-            }, verify
-        ])
-        let footer = CaptureUI.row([
-            CaptureButton("重启 RIMES…") { [weak self] in self?.restart() },
-            CaptureButton("取消") { [weak self] in self?.dismiss() }
-        ])
-        var sections: [NSView] = [
-            CaptureUI.label("\(permission.title) · 授权与检测", size: 17), status,
-            label("用途：\(permission.enables)"), steps, actions
-        ]
+        let later = CaptureButton("稍后") { [weak self] in self?.dismiss() }
+        later.font = .systemFont(ofSize: 13)
+        let actions = CaptureUI.row([request, verify, later], spacing: 10)
+        let settings = CaptureButton("打开系统设置") { [weak self] in self?.openSettings() }
+        var recovery: [NSView] = []
         if permission.supportsManualApplicationAddition {
-            sections.append(PermissionApplicationCard(width: 500, allowsSystemActions: allowsSystemActions))
-            sections.append(signature)
+            recovery.append(PermissionApplicationCard(width: 456, allowsSystemActions: allowsSystemActions))
         } else {
-            sections.append(label("这项权限不能拖入应用添加。请先点击「请求系统授权」，回答系统弹窗后再检测；已拒绝时在系统设置中打开 RIMES 的开关。"))
-            sections.append(location)
+            recovery.append(label("在系统设置的「\(permission.title)」中开启 RIMES。"))
         }
-        let body = CaptureUI.column(sections, spacing: 12)
-        // Keep help readable on small displays instead of compressing labels
-        // into each other. Recovery/close stay visible below the scroll area.
+        let restart = CaptureButton("重启 RIMES…") { [weak self] in self?.restart() }
+        restart.toolTip = "开关已开启但仍不能用时，重启后再试"
+        recovery.append(CaptureUI.row([settings, restart]))
+        let help = PermissionHelpDisclosure(details: CaptureUI.column(recovery, spacing: 12), width: 456)
+        self.help = help
+        help.didToggle = { [weak self, weak help] in
+            self?.status?.isHidden = help?.expanded == true
+            self?.resizePanel()
+        }
+        let title = CaptureUI.label(permission.requestTitle, size: 22)
+        title.font = .systemFont(ofSize: 22, weight: .semibold)
+        let body = CaptureUI.column([title, status, actions, help], spacing: 16)
+        self.body = body
         let scroll = CaptureInspectorScroll(body)
+        scroll.autohidesScrollers = true; scroll.scrollerStyle = .overlay
+        // This panel hides its titlebar controls and supplies its own inset.
+        // AppKit's automatic titlebar inset otherwise clips the last row.
+        scroll.automaticallyAdjustsContentInsets = false
         let content = panel.contentView!
-        content.addSubview(scroll); content.addSubview(footer)
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        footer.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 22),
-            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -22),
-            scroll.topAnchor.constraint(equalTo: content.topAnchor, constant: 22),
-            scroll.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -12),
-            footer.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 22),
-            footer.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -22),
-        ])
+        CaptureUI.fill(scroll, in: content, inset: 22)
         panel.closed = { [weak self, weak panel] in
             self?.pending?.cancel(); self?.pending = nil; self?.check.cancel()
             self?.continuation = nil; self?.panel = nil
+            self?.body = nil; self?.help = nil
             self?.removeObservers(); panel?.contentView = nil
         }
         activationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
@@ -161,9 +175,34 @@ final class CapturePermissionGuide {
             MainActor.assumeIsolated { self?.dismiss() }
         }
         refreshStatus()
-        let availableHeight = (NSScreen.main?.visibleFrame.height ?? 700) - 80
-        panel.setContentSize(NSSize(width: 560, height: min(availableHeight, max(340, body.fittingSize.height + footer.fittingSize.height + 56))))
+        resizePanel()
         panel.present()
+    }
+
+    private func resizePanel() {
+        guard let panel, let body else { return }
+        body.layoutSubtreeIfNeeded()
+        let availableHeight = (panel.screen ?? NSScreen.main)?.visibleFrame.height ?? 700
+        panel.setContentSize(NSSize(width: 500, height: min(availableHeight - 80, max(220, body.fittingSize.height + 44))))
+    }
+
+    private var presentation: CapturePermissionPresentation {
+        CapturePermissionPresentation(preflight: allowsSystemActions && SystemPermissionAudit.status(for: permission) == .granted,
+            requested: requested, state: check.state, continuing: continuation != nil)
+    }
+
+    private func primaryAction() {
+        guard allowsSystemActions, pending == nil else { return }
+        switch presentation.action {
+        case .request: request()
+        case .openSettings: openSettings()
+        case .verify: verify()
+        }
+    }
+
+    private func openSettings() {
+        guard allowsSystemActions, !IsSecureEventInputEnabled(), let url = permission.settingsURL else { return }
+        NSWorkspace.shared.open(url)
     }
 
     func dismiss() { panel?.close() }
@@ -178,7 +217,7 @@ final class CapturePermissionGuide {
     }
 
     private func request() {
-        guard allowsSystemActions, pending == nil, !requested else { return }
+        guard allowsSystemActions, pending == nil, !requested, !IsSecureEventInputEnabled() else { return }
         requested = true
         let permission = permission
         pending = Task { [weak self] in
@@ -197,10 +236,10 @@ final class CapturePermissionGuide {
             await self.check.check { try await CapturePermissionCheck.verify(permission) }
             guard !Task.isCancelled, self.panel != nil else { return }
             self.pending = nil; self.refreshStatus()
-            if self.check.state == .ready, let action = self.continuation,
-               !IsSecureEventInputEnabled() {
+            if self.check.state == .ready, !IsSecureEventInputEnabled() {
+                let action = self.continuation
                 self.dismiss()
-                DispatchQueue.main.async { action() }
+                if let action { DispatchQueue.main.async { action() } }
             }
         }
         refreshStatus()
@@ -208,28 +247,27 @@ final class CapturePermissionGuide {
 
     private func refreshStatus() {
         guard panel != nil else { return }
-        let preflight = SystemPermissionAudit.status(for: permission) == .granted
-        requestButton?.isEnabled = pending == nil && !requested && !preflight
-        requestButton?.title = preflight ? "预检查已通过" : (requested ? "已请求授权" : "请求系统授权")
+        let state = presentation
+        requestButton?.isEnabled = pending == nil
+        requestButton?.title = state.primaryTitle
+        requestButton?.setAccessibilityLabel(state.primaryTitle)
+        verifyButton?.isHidden = !state.showsVerify
         verifyButton?.isEnabled = pending == nil
-        if pending != nil { status?.stringValue = "正在等待系统授权或检测结果…"; return }
-        switch check.state {
-        case .ready: status?.stringValue = "本次检测通过。之后每次捕获仍由系统重新校验。"
-        case .blocked: status?.stringValue = "授权尚未对当前进程生效，不代表系统设置里的开关一定关闭。"
-        case .failed(let message): status?.stringValue = "检测失败（不能据此判断未授权）：\(message)"
-        default:
-            status?.stringValue = preflight
-                ? "系统预检查通过，请点击检测确认当前进程可用。"
-                : (requested ? "已请求系统授权。请完成系统设置后检测；若仍失败，请按下方步骤重启。"
-                    : "当前进程尚未确认可用。首次使用可请求授权；已经开启请直接检测。")
+        status?.stringValue = pending != nil ? "正在等待系统回应…"
+            : state.action == .request ? "用于\(permission.shortPurpose)。" : state.message
+        if case .failed(let message) = check.state {
+            status?.toolTip = message
+        } else {
+            status?.toolTip = nil
         }
+        resizePanel()
     }
 
     private func restart() {
         guard allowsSystemActions else { return }
         let alert = NSAlert()
-        alert.messageText = "重启 RIMES 以重新载入系统授权？"
-        alert.informativeText = "请先保存截图编辑、缓冲区等未保存内容，并停止录屏。词库和配置会保留。当前使用其他输入法时，请在退出后重新选择 RIMES。恢复后请重新触发截图，不会自动捕获。"
+        alert.messageText = "重启 RIMES？"
+        alert.informativeText = "会关闭窗口、结束终端会话并停止录屏。请先保存未完成内容；词库和设置会保留。"
         alert.addButton(withTitle: "取消"); alert.addButton(withTitle: "重启 RIMES")
         guard alert.runModal() == .alertSecondButtonReturn else { return }
         dismiss(); StatusMenu.shared.restart()
@@ -239,8 +277,24 @@ final class CapturePermissionGuide {
         precondition(!allowsSystemActions)
         show(.screenRecording)
         defer { dismiss() }
+        if ProcessInfo.processInfo.environment["RIMES_PERMISSION_HELP_PREVIEW"] == "1" {
+            help?.setExpanded(true)
+        }
+        if ProcessInfo.processInfo.environment["RIMES_UI_REVIEW"] == "permission" {
+            let end = Date().addingTimeInterval(45)
+            while Date() < end { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        }
         guard let view = panel?.contentView else { throw CaptureError.message("permission preview unavailable") }
         view.layoutSubtreeIfNeeded()
+        func validate(_ node: NSView) throws {
+            guard !node.isHiddenOrHasHiddenAncestor else { return }
+            if node is CaptureButton,
+               !node.visibleRect.contains(node.bounds.insetBy(dx: 0.5, dy: 0.5)) {
+                throw CaptureError.message("permission preview contains a clipped action")
+            }
+            try node.subviews.forEach(validate)
+        }
+        try validate(view)
         guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { throw CaptureError.message("permission preview allocation failed") }
         view.cacheDisplay(in: view.bounds, to: bitmap)
         guard let data = bitmap.representation(using: .png, properties: [:]) else { throw CaptureError.message("permission preview encoding failed") }

@@ -436,7 +436,7 @@ endif()
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/$<CONFIG>/build-identity.json" CONTENT "{\"commit\":\"${RIMES_BUILD_COMMIT}\",\"version\":\"${PROJECT_VERSION}\",\"protocol\":2,\"sourceState\":\"${RIMES_SOURCE_STATE}\",\"sourceSnapshot\":\"${RIMES_SOURCE_SNAPSHOT}\"}\n")
 
 # Explorer and installer version checks must agree with the runtime version.
-foreach(versioned_target RimesTsf RimesBroker RimesRegistrar RimesTsfTestHost)
+foreach(versioned_target RimesTsf RimesBroker RimesRegistrar RimesTsfTestHost RimesVisualPreview)
     if(TARGET ${versioned_target})
         if(versioned_target STREQUAL "RimesTsf")
             set(RIMES_RESOURCE_TYPE "VFT_DLL")

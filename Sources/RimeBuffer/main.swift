@@ -1231,7 +1231,7 @@ if let i = CommandLine.arguments.firstIndex(of: "settings-render"),
 }
 // Dev-only: `ETInput panel-render <path>
 // [translation|marine|candidate|linked|toolbar] [hover=<control>]
-// [width=<points>]` renders the actual compact workbench.
+// [width=<points>] [long] [dark]` renders the actual compact workbench.
 if let i = CommandLine.arguments.firstIndex(of: "popup-menu-render"),
    i + 1 < CommandLine.arguments.count {
     let app = NSApplication.shared
@@ -1274,6 +1274,7 @@ if let i = CommandLine.arguments.firstIndex(of: "panel-render"),
     model.append("做了", origin: .mcp(client: "preview"))
     model.append("缓冲工作台", origin: .remotePeer(deviceID: "preview"))
     let options = Array(CommandLine.arguments.dropFirst(i + 2))
+    if options.contains("dark") { app.appearance = NSAppearance(named: .darkAqua) }
     let translation = options.contains("translation")
     let marine = options.contains("marine")
     let candidatePreview = options.contains("candidate")
@@ -1300,13 +1301,16 @@ if let i = CommandLine.arguments.firstIndex(of: "panel-render"),
             targetEmptyText: "等待网页上下文"
         )
     } else if translation {
+        let long = options.contains("long")
         translationSnapshot = TranslationRailSnapshot(
-            sourceText: "今天终于把翻译缓冲区分成上下两个区域了。",
+            sourceText: String(repeating: "今天终于把翻译缓冲区分成上下两个区域了。",
+                               count: long ? 5 : 1),
             outputBlocks: [
                 TranslationOutputBlock(id: UUID(),
                                        text: "Today the translation buffer is finally split"),
                 TranslationOutputBlock(id: UUID(),
-                                       text: "into two vertically stacked areas."),
+                                       text: String(repeating: "into two vertically stacked areas. ",
+                                                    count: long ? 8 : 1)),
             ],
             phase: .ready
         )

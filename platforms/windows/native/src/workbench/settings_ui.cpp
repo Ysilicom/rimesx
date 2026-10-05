@@ -96,6 +96,7 @@ void SettingsUiHost::Open(HWND owner) {
   wc.hInstance = GetModuleHandleW(nullptr);
   wc.lpszClassName = L"Rimes.SettingsHost";
   wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+  wc.hIcon = LoadIconW(wc.hInstance, MAKEINTRESOURCEW(IDI_RIMES));
   wc.hbrBackground = static_cast<HBRUSH>(GetStockObject(NULL_BRUSH));
   wc.style = CS_HREDRAW | CS_VREDRAW;
   RegisterClassW(&wc);

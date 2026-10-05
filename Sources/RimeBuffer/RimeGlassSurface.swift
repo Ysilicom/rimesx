@@ -62,13 +62,15 @@ final class RimeGlassBackgroundView: NSView {
     func applyTheme() {
         isHidden = !RimeUI.usesLiquidGlassTransparency
         layer?.cornerRadius = cornerRadius
+        layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
         if #available(macOS 26.0, *), let glass = nativeGlass as? NSGlassEffectView {
             glass.cornerRadius = cornerRadius
-            glass.tintColor = NSColor.underPageBackgroundColor.withAlphaComponent(0.22)
+            glass.tintColor = nil
             glass.isHidden = isHidden
             fallback.isHidden = true
         } else {
+            RoundedWindowChrome.maskMaterial(fallback, radius: cornerRadius)
             fallback.isHidden = isHidden
         }
     }
@@ -116,6 +118,7 @@ final class RimeCandidateSurfaceView: NSView {
         let radius = isPreedit ? CandidateLayout.preeditCornerRadius : CandidateLayout.stripCornerRadius
         glass.cornerRadius = radius
         layer?.cornerRadius = radius
+        layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
         layer?.backgroundColor = transparent ? NSColor.clear.cgColor
             : RimeUI.candidateBackgroundColor.withAlphaComponent(isPreedit && !RimeUI.isLiquidGlass ? 0.95 : 1).cgColor
@@ -130,11 +133,16 @@ final class RimeCandidateSurfaceView: NSView {
 final class RimeSystemAppearanceObservation {
     private var appearance: NSKeyValueObservation?
     private var accessibility: NSObjectProtocol?
+    private var systemColors: NSObjectProtocol?
 
     init() {
         appearance = NSApplication.shared.observe(\.effectiveAppearance, options: [.new]) { _, _ in
             Self.refresh()
         }
+        systemColors = NotificationCenter.default.addObserver(
+            forName: NSColor.systemColorsDidChangeNotification,
+            object: nil, queue: .main
+        ) { _ in Self.refresh() }
         accessibility = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
             object: nil, queue: .main
@@ -149,6 +157,7 @@ final class RimeSystemAppearanceObservation {
     }
 
     deinit {
+        if let systemColors { NotificationCenter.default.removeObserver(systemColors) }
         if let accessibility {
             NSWorkspace.shared.notificationCenter.removeObserver(accessibility)
         }

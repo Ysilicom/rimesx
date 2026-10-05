@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "theme.hpp"
+#include "product_icon.h"
 
 namespace rimes::windows::ui {
 
@@ -267,60 +268,10 @@ inline void DrawIconGlyph(HDC dc, IconId id, const RECT& box,
   DeleteObject(pen);
 }
 
-[[nodiscard]] inline HICON CreateProductIcon(int size_px,
-                                             ThemeId theme) noexcept {
-  const ThemePalette& palette = Palette(theme);
-  BITMAPINFO info{};
-  info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-  info.bmiHeader.biWidth = size_px;
-  info.bmiHeader.biHeight = -size_px;
-  info.bmiHeader.biPlanes = 1;
-  info.bmiHeader.biBitCount = 32;
-  info.bmiHeader.biCompression = BI_RGB;
-  void* bits = nullptr;
-  HDC screen = GetDC(nullptr);
-  HBITMAP color =
-      CreateDIBSection(screen, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
-  if (!color || !bits) {
-    if (screen) ReleaseDC(nullptr, screen);
-    return nullptr;
-  }
-  // Initialize all pixels to opaque themed background (premultiplied BGRA).
-  auto* pixels = static_cast<std::uint32_t*>(bits);
-  const std::uint32_t bg = (0xFFu << 24) | (Blue(palette.buffer) << 16) |
-                           (Green(palette.buffer) << 8) | Red(palette.buffer);
-  for (int i = 0; i < size_px * size_px; ++i) pixels[i] = bg;
-
-  // Mask: 0 = opaque. CreateBitmap leaves contents undefined; zero it.
-  const int mask_stride = ((size_px + 31) / 32) * 4;
-  std::vector<std::uint8_t> mask_bits(
-      static_cast<std::size_t>(mask_stride * size_px), 0);
-  HBITMAP mask = CreateBitmap(size_px, size_px, 1, 1, mask_bits.data());
-  HDC mem = CreateCompatibleDC(screen);
-  HGDIOBJ old = SelectObject(mem, color);
-  RECT box{0, 0, size_px, size_px};
-  FillRoundRect(mem, box, (std::max)(2, size_px / 5),
-                ToColorRef(palette.buffer));
-  RECT glyph{size_px / 5, size_px / 5, size_px - size_px / 5,
-             size_px - size_px / 5};
-  DrawIconGlyph(mem, IconId::kProduct, glyph, ToColorRef(palette.accent));
-  // Ensure alpha stays opaque after GDI draws (GDI often clears alpha).
-  for (int i = 0; i < size_px * size_px; ++i) {
-    auto& px = pixels[i];
-    px |= 0xFF000000u;
-  }
-  SelectObject(mem, old);
-  DeleteDC(mem);
-  ReleaseDC(nullptr, screen);
-
-  ICONINFO icon_info{};
-  icon_info.fIcon = TRUE;
-  icon_info.hbmColor = color;
-  icon_info.hbmMask = mask;
-  HICON icon = CreateIconIndirect(&icon_info);
-  DeleteObject(color);
-  DeleteObject(mask);
-  return icon;
+// LoadImage without LR_SHARED returns an owned icon; the tray owner destroys it.
+[[nodiscard]] inline HICON CreateProductIcon(int size_px) noexcept {
+  return static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr),
+      MAKEINTRESOURCEW(IDI_RIMES), IMAGE_ICON, size_px, size_px, 0));
 }
 
 }  // namespace rimes::windows::ui

@@ -312,8 +312,8 @@ enum CandidateLayout {
     /// combined inset because CoreText reports glyph width without padding.
     static let compactCandidateHorizontalPadding: CGFloat = 12
     static let selectedCandidateCornerRadius: CGFloat = 6
-    static let stripCornerRadius: CGFloat = 6
-    static let preeditCornerRadius: CGFloat = 5
+    static var stripCornerRadius: CGFloat { RimeUI.isLiquidGlass ? 12 : 6 }
+    static var preeditCornerRadius: CGFloat { RimeUI.isLiquidGlass ? 10 : 5 }
     static let preeditHorizontalPadding: CGFloat = 6
     static let annotationFontSize: CGFloat = 9
     static let rootSpacing: CGFloat = 5

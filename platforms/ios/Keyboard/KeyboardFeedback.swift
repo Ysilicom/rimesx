@@ -22,6 +22,7 @@ extension UIInputView: @retroactive UIInputViewAudioFeedback {
     var clock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     #if DEBUG
     var onFeedback: ((KeyFeedback) -> Void)?
+    var onFeedbackStrength: ((HapticStrength) -> Void)?
     #endif
     func reset() { gate.reset() }
     func prepare() {
@@ -32,24 +33,27 @@ extension UIInputView: @retroactive UIInputViewAudioFeedback {
         case .strongest: strongest.prepare()
         }
     }
-    func send(_ event: KeyFeedback, combination: String? = nil) {
+    func send(_ event: KeyFeedback, combination: String? = nil, minimumStrength: HapticStrength = .light) {
         let now = clock()
         // Press only: chord previews and commits must not add extra clicks.
         // Haptics go first; audio stays independent of the user's haptic setting.
         defer { if soundEnabled, event == .press, soundGate.accept(event, at: now) { playInputClick() } }
         guard enabled, gate.accept(event, combination: combination, at: now) else { return }
+        let appliedStrength: HapticStrength = strength == .strongest || minimumStrength == .strongest ? .strongest
+            : strength == .strong || minimumStrength == .strong ? .strong : .light
         #if DEBUG
         onFeedback?(event)
+        onFeedbackStrength?(appliedStrength)
         #endif
-        if strength != .light {
-            let generator = strength == .strong ? strong : strongest
-            generator.impactOccurred(intensity: strength == .strong ? 0.85 : 1)
-            prepare()
+        if appliedStrength != .light {
+            let generator = appliedStrength == .strong ? strong : strongest
+            generator.impactOccurred(intensity: appliedStrength == .strong ? 0.85 : 1)
+            prepare(); generator.prepare()
             return
         }
         switch event {
         case .press: press.impactOccurred()
-        case .selection: selection.selectionChanged()
+        case .selection: selection.selectionChanged(); selection.prepare()
         case .commit: commit.impactOccurred(intensity: 0.65)
         }
         // Preparing immediately before impact has no latency benefit. Keep the

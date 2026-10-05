@@ -53,15 +53,17 @@ import RimesCore
         }
     }
 
-    func testLiteralAlternatesCommitCompositionInHostAndBufferAcrossOrdinaryLayouts() throws {
+    func testLiteralAlternatesCommitCompositionInHostAndBufferAcrossOrdinaryLayouts() async throws {
         for buffered in [false, true] {
             for custom in [false, true] {
                 let (window, keyboard) = host(); defer { window.isHidden = true }
+                try await Task.sleep(nanoseconds: 80_000_000)
                 if custom { keyboard.developmentSetCustomLayout(CustomKeyboardLayout.templates[0]) }
                 keyboard.developmentSwipeSymbols(true)
                 if buffered { keyboard.developmentBuffer("") }
                 keyboard.developmentType("nihao"); window.layoutIfNeeded()
                 keyboard.layoutViews.keys.developmentOrdinaryGesture(key: "r", duration: 0.4)
+                await keyboard.developmentWaitForDelivery()
                 XCTAssertEqual(buffered ? keyboard.developmentBufferSource.text : keyboard.layoutProxy.native.text, "你好4")
                 XCTAssertTrue(keyboard.developmentRaw.isEmpty)
                 keyboard.layoutViews.keys.developmentOrdinaryGesture(key: "a", duration: 0.4)
@@ -70,10 +72,12 @@ import RimesCore
             }
         }
         let (window, keyboard) = host(); defer { window.isHidden = true }
+        try await Task.sleep(nanoseconds: 80_000_000)
         keyboard.developmentSwipeSymbols(true)
         keyboard.developmentOrdinaryAppearance(layout: .nineKey)
         keyboard.developmentType("64426"); window.layoutIfNeeded()
         keyboard.layoutViews.keys.developmentOrdinaryGesture(key: "2", duration: 0.4)
+        await keyboard.developmentWaitForDelivery()
         XCTAssertEqual(keyboard.layoutProxy.native.text, "你好，"); XCTAssertTrue(keyboard.developmentRaw.isEmpty)
         keyboard.developmentChoose(.english); window.layoutIfNeeded()
         keyboard.layoutViews.keys.developmentOrdinaryGesture(key: "d", duration: 0.4)

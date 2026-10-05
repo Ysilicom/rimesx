@@ -32,6 +32,44 @@ enum BufferInlineMetrics {
     }
 }
 
+/// Keeps the complete rail geometry while fading only its scrolling content
+/// before the action buttons. A color overlay cannot blend with live Glass.
+private final class BufferRailScrollView: NSScrollView {
+    private let actionMask = CAGradientLayer()
+    var trailingActionExclusion: CGFloat = 0 {
+        didSet { updateActionMask() }
+    }
+
+    var visibleContentMaxX: CGFloat {
+        max(0, bounds.width - trailingActionExclusion)
+    }
+
+    func updateActionMask() {
+        guard RimeUI.isLiquidGlass, trailingActionExclusion > 0, bounds.width > 0 else {
+            layer?.mask = nil
+            return
+        }
+        let end = visibleContentMaxX / bounds.width
+        let start = max(0, visibleContentMaxX - 8) / bounds.width
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        actionMask.frame = bounds
+        actionMask.startPoint = CGPoint(x: 0, y: 0.5)
+        actionMask.endPoint = CGPoint(x: 1, y: 0.5)
+        actionMask.colors = [NSColor.black.cgColor, NSColor.black.cgColor,
+                             NSColor.clear.cgColor, NSColor.clear.cgColor]
+        actionMask.locations = [0, NSNumber(value: Double(start)),
+                                NSNumber(value: Double(end)), 1]
+        layer?.mask = actionMask
+        CATransaction.commit()
+    }
+
+    override func layout() {
+        super.layout()
+        updateActionMask()
+    }
+}
+
 /// What tells one Buffer block from the next: a rule along the block's bottom
 /// edge, drawn in the accent colour when highlighted and thicker when the
 /// block is the selected one. It sits below the text rather than on its
@@ -558,7 +596,7 @@ private final class TranslationRailMessageView: NSView {
 /// candidate keep its row while partial text grows or the selection changes.
 private final class TranslationTargetRail: NSObject {
     let key: Int
-    let scroll = NSScrollView()
+    let scroll = BufferRailScrollView()
     let row = NSStackView()
     let sectionLabel = NSTextField(labelWithString: "")
     let copyButton = FirstMouseButton(title: "", target: nil, action: nil)
@@ -621,6 +659,7 @@ private final class TranslationTargetRail: NSObject {
 
     func setTrailingClearance(_ width: CGFloat) {
         trailingClearanceConstraint.constant = max(0, width)
+        scroll.trailingActionExclusion = max(0, width)
     }
 
     @objc private func copyTapped() { onCopy?() }
@@ -854,7 +893,7 @@ final class BufferInlineView: NSView, NSGestureRecognizerDelegate {
         let appearance: RimeAppearanceMode
     }
 
-    private let chipScroll = NSScrollView()
+    private let chipScroll = BufferRailScrollView()
     private let chipRow = NSStackView()
     private let normalRailContainer = NSStackView()
     /// Where another input method composes. An ordinary text field in a key
@@ -867,7 +906,7 @@ final class BufferInlineView: NSView, NSGestureRecognizerDelegate {
     /// block through the same path a Rime commit takes.
     var onComposingFieldCommit: ((String) -> Void)?
     private let translationContainer = NSStackView()
-    private let translationSourceScroll = NSScrollView()
+    private let translationSourceScroll = BufferRailScrollView()
     private let translationSourceRow = NSStackView()
     private let leadingSpacer = NSView()
     private let translationSourceSpacer = NSView()
@@ -1786,6 +1825,8 @@ final class BufferInlineView: NSView, NSGestureRecognizerDelegate {
     private func applyTrailingActionExclusion() {
         standardTrailingClearanceConstraint.constant = 0
         sourceTrailingClearanceConstraint.constant = 0
+        chipScroll.trailingActionExclusion = 0
+        translationSourceScroll.trailingActionExclusion = 0
         translationTargetRails.values.forEach { $0.setTrailingClearance(0) }
 
         for key in renderedTranslationTargetRowKeys {
@@ -1796,8 +1837,10 @@ final class BufferInlineView: NSView, NSGestureRecognizerDelegate {
         if trailingActionExclusionWidth > 0 {
             if translationContainer.isHidden {
                 standardTrailingClearanceConstraint.constant = trailingActionExclusionWidth
+                chipScroll.trailingActionExclusion = trailingActionExclusionWidth
             } else if renderedTranslationTargetRowKeys.isEmpty {
                 sourceTrailingClearanceConstraint.constant = trailingActionExclusionWidth
+                translationSourceScroll.trailingActionExclusion = trailingActionExclusionWidth
             } else {
                 for key in renderedTranslationTargetRowKeys {
                     translationTargetRails[key]?.setTrailingClearance(
@@ -1817,6 +1860,7 @@ final class BufferInlineView: NSView, NSGestureRecognizerDelegate {
             sourceTrailingClearanceConstraint.constant,
             sourceTrailingActionExclusionWidth
         )
+        translationSourceScroll.trailingActionExclusion = sourceTrailingClearanceConstraint.constant
     }
 
     private func updateHairlineWidth() {
@@ -2075,6 +2119,12 @@ final class BufferInlineView: NSView, NSGestureRecognizerDelegate {
         isHidden = false
         applyAppearance()
         return true
+    }
+
+    /// Cached runs include resolved colors. A system accent/appearance change
+    /// must redraw them even though the selected theme and text did not change.
+    func invalidateAppearance() {
+        lastRenderSignature = nil
     }
 
     /// Dev-only render seam used by the CLI smoke and visual previews. Runtime
@@ -2886,10 +2936,16 @@ final class BufferInlineView: NSView, NSGestureRecognizerDelegate {
     }
 
     private func applyAppearance() {
-        layer?.backgroundColor = RimeUI.candidateBackgroundColor.cgColor
+        layer?.cornerRadius = RimeUI.isLiquidGlass ? 12 : 6
+        layer?.cornerCurve = .continuous
+        layer?.backgroundColor = (RimeUI.usesLiquidGlassTransparency
+            ? NSColor.clear : RimeUI.candidateBackgroundColor).cgColor
         layer?.borderColor = RimeUI.borderStrong.cgColor
         translationSourceScroll.layer?.backgroundColor = RimeUI.bufferSourceRail.cgColor
+        chipScroll.updateActionMask()
+        translationSourceScroll.updateActionMask()
         for rail in translationTargetRails.values {
+            rail.scroll.updateActionMask()
             rail.scroll.layer?.backgroundColor = RimeUI.bufferTargetRail.cgColor
             rail.scroll.layer?.borderWidth = renderedIndependentOutputRows ? 1 : 0
             rail.scroll.layer?.borderColor = renderedIndependentOutputRows
@@ -2943,6 +2999,9 @@ func runBufferInlineTrailingActionExclusionProbe() -> Bool {
 
 /// A button that works on the first click inside a never-key panel.
 class FirstMouseButton: NSButton {
+    // AppKit's button alignment insets can enlarge the frame beyond our 22pt
+    // constraints. Custom chrome and hit areas use the same exact square.
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsetsZero }
     var usesPrimarySurface = false
     var showsPersistentInteractionSurface = false {
         didSet { refreshInteractionAppearance() }
@@ -3026,7 +3085,8 @@ class FirstMouseButton: NSButton {
             pressed: pointerPressed
         )
         wantsLayer = true
-        layer?.cornerRadius = 6
+        layer?.cornerRadius = RimeUI.isLiquidGlass ? 12 : 6
+        layer?.cornerCurve = .continuous
         if usesPrimarySurface {
             let background: NSColor
             switch state {
@@ -3055,7 +3115,9 @@ class FirstMouseButton: NSButton {
             let border: NSColor
             switch state {
             case .idle:
-                background = RimeUI.surface2.withAlphaComponent(0.78)
+                background = RimeUI.isLiquidGlass
+                    ? NSColor.labelColor.withAlphaComponent(0.035)
+                    : RimeUI.surface2.withAlphaComponent(0.78)
                 border = RimeUI.border.withAlphaComponent(0.82)
             case .hovered:
                 background = BufferWorkbenchPointerRules.backgroundColor(for: state)
@@ -3064,7 +3126,8 @@ class FirstMouseButton: NSButton {
                 background = BufferWorkbenchPointerRules.backgroundColor(for: state)
                 border = BufferWorkbenchPointerRules.borderColor(for: state)
             case .disabled:
-                background = RimeUI.surface2.withAlphaComponent(0.34)
+                background = RimeUI.isLiquidGlass
+                    ? NSColor.clear : RimeUI.surface2.withAlphaComponent(0.34)
                 border = RimeUI.border.withAlphaComponent(0.40)
             }
             layer?.backgroundColor = background.cgColor

@@ -149,6 +149,7 @@ internal sealed class SetupWindow : Form
     internal SetupWindow()
     {
         Text = "RIMES " + BuildInfo.Version + T(" 安装", " Setup");
+        Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Font = new Font("Segoe UI", 10);
         ClientSize = new Size(600, 350);
         FormBorderStyle = FormBorderStyle.FixedDialog;

@@ -55,7 +55,7 @@ import RimesCore
         }
     }
 
-    func testUIKitPresentsKeyboardAtContentHeightOnFirstFocus() async throws {
+    func testUIKitPresentsAndResizesKeyboardAtContentHeight() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
@@ -69,6 +69,17 @@ import RimesCore
             field.resignFirstResponder(); window.isHidden = true
             previousKeyWindow?.makeKeyAndVisible()
         }
+        // Capture the sizes announced for the animation, not only its settled
+        // endpoint: a tall first frame followed by a short one visibly flashes.
+        var announcedHeights = [CGFloat]()
+        let observation = NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification,
+                                                                object: nil, queue: .main) { notification in
+            if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+               frame.minY < scene.coordinateSpace.bounds.maxY, frame.height > 0 {
+                announcedHeights.append(frame.height)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observation) }
         // UIKit owns the container and all its constraints in this test.
         XCTAssertTrue(field.becomeFirstResponder())
         try await Task.sleep(nanoseconds: 500_000_000)
@@ -79,6 +90,28 @@ import RimesCore
         XCTAssertLessThan(keyboard.view.bounds.height, 300)
         let candidates = keyboard.layoutViews.candidates
         XCTAssertEqual(candidates.convert(candidates.bounds, to: keyboard.view).minY, 5, accuracy: 0.5)
+        let finalHeight = try XCTUnwrap(announcedHeights.last)
+        XCTAssertTrue(announcedHeights.allSatisfy { $0 <= finalHeight + 0.5 }, "Initial keyboard animation heights: \(announcedHeights)")
+
+        // Check visible content through UIKit's responder/container lifecycle.
+        // A local inputViewController is not the remote keyboard extension: UIKit
+        // height notifications can lag even for a bare UIInputView (see the
+        // validation/build48/UIKitHeightProbe.swift diagnostic). Remote-host
+        // height and first-frame flicker require the actual extension recording.
+        let idleHeight = keyboard.view.bounds.height
+        keyboard.developmentBuffer("展开检查")
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(keyboard.view.bounds.height, idleHeight + 80, accuracy: 0.5)
+        keyboard.developmentContent(preedit: "ni", candidates: Array(repeating: "候选词", count: 60))
+        keyboard.layoutViews.candidates.onExpand?()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertGreaterThan(keyboard.view.bounds.height, idleHeight + 80)
+        keyboard.layoutViews.candidates.onExpand?()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(keyboard.view.bounds.height, idleHeight + 80, accuracy: 0.5)
+        keyboard.developmentBuffer(nil); keyboard.developmentContent()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(keyboard.view.bounds.height, idleHeight, accuracy: 0.5)
     }
 
     func testFirstMountDiscardsProvisionalHostHeight() throws {
@@ -108,6 +141,42 @@ import RimesCore
             XCTAssertEqual(views.bottom.frame.maxY, keyboard.view.bounds.height - 5, accuracy: 0.5)
             XCTAssertTrue(try XCTUnwrap(keyboard.inputView).allowsSelfSizing)
         }
+    }
+
+    func testContentStaysOnHostBottomEdgeWhileContainerHeightLags() throws {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 900))
+        let parent = UIViewController()
+        window.rootViewController = parent; window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        // Like the remote host, this container imposes only its own size.
+        let container = UIView(frame: CGRect(x: 0, y: 0, width: 393, height: 874))
+        parent.view.addSubview(container)
+        let keyboard = KeyboardViewController()
+        keyboard.layoutNeedsInputModeSwitchKey = false
+        keyboard.loadViewIfNeeded()
+        keyboard.developmentResetPreferences(); keyboard.developmentChoose(.chord)
+        parent.addChild(keyboard); container.addSubview(keyboard.view)
+        keyboard.didMove(toParent: parent)
+        container.layoutIfNeeded()
+        let idleHeight = keyboard.view.bounds.height
+
+        func check(container height: CGFloat, content: CGFloat, file: StaticString = #filePath, line: UInt = #line) {
+            container.frame.size.height = height
+            container.setNeedsLayout(); container.layoutIfNeeded()
+            XCTAssertFalse(keyboard.view.hasAmbiguousLayout, file: file, line: line)
+            XCTAssertEqual(keyboard.view.frame.minX, 0, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(keyboard.view.frame.height, content, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(keyboard.view.frame.maxY, height, accuracy: 0.5, file: file, line: line)
+        }
+        // Cold start: full screen, then a provisional height, then the requested one.
+        for height in [874, 444, idleHeight] { check(container: height, content: idleHeight) }
+        // Buffer grows and shrinks the content before the container follows.
+        keyboard.developmentBuffer("底边检查")
+        check(container: idleHeight, content: idleHeight + 80)
+        check(container: idleHeight + 80, content: idleHeight + 80)
+        keyboard.developmentBuffer(nil)
+        check(container: idleHeight + 80, content: idleHeight)
+        check(container: idleHeight, content: idleHeight)
     }
 
     func testHeightFollowsContentAndRotationAfterSystemSizing() throws {

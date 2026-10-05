@@ -122,6 +122,9 @@ if(RIMES_BUILD_FCITX5)
             DESTINATION "${FCITX_INSTALL_PKGDATADIR}/inputmethod")
     install(FILES "${CMAKE_BINARY_DIR}/org.fcitx.Fcitx5.Addon.Rimes.metainfo.xml"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/metainfo")
+    # Matches Icon=rimes in the Fcitx input-method descriptor and GTK windows.
+    install(DIRECTORY data/icons/hicolor
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/icons")
 
     pkg_check_modules(GTK3 gtk+-3.0)
     if(GTK3_FOUND)

@@ -36,6 +36,28 @@ enum SystemPermission: String, CaseIterable {
         }
     }
 
+    var requestTitle: String {
+        switch self {
+        case .accessibility: return "允许辅助操作"
+        case .screenRecording: return "允许截图和录屏"
+        case .inputMonitoring: return "允许显示按键"
+        case .camera: return "允许使用摄像头"
+        case .microphone: return "允许录制麦克风"
+        case .localNetwork: return "允许连接附近设备"
+        }
+    }
+
+    var shortPurpose: String {
+        switch self {
+        case .accessibility: return "自动粘贴、贴合输入框和自动滚动截图"
+        case .screenRecording: return "截图和录屏"
+        case .inputMonitoring: return "在录屏中显示按键"
+        case .camera: return "在录屏中加入摄像头画面"
+        case .microphone: return "在录屏中加入你的声音"
+        case .localNetwork: return "通过 Marine 连接局域网设备"
+        }
+    }
+
     /// Named features, not categories. "Needed for accessibility reasons" tells
     /// the user nothing about what they lose.
     var enables: String {

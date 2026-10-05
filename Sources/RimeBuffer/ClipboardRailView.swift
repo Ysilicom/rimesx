@@ -2559,6 +2559,7 @@ final class CapsuleRailTabStrip: NSView {
     private let tabScroll = NSScrollView()
     private var buttons: [CapsuleRailTabButton] = []
     private var selectedTab: CapsuleRailTab = .recent
+    private var lastViewportSize = NSSize.zero
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -2572,8 +2573,23 @@ final class CapsuleRailTabStrip: NSView {
         tabScroll.drawsBackground = false
         tabScroll.hasHorizontalScroller = false
         tabScroll.horizontalScrollElasticity = .automatic
+        // Pin the document to the viewport vertically. A manually sized
+        // NSStackView document can be collapsed by a later scroll-view layout
+        // when the panel is shown or its system appearance changes.
+        stack.translatesAutoresizingMaskIntoConstraints = false
         tabScroll.documentView = stack
+        tabScroll.translatesAutoresizingMaskIntoConstraints = false
         addSubview(tabScroll)
+        NSLayoutConstraint.activate([
+            tabScroll.leadingAnchor.constraint(equalTo: leadingAnchor),
+            tabScroll.trailingAnchor.constraint(equalTo: trailingAnchor),
+            tabScroll.topAnchor.constraint(equalTo: topAnchor),
+            tabScroll.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: tabScroll.contentView.leadingAnchor),
+            stack.topAnchor.constraint(equalTo: tabScroll.contentView.topAnchor),
+            stack.heightAnchor.constraint(equalTo: tabScroll.contentView.heightAnchor),
+            stack.widthAnchor.constraint(greaterThanOrEqualTo: tabScroll.contentView.widthAnchor),
+        ])
         heightAnchor.constraint(equalToConstant: 28).isActive = true
         widthAnchor.constraint(greaterThanOrEqualToConstant: 170).isActive = true
         refreshTabs()
@@ -2600,23 +2616,34 @@ final class CapsuleRailTabStrip: NSView {
             buttons.append(button)
         }
         if !ordered.contains(selectedTab) { selectedTab = ordered.first ?? .recent }
+        needsLayout = true
         applyAppearance()
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
     override var intrinsicContentSize: NSSize { NSSize(width: 350, height: 28) }
+
     override func layout() {
         super.layout()
-        tabScroll.frame = bounds
-        stack.frame = NSRect(x: 0, y: 0, width: max(bounds.width, stack.fittingSize.width), height: 28)
+        let size = tabScroll.contentView.bounds.size
+        guard size != lastViewportSize else { return }
+        lastViewportSize = size
+        revealSelectedTab()
     }
 
     func select(_ tab: CapsuleRailTab) {
-        guard tab != selectedTab else { return }
-        selectedTab = tab
-        applyAppearance()
-        if let button = buttons.first(where: { $0.tab == tab }) { button.scrollToVisible(button.bounds) }
+        if tab != selectedTab {
+            selectedTab = tab
+            applyAppearance()
+        }
+        revealSelectedTab()
+    }
+
+    private func revealSelectedTab() {
+        if let button = buttons.first(where: { $0.tab == selectedTab }) {
+            button.scrollToVisible(button.bounds)
+        }
     }
 
     func applyAppearance() {
@@ -2631,6 +2658,7 @@ final class CapsuleRailTabStrip: NSView {
 }
 
 final class CapsuleRailTabButton: ClipboardFirstMouseButton {
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsetsZero }
     let tab: CapsuleRailTab
     private let label = NSTextField(labelWithString: "")
     private let icon = NSImageView()

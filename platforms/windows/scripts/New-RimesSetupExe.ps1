@@ -37,7 +37,8 @@ internal static class BuildInfo { public const string Version = "$version"; publ
 "@ | Set-Content -LiteralPath $generated -Encoding UTF8
     $source=Join-Path $PSScriptRoot '..\setup\Setup.cs'
     $winManifest=Join-Path $PSScriptRoot '..\setup\Setup.manifest'
-    & $compiler /nologo /codepage:65001 /target:winexe /platform:x64 /optimize+ /warnaserror+ "/out:$output" "/win32manifest:$winManifest" "/resource:$PackageArchive,RIMES.Payload.zip" "/reference:System.Windows.Forms.dll" "/reference:System.Drawing.dll" "/reference:System.IO.Compression.dll" "/reference:System.IO.Compression.FileSystem.dll" "/reference:System.Web.Extensions.dll" $source $generated | Out-Host
+    $appIcon=Join-Path $PSScriptRoot '..\native\resources\rimes.ico'
+    & $compiler /nologo /codepage:65001 /target:winexe /platform:x64 /optimize+ /warnaserror+ "/out:$output" "/win32manifest:$winManifest" "/win32icon:$appIcon" "/resource:$PackageArchive,RIMES.Payload.zip" "/reference:System.Windows.Forms.dll" "/reference:System.Drawing.dll" "/reference:System.IO.Compression.dll" "/reference:System.IO.Compression.FileSystem.dll" "/reference:System.Web.Extensions.dll" $source $generated | Out-Host
     if($LASTEXITCODE){throw 'Setup compilation failed'}
     $setupHash=(Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText($output+'.sha256',$setupHash+'  '+[IO.Path]::GetFileName($output)+[Environment]::NewLine)
