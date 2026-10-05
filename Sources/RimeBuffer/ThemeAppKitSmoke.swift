@@ -398,6 +398,8 @@ func runThemeAppKitSmokeTest() -> Bool {
           "Glass settings must retain a native titlebar above the material content area")
     check(settingsWindow?.appearance == nil,
           "Glass should inherit the system appearance")
+    check(candidateSurface.layer?.cornerRadius == 12,
+          "Glass candidates should use the rounded Apple shape")
     check(candidateSurface.hasVisibleMaterial == RimeUI.usesLiquidGlassTransparency,
           "native or fallback material should respect transparency and contrast settings")
     check(candidateSurface.hitTest(NSPoint(x: 50, y: 20)) === candidate,
@@ -416,6 +418,8 @@ func runThemeAppKitSmokeTest() -> Bool {
     drainMainRunLoop { matches(settingsWindow, mode: .night) }
     check(RimeUI.appearance == .night && !candidateSurface.hasVisibleMaterial,
           "switching away from Glass should restore the remembered Classic colorway")
+    check(candidateSurface.layer?.cornerRadius == 6,
+          "leaving Glass should restore the Classic candidate corners")
     check(candidate.frame == candidateFrame && candidate.superview === candidateSurface,
           "theme switching must preserve candidate geometry and hierarchy")
     check(candidateSurface.hitTest(NSPoint(x: 50, y: 20)) === candidate,

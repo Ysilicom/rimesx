@@ -24,6 +24,7 @@ struct SettingsSubpageID: RawRepresentable, Hashable, Codable, CustomStringConve
 }
 
 enum SettingsCoreRoute: String, CaseIterable, Codable {
+    case rimes = "core.rimes"
     case inputMethod = "core.input-method"
     case appearance = "core.appearance"
     case buffer = "core.buffer"
@@ -37,6 +38,7 @@ enum SettingsCoreRoute: String, CaseIterable, Codable {
 
     var title: String {
         switch self {
+        case .rimes: return "RIMES"
         case .inputMethod: return "输入法"
         case .appearance: return "外观"
         case .buffer: return "Buffer"
@@ -50,6 +52,7 @@ enum SettingsCoreRoute: String, CaseIterable, Codable {
 
     var symbolName: String {
         switch self {
+        case .rimes: return "house"
         case .inputMethod: return "keyboard"
         case .appearance: return "paintpalette"
         case .buffer: return "square.grid.2x2"
@@ -86,6 +89,8 @@ enum CoreSettingsSubpages {
     static func descriptors(for route: SettingsCoreRoute) -> [SettingsSubpageDescriptor] {
         let values: [(String, String)]
         switch route {
+        case .rimes:
+            values = [("about", "RIMES")]
         case .inputMethod:
             values = [
                 ("encoding", "输入方案"),
@@ -352,10 +357,10 @@ struct SettingsNavigationState: Equatable {
     private(set) var selectedSubpageByRoute: [SettingsRouteID: SettingsSubpageID]
 
     init(catalog: SettingsRouteCatalog,
-         initialRouteID: SettingsRouteID = SettingsCoreRoute.inputMethod.id) {
+         initialRouteID: SettingsRouteID = SettingsCoreRoute.rimes.id) {
         currentRouteID = catalog.contains(initialRouteID)
             ? initialRouteID
-            : SettingsCoreRoute.inputMethod.id
+            : SettingsCoreRoute.rimes.id
         selectedSubpageByRoute = [:]
         ensureValidSubpage(for: currentRouteID, catalog: catalog)
     }
@@ -401,7 +406,7 @@ struct SettingsNavigationState: Equatable {
                 selectedSubpageByRoute[currentRouteID] =
                     PluginManagementSubpage.builtInExtensions.id
             } else {
-                currentRouteID = SettingsCoreRoute.inputMethod.id
+                currentRouteID = SettingsCoreRoute.rimes.id
             }
         }
         ensureValidSubpage(for: currentRouteID, catalog: catalog)
@@ -523,6 +528,7 @@ func runSettingsRoutingSmokeTest() -> Bool {
         guard catalog.coreRoutes.map(\.id) == SettingsCoreRoute.allCases.map(\.id),
               catalog.coreRoutes.map(\.title)
                 == [
+                    "RIMES",
                     "输入法",
                     "外观",
                     "Buffer",
@@ -532,6 +538,8 @@ func runSettingsRoutingSmokeTest() -> Bool {
                     "插件",
                     "维护",
                 ],
+              catalog.coreRoutes.first?.id == SettingsCoreRoute.rimes.id,
+              catalog.route(for: SettingsCoreRoute.rimes.id)?.subpages.map(\.id.rawValue) == ["about"],
               catalog.extensionRoutes.map(\.id.rawValue)
                 == ["extension.statistics", "extension.feiyao-learning"],
               catalog.sections.map(\.id) == [.core, .extensions],
@@ -576,7 +584,7 @@ func runSettingsRoutingSmokeTest() -> Bool {
         }
 
         var navigation = SettingsNavigationState(catalog: catalog)
-        guard navigation.currentRouteID == SettingsCoreRoute.inputMethod.id,
+        guard navigation.currentRouteID == SettingsCoreRoute.rimes.id,
               navigation.selectRoute(SettingsCoreRoute.plugins.id, catalog: catalog),
               navigation.selectedSubpage() == PluginManagementSubpage.all.id,
               navigation.selectSubpage(PluginManagementSubpage.bufferPlugins.id,

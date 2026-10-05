@@ -62,6 +62,7 @@ final class RimeGlassBackgroundView: NSView {
     func applyTheme() {
         isHidden = !RimeUI.usesLiquidGlassTransparency
         layer?.cornerRadius = cornerRadius
+        layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
         if #available(macOS 26.0, *), let glass = nativeGlass as? NSGlassEffectView {
             glass.cornerRadius = cornerRadius
@@ -69,6 +70,7 @@ final class RimeGlassBackgroundView: NSView {
             glass.isHidden = isHidden
             fallback.isHidden = true
         } else {
+            RoundedWindowChrome.maskMaterial(fallback, radius: cornerRadius)
             fallback.isHidden = isHidden
         }
     }
@@ -116,6 +118,7 @@ final class RimeCandidateSurfaceView: NSView {
         let radius = isPreedit ? CandidateLayout.preeditCornerRadius : CandidateLayout.stripCornerRadius
         glass.cornerRadius = radius
         layer?.cornerRadius = radius
+        layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
         layer?.backgroundColor = transparent ? NSColor.clear.cgColor
             : RimeUI.candidateBackgroundColor.withAlphaComponent(isPreedit && !RimeUI.isLiquidGlass ? 0.95 : 1).cgColor

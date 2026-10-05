@@ -1029,6 +1029,8 @@ final class CapsuleRevealPasscodeSettingsView: NSView {
     }
 
     private func applyAppearance() {
+        layer?.cornerRadius = RimeUI.isLiquidGlass ? 16 : 8
+        layer?.cornerCurve = .continuous
         layer?.backgroundColor = RimeUI.surface2.cgColor
         layer?.borderColor = RimeUI.border.cgColor
     }

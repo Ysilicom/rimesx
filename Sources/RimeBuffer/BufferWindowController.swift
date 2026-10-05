@@ -1789,8 +1789,12 @@ private final class BufferChromeView: NSView {
     private let fillView = NSView()
 
     var hasVisibleGlass: Bool { glass.hasVisibleMaterial }
+    private var surfaceRadius: CGFloat { RimeUI.isLiquidGlass ? 16 : 9 }
 
     func applyMaterial() {
+        layer?.cornerRadius = surfaceRadius
+        glass.cornerRadius = surfaceRadius
+        needsLayout = true
         classicMaterial.material = RimeUI.isDark ? .hudWindow : .popover
         classicMaterial.isHidden = RimeUI.isLiquidGlass
         glass.applyTheme()
@@ -1904,8 +1908,8 @@ private final class BufferChromeView: NSView {
         strokeLayer.lineWidth = lineWidth
         strokeLayer.path = CGPath(
             roundedRect: bounds.insetBy(dx: lineWidth / 2, dy: lineWidth / 2),
-            cornerWidth: max(0, 9 - lineWidth / 2),
-            cornerHeight: max(0, 9 - lineWidth / 2),
+            cornerWidth: max(0, surfaceRadius - lineWidth / 2),
+            cornerHeight: max(0, surfaceRadius - lineWidth / 2),
             transform: nil
         )
         associationGlowLayer.contentsScale = scale

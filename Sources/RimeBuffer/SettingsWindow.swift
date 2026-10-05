@@ -7,6 +7,9 @@ import UniformTypeIdentifiers
 /// workbench surfaces use the product surfaces, while Settings uses the
 /// quieter macOS-like chrome defined by the design system.
 private enum SettingsVisualStyle {
+    static var cardRadius: CGFloat { RimeUI.isLiquidGlass ? 16 : 8 }
+    static var panelRadius: CGFloat { RimeUI.isLiquidGlass ? 18 : 10 }
+
     static var background: NSColor {
         RimeUI.usesLiquidGlassTransparency ? .clear
             : RimeUI.color(RimeUI.isDark ? 0x323232 : 0xECECEC)
@@ -61,6 +64,10 @@ private final class SettingsPluginDownloadButton: SettingsPointingButton {
     var pluginKey = PluginKey(domain: .builtIn, rawID: "")
 }
 
+private final class SettingsBrandLinkButton: SettingsPointingButton {
+    var destination: URL?
+}
+
 private final class SettingsThemeDetailsButton: SettingsPointingButton {
     var mode: RimeAppearanceMode = .night
 }
@@ -95,7 +102,7 @@ private final class SettingsRouteButton: SettingsPointingButton {
 
     func updateVisualState() {
         wantsLayer = true
-        layer?.cornerRadius = 7
+        layer?.cornerRadius = RimeUI.isLiquidGlass ? 11 : 7
         layer?.backgroundColor = (isRouteSelected
             ? SettingsVisualStyle.selectedNavigation
             : (pointerInside ? RimeUI.surface3 : .clear)).cgColor
@@ -222,7 +229,8 @@ private final class SettingsIconTileView: NSView {
         explicitPalette = palette
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 8
+        layer?.cornerRadius = RimeUI.isLiquidGlass ? 10 : 8
+        layer?.cornerCurve = .continuous
         imageView.image = PluginVisualIdentity.image(
             symbolName: symbolName,
             accessibilityDescription: accessibilityDescription,
@@ -254,10 +262,13 @@ private final class SettingsIconTileView: NSView {
 
     private func updateThemeColors() {
         let palette = explicitPalette ?? RimeUI.palette
-        layer?.backgroundColor = RimeUI.color(palette.surfaceTertiary).cgColor
-        layer?.borderColor = RimeUI.color(palette.border).cgColor
+        layer?.backgroundColor = (explicitPalette == nil
+            ? RimeUI.surface3 : RimeUI.color(palette.surfaceTertiary)).cgColor
+        layer?.borderColor = (explicitPalette == nil
+            ? RimeUI.border : RimeUI.color(palette.border)).cgColor
         layer?.borderWidth = SettingsVisualStyle.hairline(backingScale: window?.backingScaleFactor)
-        imageView.contentTintColor = RimeUI.color(palette.textSecondary)
+        imageView.contentTintColor = explicitPalette == nil
+            ? RimeUI.textSecondary : RimeUI.color(palette.textSecondary)
     }
 }
 
@@ -403,8 +414,8 @@ private final class SettingsChoiceCardView: NSView {
         super.draw(dirtyRect)
         let path = NSBezierPath(
             roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5),
-            xRadius: 8,
-            yRadius: 8
+            xRadius: SettingsVisualStyle.cardRadius,
+            yRadius: SettingsVisualStyle.cardRadius
         )
         switch visualState {
         case .selected:
@@ -447,7 +458,8 @@ private final class SettingsThemeCardButton: SettingsPointingButton {
         title = ""
         isBordered = false
         wantsLayer = true
-        layer?.cornerRadius = 8
+        layer?.cornerRadius = mode == .liquidGlass ? 16 : 8
+        layer?.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
 
         let palette = mode.palette
@@ -455,7 +467,8 @@ private final class SettingsThemeCardButton: SettingsPointingButton {
         if isGlass { appearance = NSApplication.shared.effectiveAppearance }
         let preview = NSView()
         preview.wantsLayer = true
-        preview.layer?.cornerRadius = 6
+        preview.layer?.cornerRadius = isGlass ? 12 : 6
+        preview.layer?.cornerCurve = .continuous
         preview.layer?.borderWidth = SettingsVisualStyle.hairline(backingScale: nil)
         preview.layer?.borderColor = (isGlass ? NSColor.separatorColor : RimeUI.color(palette.border)).cgColor
         preview.layer?.backgroundColor = (isGlass ? NSColor.windowBackgroundColor : RimeUI.color(palette.surface)).cgColor
@@ -471,7 +484,7 @@ private final class SettingsThemeCardButton: SettingsPointingButton {
         let swatches = colors.map { color -> NSView in
             let swatch = NSView()
             swatch.wantsLayer = true
-            swatch.layer?.cornerRadius = 4
+            swatch.layer?.cornerRadius = isGlass ? 8 : 4
             swatch.layer?.backgroundColor = color.cgColor
             swatch.translatesAutoresizingMaskIntoConstraints = false
             return swatch
@@ -1248,9 +1261,8 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
     }
 
     /// Keep the off-screen renderer useful as an assembly smoke, not merely a
-    /// screenshot command. Every route must retain the four React-derived
-    /// shell bands and exact Settings geometry even when a plugin supplies the
-    /// page body dynamically.
+    /// screenshot command. Every route retains navigation, heading and body,
+    /// with status embedded in the top navigation rather than a footer.
     private func validatePreviewStructure(in content: NSView) -> Bool {
         let required: [(String, CGFloat?)] = [
             ("settings.sidebar", nil),
@@ -1272,6 +1284,14 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
                 print("settings render \(identifier) height drifted to \(view.frame.height)")
                 return false
             }
+        }
+        guard let tabs = descendant(identifiedBy: .init("settings.subpage-bar"), in: content),
+              let status = descendant(identifiedBy: .init("settings.status-bar"), in: content),
+              status.superview === tabs,
+              tabs.bounds.insetBy(dx: -0.5, dy: -0.5).contains(status.frame),
+              !tabs.hasAmbiguousLayout, !status.hasAmbiguousLayout else {
+            print("settings render status must stay inside the top navigation")
+            return false
         }
         guard let sidebarView = descendant(
             identifiedBy: NSUserInterfaceItemIdentifier("settings.sidebar"),
@@ -1364,15 +1384,6 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
             return (value.redComponent, value.greenComponent, value.blueComponent)
         }
 
-        func colorDistance(_ lhs: (CGFloat, CGFloat, CGFloat)?,
-                           _ rhs: NSColor) -> CGFloat {
-            guard let lhs, let rhs = rgb(rhs) else { return .greatestFiniteMagnitude }
-            let dr = lhs.0 - rhs.0
-            let dg = lhs.1 - rhs.1
-            let db = lhs.2 - rhs.2
-            return sqrt(dr * dr + dg * dg + db * db)
-        }
-
         func pixel(at point: NSPoint, bitmapYFlipped: Bool) -> NSColor? {
             let rawX = Int((point.x - content.bounds.minX) * scaleX)
             let rawY = Int((point.y - content.bounds.minY) * scaleY)
@@ -1382,32 +1393,10 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
             return bitmap.colorAt(x: x, y: y)
         }
 
-        // NSBitmapImageRep storage orientation depends on the backing path.
-        // Resolve it from two known chrome fills instead of assuming it.
-        var bitmapYFlipped = false
-        if let status = descendant(
-            identifiedBy: NSUserInterfaceItemIdentifier("settings.status-bar"),
-            in: content
-        ), let tabs = descendant(
-            identifiedBy: NSUserInterfaceItemIdentifier("settings.subpage-bar"),
-            in: content
-        ) {
-            let statusRect = status.convert(status.bounds, to: content)
-            let tabsRect = tabs.convert(tabs.bounds, to: content)
-            let statusPoint = NSPoint(x: statusRect.midX, y: statusRect.midY)
-            let tabsPoint = NSPoint(x: tabsRect.maxX - 12, y: tabsRect.midY)
-            let normalScore = colorDistance(rgb(pixel(at: statusPoint,
-                                                      bitmapYFlipped: false)),
-                                            RimeUI.surface2)
-                + colorDistance(rgb(pixel(at: tabsPoint, bitmapYFlipped: false)),
-                                SettingsVisualStyle.background)
-            let flippedScore = colorDistance(rgb(pixel(at: statusPoint,
-                                                       bitmapYFlipped: true)),
-                                             RimeUI.surface2)
-                + colorDistance(rgb(pixel(at: tabsPoint, bitmapYFlipped: true)),
-                                SettingsVisualStyle.background)
-            bitmapYFlipped = flippedScore < normalScore
-        }
+        // cacheDisplay stores rows from the bitmap's top edge. The root view
+        // uses AppKit coordinates; do not infer orientation from a footer fill,
+        // because status now shares the header's background.
+        let bitmapYFlipped = !content.isFlipped
 
         var allRegionsVisible = true
         for identifier in regionIDs {
@@ -1923,9 +1912,11 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         settingsStatusLabel.textColor = RimeUI.textMuted
         settingsStatusLabel.lineBreakMode = .byTruncatingTail
         settingsStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        settingsRouteLabel.font = .monospacedSystemFont(ofSize: 9, weight: .regular)
+        settingsRouteLabel.font = .systemFont(ofSize: 9)
         settingsRouteLabel.textColor = RimeUI.textMuted
         settingsRouteLabel.setContentHuggingPriority(.required, for: .horizontal)
+        settingsRouteLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        settingsRouteLabel.lineBreakMode = .byTruncatingMiddle
 
         pluginRowsStack.orientation = .vertical
         pluginRowsStack.alignment = .width
@@ -2151,6 +2142,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
     private func makeCorePage(_ route: SettingsCoreRoute,
                               subpageID: String?) -> NSView {
         switch route {
+        case .rimes: return rimesPage()
         case .inputMethod: return inputPage(subpageID: subpageID ?? "encoding")
         case .appearance: return appearancePage(subpageID: subpageID ?? "theme")
         case .buffer: return bufferPage(subpageID: subpageID ?? "buffer")
@@ -2195,7 +2187,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
                                            constant: -24),
         ])
 
-        let headingTitle = NSTextField(labelWithString: route.title)
+        let headingTitle = NSTextField(labelWithString: route.id == SettingsCoreRoute.rimes.id ? "关于 RIMES" : route.title)
         headingTitle.font = .systemFont(ofSize: 20, weight: .bold)
         headingTitle.textColor = RimeUI.textPrimary
         headingTitle.lineBreakMode = .byTruncatingTail
@@ -2254,7 +2246,11 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
 
         settingsStatusLabel.removeFromSuperview()
         settingsRouteLabel.removeFromSuperview()
-        settingsRouteLabel.stringValue = "\(route.id.rawValue) · \(navigation.selectedSubpage()?.rawValue ?? "")"
+        let subpageTitle = route.subpages.first { $0.id == navigation.selectedSubpage() }?.title
+        settingsRouteLabel.stringValue = subpageTitle.map {
+            $0 == route.title ? route.title : "\(route.title) · \($0)"
+        } ?? route.title
+        settingsRouteLabel.toolTip = "\(route.id.rawValue) · \(navigation.selectedSubpage()?.rawValue ?? "")"
         let statusRow = NSStackView(
             views: [settingsStatusLabel, flexSpacer(), settingsRouteLabel]
         )
@@ -2262,18 +2258,22 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         statusRow.alignment = .centerY
         statusRow.spacing = 7
         statusRow.translatesAutoresizingMaskIntoConstraints = false
-        let statusBar = SettingsChromeView(fill: .surface, border: .top)
+        let statusBar = SettingsChromeView(fill: .settings, border: .none)
         statusBar.identifier = NSUserInterfaceItemIdentifier("settings.status-bar")
         statusBar.translatesAutoresizingMaskIntoConstraints = false
         statusBar.addSubview(statusRow)
+        tabsBar.addSubview(statusBar)
         NSLayoutConstraint.activate([
+            statusBar.leadingAnchor.constraint(equalTo: tabs.trailingAnchor, constant: 16),
+            statusBar.trailingAnchor.constraint(equalTo: tabsBar.trailingAnchor, constant: -12),
+            statusBar.centerYAnchor.constraint(equalTo: tabsBar.centerYAnchor),
             statusBar.heightAnchor.constraint(equalToConstant: 30),
             statusRow.leadingAnchor.constraint(equalTo: statusBar.leadingAnchor, constant: 12),
             statusRow.trailingAnchor.constraint(equalTo: statusBar.trailingAnchor, constant: -12),
             statusRow.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
         ])
 
-        let root = NSStackView(views: [tabsBar, headingBar, bodyHost, statusBar])
+        let root = NSStackView(views: [tabsBar, headingBar, bodyHost])
         root.orientation = .vertical
         root.alignment = .leading
         root.spacing = 0
@@ -2281,7 +2281,6 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         tabsBar.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
         headingBar.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
         bodyHost.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
-        statusBar.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
         bodyHost.setContentHuggingPriority(.defaultLow, for: .vertical)
         bodyHost.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         return root
@@ -2320,6 +2319,81 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         wrap.orientation = .horizontal
         wrap.edgeInsets = NSEdgeInsets(top: first ? 0 : 18, left: 8, bottom: 3, right: 8)
         return wrap
+    }
+
+    private func rimesPage() -> NSView {
+        let logo = NSImageView()
+        let logoURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns")
+            ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent("Logo/AppIcon.icns")
+        logo.image = NSImage(contentsOf: logoURL) ?? NSApp.applicationIconImage
+        logo.imageScaling = .scaleProportionallyUpOrDown
+        logo.setAccessibilityElement(false)
+        logo.identifier = .init("settings.rimes.logo")
+        logo.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            logo.widthAnchor.constraint(equalToConstant: 88),
+            logo.heightAnchor.constraint(equalToConstant: 88),
+        ])
+
+        let brand = NSTextField(labelWithString: ProductIdentity.displayName)
+        let font = NSFont.systemFont(ofSize: 32, weight: .bold)
+        brand.font = font.fontDescriptor.withDesign(.rounded)
+            .flatMap { NSFont(descriptor: $0, size: 32) } ?? font
+        brand.textColor = RimeUI.textPrimary
+        let chinese = NSTextField(labelWithString: "世界对智者太过挑剔\n好奇的人需要朋友")
+        chinese.font = .systemFont(ofSize: 13)
+        chinese.textColor = RimeUI.textSecondary
+        let english = NSTextField(labelWithString: "The world is too hard on the wise.\nCurious minds need friends.")
+        english.font = .systemFont(ofSize: 11)
+        english.textColor = RimeUI.textSecondary
+        let identity = NSStackView(views: [brand, chinese, english])
+        identity.orientation = .vertical
+        identity.alignment = .leading
+        identity.spacing = 6
+        let hero = NSStackView(views: [logo, identity, flexSpacer()])
+        hero.orientation = .horizontal
+        hero.alignment = .centerY
+        hero.spacing = 18
+        hero.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        hero.wantsLayer = true
+        hero.layer?.backgroundColor = RimeUI.accentGreen.withAlphaComponent(0.08).cgColor
+        hero.layer?.cornerRadius = RimeUI.isLiquidGlass ? 24 : 16
+        hero.layer?.cornerCurve = .continuous
+        hero.identifier = .init("settings.rimes.hero")
+        hero.translatesAutoresizingMaskIntoConstraints = false
+        hero.widthAnchor.constraint(equalToConstant: 650).isActive = true
+
+        let links: [(String, String, String, String)] = [
+            ("官网", "pm.scholay.com", "globe", "https://pm.scholay.com"),
+            ("邮箱", "pm@scholay.com", "envelope", "mailto:pm@scholay.com"),
+            ("开源项目", "scholay / rimes", "chevron.left.forwardslash.chevron.right", "https://github.com/scholay/rimes"),
+            ("README", "阅读项目说明", "doc.text", "https://github.com/scholay/rimes/blob/main/README.md"),
+            ("License", "Apache License 2.0", "doc.plaintext", "https://github.com/scholay/rimes/blob/main/LICENSE"),
+        ]
+        let rows = links.map { title, label, symbol, destination -> NSView in
+            let button = SettingsBrandLinkButton(title: label, target: self,
+                                                  action: #selector(openBrandLink(_:)))
+            button.destination = URL(string: destination)
+            button.bezelStyle = .inline
+            button.isBordered = false
+            button.contentTintColor = RimeUI.accentTextColor
+            button.toolTip = destination
+            button.setAccessibilityLabel("\(title)，\(label)")
+            return settingsRow(title: title, detail: destination,
+                               symbolName: symbol, control: button)
+        }
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let credit = caption("\(version.map { "RIMES \($0) · " } ?? "")核心维护者：学术海\n基于 Rime 输入法引擎（librime）")
+        return contentColumn([hero, spacer(6)] + rows + [spacer(4), credit])
+    }
+
+    @objc private func openBrandLink(_ sender: SettingsBrandLinkButton) {
+        guard let destination = sender.destination else { return }
+        if !NSWorkspace.shared.open(destination) {
+            settingsStatusLabel.stringValue = "未能打开链接，请检查浏览器或邮件应用设置"
+            settingsStatusLabel.textColor = .systemRed
+        }
     }
 
     private func inputPage(subpageID: String) -> NSView {
@@ -2386,7 +2460,8 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         card.layer?.borderWidth = SettingsVisualStyle.hairline(
             backingScale: window?.backingScaleFactor
         )
-        card.layer?.cornerRadius = 8
+        card.layer?.cornerRadius = SettingsVisualStyle.cardRadius
+        card.layer?.cornerCurve = .continuous
         card.translatesAutoresizingMaskIntoConstraints = false
         card.widthAnchor.constraint(equalToConstant: 650).isActive = true
         header.widthAnchor.constraint(equalTo: card.widthAnchor, constant: -24).isActive = true
@@ -2408,7 +2483,8 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         panel.layer?.borderWidth = SettingsVisualStyle.hairline(
             backingScale: window?.backingScaleFactor
         )
-        panel.layer?.cornerRadius = 10
+        panel.layer?.cornerRadius = SettingsVisualStyle.panelRadius
+        panel.layer?.cornerCurve = .continuous
         panel.translatesAutoresizingMaskIntoConstraints = false
         panel.widthAnchor.constraint(equalToConstant: 650).isActive = true
         panel.alphaValue = enabled ? 1 : 0.55
@@ -2454,7 +2530,8 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         row.layer?.borderWidth = SettingsVisualStyle.hairline(
             backingScale: window?.backingScaleFactor
         )
-        row.layer?.cornerRadius = 8
+        row.layer?.cornerRadius = SettingsVisualStyle.cardRadius
+        row.layer?.cornerCurve = .continuous
         row.translatesAutoresizingMaskIntoConstraints = false
         row.widthAnchor.constraint(equalToConstant: width).isActive = true
         row.heightAnchor.constraint(greaterThanOrEqualToConstant: 46).isActive = true
@@ -2471,7 +2548,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         badge.layer?.borderWidth = SettingsVisualStyle.hairline(
             backingScale: window?.backingScaleFactor
         )
-        badge.layer?.cornerRadius = 7
+        badge.layer?.cornerRadius = RimeUI.isLiquidGlass ? 11 : 7
         badge.translatesAutoresizingMaskIntoConstraints = false
         badge.widthAnchor.constraint(greaterThanOrEqualToConstant: 62).isActive = true
         badge.heightAnchor.constraint(equalToConstant: 24).isActive = true
@@ -2763,7 +2840,8 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         card.layer?.borderWidth = SettingsVisualStyle.hairline(
             backingScale: window?.backingScaleFactor
         )
-        card.layer?.cornerRadius = 8
+        card.layer?.cornerRadius = SettingsVisualStyle.cardRadius
+        card.layer?.cornerCurve = .continuous
         card.translatesAutoresizingMaskIntoConstraints = false
         card.widthAnchor.constraint(equalToConstant: 650).isActive = true
         card.heightAnchor.constraint(greaterThanOrEqualToConstant: 46).isActive = true
@@ -3460,7 +3538,8 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         card.layer?.borderWidth = SettingsVisualStyle.hairline(
             backingScale: window?.backingScaleFactor
         )
-        card.layer?.cornerRadius = 8
+        card.layer?.cornerRadius = SettingsVisualStyle.cardRadius
+        card.layer?.cornerCurve = .continuous
         card.translatesAutoresizingMaskIntoConstraints = false
         card.widthAnchor.constraint(equalToConstant: 626).isActive = true
         header.widthAnchor.constraint(equalTo: card.widthAnchor, constant: -20).isActive = true
@@ -4208,7 +4287,8 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         card.layer?.borderWidth = isActive ? 1.5 : SettingsVisualStyle.hairline(
             backingScale: window?.backingScaleFactor
         )
-        card.layer?.cornerRadius = 8
+        card.layer?.cornerRadius = SettingsVisualStyle.cardRadius
+        card.layer?.cornerCurve = .continuous
         card.translatesAutoresizingMaskIntoConstraints = false
         card.heightAnchor.constraint(equalToConstant: 116).isActive = true
         card.addSubview(content)
@@ -4594,7 +4674,8 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
             row.layer?.borderWidth = SettingsVisualStyle.hairline(
                 backingScale: window?.backingScaleFactor
             )
-            row.layer?.cornerRadius = 8
+            row.layer?.cornerRadius = SettingsVisualStyle.cardRadius
+            row.layer?.cornerCurve = .continuous
             row.translatesAutoresizingMaskIntoConstraints = false
             row.widthAnchor.constraint(equalToConstant: 650).isActive = true
             return row

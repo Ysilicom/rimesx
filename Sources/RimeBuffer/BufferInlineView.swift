@@ -2886,6 +2886,8 @@ final class BufferInlineView: NSView, NSGestureRecognizerDelegate {
     }
 
     private func applyAppearance() {
+        layer?.cornerRadius = RimeUI.isLiquidGlass ? 12 : 6
+        layer?.cornerCurve = .continuous
         layer?.backgroundColor = (RimeUI.usesLiquidGlassTransparency
             ? NSColor.clear : RimeUI.candidateBackgroundColor).cgColor
         layer?.borderColor = RimeUI.borderStrong.cgColor
@@ -3027,7 +3029,8 @@ class FirstMouseButton: NSButton {
             pressed: pointerPressed
         )
         wantsLayer = true
-        layer?.cornerRadius = 6
+        layer?.cornerRadius = RimeUI.isLiquidGlass ? 12 : 6
+        layer?.cornerCurve = .continuous
         if usesPrimarySurface {
             let background: NSColor
             switch state {
