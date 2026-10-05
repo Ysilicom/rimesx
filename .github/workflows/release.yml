@@ -317,7 +317,7 @@ jobs:
           cp -R rime-data/* "$APP/Contents/SharedSupport/"
           [ -f Logo/AppIcon.icns ] && cp Logo/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns" || true
           cp -R Resources/*.lproj "$APP/Contents/Resources/" 2>/dev/null || true   # localized display name
-          cp Resources/etinput.pdf "$APP/Contents/Resources/" 2>/dev/null || true  # colored brand icon (Settings row)
+          cp Resources/etinput.pdf "$APP/Contents/Resources/" 2>/dev/null || true  # vector horn (Settings row)
           cp Resources/etinput-menu.pdf "$APP/Contents/Resources/" 2>/dev/null || true  # monochrome input-menu glyph
           cp Resources/menubar-template.png "$APP/Contents/Resources/" 2>/dev/null || true  # status-bar glyph
           # Seal the smoke-test bundle ad hoc. A formal tag is re-signed only
