@@ -11,6 +11,14 @@
   或绕过保护。再按届时的远端主线和 CI 状态处理本地对齐，不直接重置包含未发布工作的分支。
 - 用户词库、凭据、运行时数据不参与分支整理；保留原始提交与备份引用，不自动清理旧分支。
 
+## 2026-10-05 主线归一化
+
+- 将 iOS 本地 41–48 号构建改动、macOS Glass/权限/关于页及共享犀牛图标汇总到 `main`，保留原提交历史。
+- Android、Windows 的旧开发分支内容已在主线历史中。历史备份引用仅用于追溯，不作为开发起点；继续开发须基于最新 `origin/main`。
+- App Store 支持/隐私网页源码迁入 `docs/`。GitHub Pages 在合并后改为从 `main:/docs` 发布，原 `/rimes/ios/`、支持页与隐私页 URL 保持不变。旧站点分支保留到新部署验证通过。
+- `rimes-plugins` 仍是独立仓库，以自己的 `main` 维护；本体继续使用已审查的子模块/锁文件提交，不自动追逐插件 HEAD。
+- 本轮仅汇总源码和维护分支，不创建发布 tag。iOS 48 的首次闪动、宿主高度同步与实际宿主验收边界见 [验证记录](platforms/ios/validation/build48/README.md)。上线前从确切的主线提交构建并完成这些验收。
+
 ## 代码边界
 
 2026-09-29 起按 [平台路线图](PLATFORM-ROADMAP.md) 开发：Windows 对标 macOS、Android 对标
@@ -94,7 +102,7 @@ Windows/Linux 的日志版本、CMake 项目版本、包版本升级时需一起
   的真实桌面复测仍需单独完成。
 - `e9098d7` 的 Linux CI 曾在拖拽 800ms 尾窗测试失败；Capsule 分支已带入增加定时余量的测试
   调整。仅合入这项调整不证明 Linux CI 已恢复，仍需在 Linux 重新运行。
-- `codex/ios-appstore-site` 是 GitHub Pages 的支持/隐私页部署源，不并入应用树，也不删除。
+- 当时 `codex/ios-appstore-site` 是 GitHub Pages 的支持/隐私页部署源；2026-10-05 的迁移安排见上方主线归一化记录。
 - 本地 `daipaibu-site/` 属于另一网站，保持原样、未纳入应用提交；宣传项目被忽略的依赖与输出也
   保持原样。不用 `git clean`、强制 checkout 或删除工作区来获得表面“干净”。
 
