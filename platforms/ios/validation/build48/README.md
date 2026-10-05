@@ -112,3 +112,20 @@ claim that the group member's reported lag is fully resolved.
 
 The preceding Buffer import, candidate dragging, split Space and Xianyu delivery
 work is retained. Their earlier acceptance boundaries still apply.
+
+## Integrated follow-up: bottom-edge anchoring
+
+Commit `f7e87659ab77abe1be31fc599104920a790df8df` adds low-priority bottom and
+leading anchors alongside the existing host-width constraint, keeping key rows
+at the container bottom while the host catches up with content-height changes.
+It removes the temporary display-link/file tracing completely. The new
+`testContentStaysOnHostBottomEdgeWhileContainerHeightLags` covers provisional
+cold-start sizes and Buffer opening/closing. The implementation task reports
+201 tests, one existing skip, and no failures, plus real-extension simulator
+recordings. Final integration validation is tracked on PR #55.
+
+This follow-up is source integration, not a new physical-device installation
+receipt or App Store submission. The host can still display a taller provisional
+backdrop briefly. Physical devices, WeChat/other host apps, live rotation and
+expanded candidates have not been accepted for this follow-up. The earlier
+build-48 receipts above remain historical and do not verify this newer source.
