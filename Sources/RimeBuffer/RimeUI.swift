@@ -510,8 +510,18 @@ enum RimeUI {
     static var surface2: NSColor { isLiquidGlass ? .controlBackgroundColor : color(palette.surfaceSecondary) }
     static var surface3: NSColor { isLiquidGlass ? .underPageBackgroundColor : color(palette.surfaceTertiary) }
     static var workbenchChrome: NSColor { isLiquidGlass ? .windowBackgroundColor : color(palette.bufferBackground) }
-    static var border: NSColor { isLiquidGlass ? .separatorColor : color(palette.border) }
-    static var borderStrong: NSColor { isLiquidGlass ? .separatorColor : color(palette.borderStrong) }
+    // Existing controls adjust border opacity for hover/disabled states. Resolve
+    // the system separator against its surface first so those adjustments do not
+    // turn AppKit's translucent black separator into an opaque black outline.
+    private static var glassBorder: NSColor {
+        let separator = NSColor.separatorColor.usingColorSpace(.sRGB) ?? .separatorColor
+        return NSColor.windowBackgroundColor.blended(
+            withFraction: separator.alphaComponent,
+            of: separator.withAlphaComponent(1)
+        ) ?? .separatorColor
+    }
+    static var border: NSColor { isLiquidGlass ? glassBorder : color(palette.border) }
+    static var borderStrong: NSColor { isLiquidGlass ? glassBorder : color(palette.borderStrong) }
     static var textPrimary: NSColor { isLiquidGlass ? .labelColor : color(palette.textPrimary) }
     static var textSecondary: NSColor { isLiquidGlass ? .secondaryLabelColor : color(palette.textSecondary) }
     static var textMuted: NSColor { isLiquidGlass ? .tertiaryLabelColor : color(palette.textMuted) }
