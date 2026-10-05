@@ -469,21 +469,36 @@ enum RimeUI {
         return NSAppearance(named: name)
     }
 
-    static var accentBlue: NSColor { color(palette.accentBlue) }
-    static var accentGreen: NSColor { color(palette.accentGreen) }
+    static var accentBlue: NSColor { isLiquidGlass ? .controlAccentColor : color(palette.accentBlue) }
+    static var accentGreen: NSColor { isLiquidGlass ? .controlAccentColor : color(palette.accentGreen) }
     static var accentSecondary: NSColor { color(palette.accentSecondary) }
     static var accentTertiary: NSColor { color(palette.accentTertiary) }
     static var brandRed: NSColor { color(palette.brandRed) }
     static var brandYellow: NSColor { color(palette.brandYellow) }
     static var brandGreen: NSColor { color(palette.brandGreen) }
-    static var accentForegroundColor: NSColor { color(palette.accentForeground) }
-    static var accentTextColor: NSColor { color(palette.accentText) }
+    static var accentForegroundColor: NSColor {
+        guard isLiquidGlass,
+              let accent = NSColor.controlAccentColor.usingColorSpace(.sRGB) else {
+            return color(palette.accentForeground)
+        }
+        let hex = (UInt32((accent.redComponent * 255).rounded()) << 16)
+            | (UInt32((accent.greenComponent * 255).rounded()) << 8)
+            | UInt32((accent.blueComponent * 255).rounded())
+        return color(RimeColorContrast.preferredForeground(background: hex))
+    }
+    static var accentTextColor: NSColor { isLiquidGlass ? .controlAccentColor : color(palette.accentText) }
     static var bufferBg: NSColor { color(palette.bufferBackground) }
     static var bufferBg2: NSColor { color(palette.bufferBackgroundSecondary) }
     static var bufferBorder: NSColor { color(palette.bufferBorder) }
     static var bufferDivider: NSColor { color(palette.bufferDivider) }
-    static var bufferSourceRail: NSColor { color(palette.bufferSourceRail) }
-    static var bufferTargetRail: NSColor { color(palette.bufferTargetRail) }
+    static var bufferSourceRail: NSColor {
+        isLiquidGlass ? NSColor.controlBackgroundColor.withAlphaComponent(
+            usesLiquidGlassTransparency ? 0.18 : 1) : color(palette.bufferSourceRail)
+    }
+    static var bufferTargetRail: NSColor {
+        isLiquidGlass ? NSColor.controlBackgroundColor.withAlphaComponent(
+            usesLiquidGlassTransparency ? 0.18 : 1) : color(palette.bufferTargetRail)
+    }
     static var bufferChip: NSColor { color(palette.bufferChip) }
     static var bufferChipSelected: NSColor { color(palette.bufferChipSelected) }
     static var bufferPreedit: NSColor { color(palette.bufferPreedit) }
@@ -491,22 +506,22 @@ enum RimeUI {
     static var clipboardSelectedBackground: NSColor {
         color(palette.clipboardSelected)
     }
-    static var surface: NSColor { color(palette.surface) }
-    static var surface2: NSColor { color(palette.surfaceSecondary) }
-    static var surface3: NSColor { color(palette.surfaceTertiary) }
-    static var workbenchChrome: NSColor { color(palette.bufferBackground) }
-    static var border: NSColor { color(palette.border) }
-    static var borderStrong: NSColor { color(palette.borderStrong) }
-    static var textPrimary: NSColor { color(palette.textPrimary) }
-    static var textSecondary: NSColor { color(palette.textSecondary) }
-    static var textMuted: NSColor { color(palette.textMuted) }
+    static var surface: NSColor { isLiquidGlass ? .windowBackgroundColor : color(palette.surface) }
+    static var surface2: NSColor { isLiquidGlass ? .controlBackgroundColor : color(palette.surfaceSecondary) }
+    static var surface3: NSColor { isLiquidGlass ? .underPageBackgroundColor : color(palette.surfaceTertiary) }
+    static var workbenchChrome: NSColor { isLiquidGlass ? .windowBackgroundColor : color(palette.bufferBackground) }
+    static var border: NSColor { isLiquidGlass ? .separatorColor : color(palette.border) }
+    static var borderStrong: NSColor { isLiquidGlass ? .separatorColor : color(palette.borderStrong) }
+    static var textPrimary: NSColor { isLiquidGlass ? .labelColor : color(palette.textPrimary) }
+    static var textSecondary: NSColor { isLiquidGlass ? .secondaryLabelColor : color(palette.textSecondary) }
+    static var textMuted: NSColor { isLiquidGlass ? .tertiaryLabelColor : color(palette.textMuted) }
     static var selectedCandidateBackgroundColor: NSColor {
-        color(palette.selectedCandidateBackground)
+        isLiquidGlass ? .selectedContentBackgroundColor : color(palette.selectedCandidateBackground)
     }
     static var selectedCandidateTextColor: NSColor {
-        color(palette.selectedCandidateText)
+        isLiquidGlass ? .alternateSelectedControlTextColor : color(palette.selectedCandidateText)
     }
-    static var candidateBackgroundColor: NSColor { color(palette.candidateBackground) }
+    static var candidateBackgroundColor: NSColor { isLiquidGlass ? .windowBackgroundColor : color(palette.candidateBackground) }
     static var warningTextColor: NSColor { color(palette.warningText) }
     static var warningSurfaceColor: NSColor { color(palette.warningSurface) }
     static var warningBorderColor: NSColor { color(palette.warningBorder) }

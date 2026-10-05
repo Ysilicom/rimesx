@@ -345,10 +345,19 @@ func runThemeAppKitSmokeTest() -> Bool {
     check(matches(settingsWindow, mode: .night),
           "settings should initially use 墨竹 AppKit appearance")
 
+    let buffer = BufferWindowController.shared
+    let darkBuffer = buffer.themeSurfaceSnapshotForSmoke
     RimeUI.appearance = .day
     drainMainRunLoop { matches(settingsWindow, mode: .day) }
     check(matches(settingsWindow, mode: .day),
           "the same settings window should transition to 翡翠")
+
+    let jadeBuffer = buffer.themeSurfaceSnapshotForSmoke
+    check(jadeBuffer.source == jadeBuffer.target
+            && jadeBuffer.source != darkBuffer.source,
+          "both Buffer action fades must leave the dark palette when switching to Jade")
+    check(!jadeBuffer.glass && jadeBuffer.railAlpha == 1,
+          "Jade must retain its solid rail without a Glass material")
 
     RimeUI.appearance = .quiet
     drainMainRunLoop {
@@ -378,6 +387,15 @@ func runThemeAppKitSmokeTest() -> Bool {
     check(RimeUI.appearance == .liquidGlass
             && defaults.string(forKey: appearanceKey) == "liquidGlass",
           "Glass must persist as an opt-in choice")
+    let glassBuffer = buffer.themeSurfaceSnapshotForSmoke
+    check(glassBuffer.source == glassBuffer.target
+            && glassBuffer.source != darkBuffer.source,
+          "source and target action fades must use the same current Glass palette")
+    check(glassBuffer.glass == RimeUI.usesLiquidGlassTransparency
+            && glassBuffer.railAlpha == (RimeUI.usesLiquidGlassTransparency ? 0 : 1),
+          "Buffer must expose its native material without an opaque rail covering it")
+    check(settingsWindow?.titlebarAppearsTransparent == !RimeUI.usesLiquidGlassTransparency,
+          "Glass settings must retain a native titlebar above the material content area")
     check(settingsWindow?.appearance == nil,
           "Glass should inherit the system appearance")
     check(candidateSurface.hasVisibleMaterial == RimeUI.usesLiquidGlassTransparency,

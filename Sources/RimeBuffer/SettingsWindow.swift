@@ -451,24 +451,28 @@ private final class SettingsThemeCardButton: SettingsPointingButton {
         translatesAutoresizingMaskIntoConstraints = false
 
         let palette = mode.palette
+        let isGlass = mode == .liquidGlass
+        if isGlass { appearance = NSApplication.shared.effectiveAppearance }
         let preview = NSView()
         preview.wantsLayer = true
         preview.layer?.cornerRadius = 6
         preview.layer?.borderWidth = SettingsVisualStyle.hairline(backingScale: nil)
-        preview.layer?.borderColor = RimeUI.color(palette.border).cgColor
-        preview.layer?.backgroundColor = RimeUI.color(palette.surface).cgColor
+        preview.layer?.borderColor = (isGlass ? NSColor.separatorColor : RimeUI.color(palette.border)).cgColor
+        preview.layer?.backgroundColor = (isGlass ? NSColor.windowBackgroundColor : RimeUI.color(palette.surface)).cgColor
         preview.translatesAutoresizingMaskIntoConstraints = false
         addSubview(preview)
 
-        let colors: [UInt32] = mode == .rasta
-            ? [palette.brandRed, palette.brandYellow, palette.brandGreen]
-            : [palette.surfaceSecondary, palette.selectedCandidateBackground,
-               palette.accentGreen]
-        let swatches = colors.map { value -> NSView in
+        let colors: [NSColor] = mode == .liquidGlass
+            ? [.controlBackgroundColor, .selectedContentBackgroundColor, .controlAccentColor]
+            : (mode == .rasta
+                ? [palette.brandRed, palette.brandYellow, palette.brandGreen]
+                : [palette.surfaceSecondary, palette.selectedCandidateBackground,
+                   palette.accentGreen]).map { RimeUI.color($0) }
+        let swatches = colors.map { color -> NSView in
             let swatch = NSView()
             swatch.wantsLayer = true
             swatch.layer?.cornerRadius = 4
-            swatch.layer?.backgroundColor = RimeUI.color(value).cgColor
+            swatch.layer?.backgroundColor = color.cgColor
             swatch.translatesAutoresizingMaskIntoConstraints = false
             return swatch
         }
@@ -481,21 +485,21 @@ private final class SettingsThemeCardButton: SettingsPointingButton {
 
         let name = NSTextField(labelWithString: mode.title)
         name.font = .systemFont(ofSize: 11, weight: .semibold)
-        name.textColor = RimeUI.color(palette.textPrimary)
+        name.textColor = isGlass ? .labelColor : RimeUI.color(palette.textPrimary)
         name.toolTip = mode.detailText
         name.translatesAutoresizingMaskIntoConstraints = false
         addSubview(name)
 
         let family = NSTextField(labelWithString: mode.family.title)
         family.font = .systemFont(ofSize: 9)
-        family.textColor = RimeUI.color(palette.textMuted)
+        family.textColor = isGlass ? .secondaryLabelColor : RimeUI.color(palette.textMuted)
         family.translatesAutoresizingMaskIntoConstraints = false
         addSubview(family)
 
         let selectedMark = NSImageView()
         selectedMark.image = NSImage(systemSymbolName: "checkmark.circle.fill",
                                      accessibilityDescription: nil)
-        selectedMark.contentTintColor = RimeUI.color(palette.accentText)
+        selectedMark.contentTintColor = isGlass ? .controlAccentColor : RimeUI.color(palette.accentText)
         selectedMark.isHidden = !selected
         selectedMark.translatesAutoresizingMaskIntoConstraints = false
         addSubview(selectedMark)
@@ -517,10 +521,10 @@ private final class SettingsThemeCardButton: SettingsPointingButton {
             selectedMark.widthAnchor.constraint(equalToConstant: 16),
             selectedMark.heightAnchor.constraint(equalToConstant: 16),
         ])
-        layer?.backgroundColor = RimeUI.color(palette.surfaceSecondary).cgColor
-        layer?.borderColor = RimeUI.color(
-            selected ? palette.selectedCandidateBackground : palette.border
-        ).cgColor
+        layer?.backgroundColor = (isGlass ? NSColor.controlBackgroundColor : RimeUI.color(palette.surfaceSecondary)).cgColor
+        layer?.borderColor = (isGlass
+            ? (selected ? NSColor.controlAccentColor : .separatorColor)
+            : RimeUI.color(selected ? palette.selectedCandidateBackground : palette.border)).cgColor
         layer?.borderWidth = selected ? 2 : SettingsVisualStyle.hairline(backingScale: nil)
         setAccessibilityLabel("\(mode.title)主题，\(selected ? "正在使用" : "可用")")
     }
@@ -1483,7 +1487,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         win.appearance = RimeUI.appKitAppearance
         win.backgroundColor = SettingsVisualStyle.background
         win.isOpaque = !RimeUI.usesLiquidGlassTransparency
-        win.titlebarAppearsTransparent = true
+        win.titlebarAppearsTransparent = !RimeUI.usesLiquidGlassTransparency
 
         configureControls()
 
@@ -1686,6 +1690,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         window.appearance = RimeUI.appKitAppearance
         window.backgroundColor = SettingsVisualStyle.background
         window.isOpaque = !RimeUI.usesLiquidGlassTransparency
+        window.titlebarAppearsTransparent = !RimeUI.usesLiquidGlassTransparency
         sidebarScrollView.drawsBackground = !RimeUI.usesLiquidGlassTransparency
         sidebarScrollView.backgroundColor = SettingsVisualStyle.background
         pluginConfigurationSheet?.appearance = RimeUI.appKitAppearance
@@ -1695,7 +1700,13 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         statsTopKey.textColor = RimeUI.textSecondary
         candidateMetricSliders.values.forEach { $0.trackFillColor = RimeUI.accentGreen }
         bufferWidthSlider.trackFillColor = RimeUI.accentGreen
-        window.contentView?.needsDisplay = true
+        // A theme change can preserve the effective Aqua appearance. In that
+        // case AppKit does not invalidate the custom-drawn chrome for us.
+        func invalidateChrome(_ view: NSView) {
+            view.needsDisplay = true
+            view.subviews.forEach(invalidateChrome)
+        }
+        if let content = window.contentView { invalidateChrome(content) }
         refreshSidebarSelection()
         guard rebuildVisibleRoute, window.isVisible else { return }
         reload()
@@ -2636,6 +2647,8 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         details.mode = mode
         configureCardIconButton(details, symbol: "info.circle",
                                 label: "查看\(mode.title)主题详情")
+        // The button sits on the preview's palette, not the current window's.
+        details.contentTintColor = RimeUI.color(mode.palette.textSecondary)
         container.addSubview(card)
         container.addSubview(details)
         NSLayoutConstraint.activate([

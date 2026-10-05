@@ -65,7 +65,7 @@ final class RimeGlassBackgroundView: NSView {
         layer?.masksToBounds = true
         if #available(macOS 26.0, *), let glass = nativeGlass as? NSGlassEffectView {
             glass.cornerRadius = cornerRadius
-            glass.tintColor = NSColor.underPageBackgroundColor.withAlphaComponent(0.22)
+            glass.tintColor = nil
             glass.isHidden = isHidden
             fallback.isHidden = true
         } else {

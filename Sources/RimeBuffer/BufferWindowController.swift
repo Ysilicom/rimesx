@@ -1535,6 +1535,8 @@ private final class BufferRailActionClusterView: NSView {
         needsLayout = true
     }
 
+    var renderedFadeColors: [CGColor] { fadeLayer.colors as? [CGColor] ?? [] }
+
     func applyAppearance() {
         let background = RimeUI.candidateBackgroundColor
         fadeLayer.colors = [
@@ -1781,7 +1783,21 @@ private final class BufferPluginActionButton: FirstMouseButton {
 /// The material clips to a continuous rounded rect while a separate inset
 /// hairline remains fully inside the backing pixels. Keeping the stroke away
 /// from the window boundary prevents the half-clipped fringe seen on Retina.
-private final class BufferChromeView: NSVisualEffectView {
+private final class BufferChromeView: NSView {
+    private let classicMaterial = NSVisualEffectView()
+    private let glass = RimeGlassBackgroundView()
+    private let fillView = NSView()
+
+    var hasVisibleGlass: Bool { glass.hasVisibleMaterial }
+
+    func applyMaterial() {
+        classicMaterial.material = RimeUI.isDark ? .hudWindow : .popover
+        classicMaterial.isHidden = RimeUI.isLiquidGlass
+        glass.applyTheme()
+        fillLayer.backgroundColor = (RimeUI.usesLiquidGlassTransparency
+            ? NSColor.clear : fillColor).cgColor
+    }
+
     private let fillLayer = CALayer()
     private let strokeLayer = CAShapeLayer()
     private let associationGlowLayer = CAShapeLayer()
@@ -1793,7 +1809,7 @@ private final class BufferChromeView: NSVisualEffectView {
     private var associationMarker: BufferTargetAssociationMarker?
     private var associationGeneration: UInt64 = 0
     var fillColor: NSColor = .windowBackgroundColor {
-        didSet { fillLayer.backgroundColor = fillColor.cgColor }
+        didSet { applyMaterial() }
     }
     var strokeColor: NSColor = .separatorColor {
         didSet { strokeLayer.strokeColor = strokeColor.cgColor }
@@ -1821,8 +1837,18 @@ private final class BufferChromeView: NSVisualEffectView {
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
         fillLayer.backgroundColor = fillColor.cgColor
-        RoundedWindowChrome.maskMaterial(self, radius: 9)
-        layer?.addSublayer(fillLayer)
+        classicMaterial.state = .active
+        classicMaterial.blendingMode = .behindWindow
+        RoundedWindowChrome.maskMaterial(classicMaterial, radius: 9)
+        glass.cornerRadius = 9
+        fillView.wantsLayer = true
+        for backing in [classicMaterial, glass, fillView] as [NSView] {
+            backing.frame = bounds
+            backing.autoresizingMask = [.width, .height]
+            addSubview(backing)
+        }
+        applyMaterial()
+        fillView.layer?.addSublayer(fillLayer)
         rastaAccentLayer.zPosition = 90
         rastaAccentLayer.masksToBounds = true
         rastaAccentLayer.addSublayer(rastaRedLayer)
@@ -3122,6 +3148,14 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         applyAppearance()
         applyPreviewPointerState(hoveredControl)
         return renderCurrentContent(to: path, scale: scale)
+    }
+
+    /// Sample the actual source/target fade layers after theme notifications.
+    /// Both clusters exist before switching, including the initially empty one.
+    var themeSurfaceSnapshotForSmoke: (source: [CGColor], target: [CGColor],
+                                       glass: Bool, railAlpha: CGFloat) {
+        (sourceActionCluster.renderedFadeColors, railActionCluster.renderedFadeColors,
+         visual.hasVisibleGlass, bufferRail.layer?.backgroundColor?.alpha ?? -1)
     }
 
     /// Exercises the approved in-rail action layout against the real view tree
@@ -4432,8 +4466,6 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
 
         outerContainer.wantsLayer = true
         outerContainer.layer?.backgroundColor = NSColor.clear.cgColor
-        visual.state = .active
-        visual.blendingMode = .behindWindow
         visual.translatesAutoresizingMaskIntoConstraints = false
         outerContainer.addSubview(visual)
         NSLayoutConstraint.activate([
@@ -4970,7 +5002,7 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
 
     private func applyAppearance() {
         panel.appearance = RimeUI.appKitAppearance
-        visual.material = RimeUI.isDark ? .hudWindow : .popover
+        visual.applyMaterial()
         visual.fillColor = RimeUI.workbenchChrome
         visual.strokeColor = RimeUI.borderStrong
         visual.showsRastaAccent = RimeUI.isRasta
@@ -4995,6 +5027,7 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         liveMetricsLabel.textColor = RimeUI.textMuted
         refreshAutoSendButton()
         railActionCluster.applyAppearance()
+        sourceActionCluster.applyAppearance()
         translationSwapButton.contentTintColor = RimeUI.textSecondary
         translationSwapButton.refreshInteractionAppearance()
         refreshTranslationSpeechToggle()

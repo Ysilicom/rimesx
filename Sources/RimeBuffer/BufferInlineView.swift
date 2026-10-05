@@ -2886,7 +2886,8 @@ final class BufferInlineView: NSView, NSGestureRecognizerDelegate {
     }
 
     private func applyAppearance() {
-        layer?.backgroundColor = RimeUI.candidateBackgroundColor.cgColor
+        layer?.backgroundColor = (RimeUI.usesLiquidGlassTransparency
+            ? NSColor.clear : RimeUI.candidateBackgroundColor).cgColor
         layer?.borderColor = RimeUI.borderStrong.cgColor
         translationSourceScroll.layer?.backgroundColor = RimeUI.bufferSourceRail.cgColor
         for rail in translationTargetRails.values {
