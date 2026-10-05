@@ -178,7 +178,7 @@ void Window::EnsureSettings() {
     }
     if (product_icon) {
       DestroyIcon(product_icon);
-      product_icon = ui::CreateProductIcon(16, theme);
+      product_icon = ui::CreateProductIcon(16);
       tray.hIcon =
           product_icon ? product_icon : LoadIconW(nullptr, IDI_APPLICATION);
       Shell_NotifyIconW(NIM_MODIFY, &tray);
@@ -870,6 +870,7 @@ void RunWindow(Runtime& runtime, const std::function<void()>& stop,
   wc.hInstance = GetModuleHandleW(nullptr);
   wc.lpszClassName = L"Rimes.Workbench";
   wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+  wc.hIcon = LoadIconW(wc.hInstance, MAKEINTRESOURCEW(IDI_RIMES));
   RegisterClassW(&wc);
   RECT area{};
   SystemParametersInfoW(SPI_GETWORKAREA, 0, &area, 0);
@@ -902,7 +903,7 @@ void RunWindow(Runtime& runtime, const std::function<void()>& stop,
   ui.theme = ui::ThemeIdOrDefault(config.theme);
   RegisterHotKey(window, 1, config.hotkey_modifiers | MOD_NOREPEAT,
                  config.hotkey_key);
-  ui.product_icon = ui::CreateProductIcon(16, ui.theme);
+  ui.product_icon = ui::CreateProductIcon(16);
   ui.tray.cbSize = sizeof(ui.tray);
   ui.tray.hWnd = window;
   ui.tray.uID = 1;

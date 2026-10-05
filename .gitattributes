@@ -13,3 +13,9 @@
 /CROSS-PLATFORM-PREVIEW.md text eol=lf
 /.github/workflows/platform-preview.yml text eol=lf
 /.github/workflows/platform-preview-release.yml text eol=lf
+
+# Brand assets must retain their bytes even beneath the platform text rules.
+*.png binary
+*.ico binary
+*.icns binary
+*.pdf binary

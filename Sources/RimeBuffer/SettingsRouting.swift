@@ -90,7 +90,10 @@ enum CoreSettingsSubpages {
         let values: [(String, String)]
         switch route {
         case .rimes:
-            values = [("about", "RIMES")]
+            values = [
+                ("about", "RIMES"), ("website", "官网"), ("contact", "邮箱"),
+                ("source", "开源项目"), ("readme", "README"), ("license", "License"),
+            ]
         case .inputMethod:
             values = [
                 ("encoding", "输入方案"),
@@ -539,7 +542,8 @@ func runSettingsRoutingSmokeTest() -> Bool {
                     "维护",
                 ],
               catalog.coreRoutes.first?.id == SettingsCoreRoute.rimes.id,
-              catalog.route(for: SettingsCoreRoute.rimes.id)?.subpages.map(\.id.rawValue) == ["about"],
+              catalog.route(for: SettingsCoreRoute.rimes.id)?.subpages.map(\.id.rawValue)
+                == ["about", "website", "contact", "source", "readme", "license"],
               catalog.extensionRoutes.map(\.id.rawValue)
                 == ["extension.statistics", "extension.feiyao-learning"],
               catalog.sections.map(\.id) == [.core, .extensions],

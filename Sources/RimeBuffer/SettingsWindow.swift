@@ -2254,7 +2254,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
     private func makeCorePage(_ route: SettingsCoreRoute,
                               subpageID: String?) -> NSView {
         switch route {
-        case .rimes: return rimesPage()
+        case .rimes: return rimesPage(subpageID: subpageID ?? "about")
         case .inputMethod: return inputPage(subpageID: subpageID ?? "encoding")
         case .appearance: return appearancePage(subpageID: subpageID ?? "theme")
         case .buffer: return bufferPage(subpageID: subpageID ?? "buffer")
@@ -2299,7 +2299,11 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
                                            constant: -24),
         ])
 
-        let headingTitle = NSTextField(labelWithString: route.id == SettingsCoreRoute.rimes.id ? "关于 RIMES" : route.title)
+        let selectedSubpage = route.subpages.first { $0.id == navigation.selectedSubpage() }
+        let heading = route.id == SettingsCoreRoute.rimes.id
+            ? (selectedSubpage?.id.rawValue == "about" ? "关于 RIMES" : selectedSubpage?.title ?? "RIMES")
+            : route.title
+        let headingTitle = NSTextField(labelWithString: heading)
         headingTitle.font = .systemFont(ofSize: 20, weight: .bold)
         headingTitle.textColor = RimeUI.textPrimary
         headingTitle.lineBreakMode = .byTruncatingTail
@@ -2363,6 +2367,7 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
             $0 == route.title ? route.title : "\(route.title) · \($0)"
         } ?? route.title
         settingsRouteLabel.toolTip = "\(route.id.rawValue) · \(navigation.selectedSubpage()?.rawValue ?? "")"
+        settingsRouteLabel.isHidden = route.id == SettingsCoreRoute.rimes.id
         let statusRow = NSStackView(
             views: [settingsStatusLabel, flexSpacer(), settingsRouteLabel]
         )
@@ -2433,7 +2438,8 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         return wrap
     }
 
-    private func rimesPage() -> NSView {
+    private func rimesPage(subpageID: String) -> NSView {
+        if subpageID != "about" { return rimesLinkPage(subpageID: subpageID) }
         let logo = NSImageView()
         let logoURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns")
             ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
@@ -2474,30 +2480,62 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         hero.layer?.cornerCurve = .continuous
         hero.identifier = .init("settings.rimes.hero")
         hero.translatesAutoresizingMaskIntoConstraints = false
-        hero.widthAnchor.constraint(equalToConstant: 650).isActive = true
-
-        let links: [(String, String, String, String)] = [
-            ("官网", "pm.scholay.com", "globe", "https://pm.scholay.com"),
-            ("邮箱", "pm@scholay.com", "envelope", "mailto:pm@scholay.com"),
-            ("开源项目", "scholay / rimes", "chevron.left.forwardslash.chevron.right", "https://github.com/scholay/rimes"),
-            ("README", "阅读项目说明", "doc.text", "https://github.com/scholay/rimes/blob/main/README.md"),
-            ("License", "Apache License 2.0", "doc.plaintext", "https://github.com/scholay/rimes/blob/main/LICENSE"),
-        ]
-        let rows = links.map { title, label, symbol, destination -> NSView in
-            let button = SettingsBrandLinkButton(title: label, target: self,
-                                                  action: #selector(openBrandLink(_:)))
-            button.destination = URL(string: destination)
-            button.bezelStyle = .inline
-            button.isBordered = false
-            button.contentTintColor = RimeUI.accentTextColor
-            button.toolTip = destination
-            button.setAccessibilityLabel("\(title)，\(label)")
-            return settingsRow(title: title, detail: destination,
-                               symbolName: symbol, control: button)
-        }
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        let credit = caption("\(version.map { "RIMES \($0) · " } ?? "")核心维护者：学术海\n基于 Rime 输入法引擎（librime）")
-        return contentColumn([hero, spacer(6)] + rows + [spacer(4), credit])
+        let credit = caption("\(version.map { "RIMES \($0) · " } ?? "")学术海 · librime")
+        let column = contentColumn([hero, spacer(4), credit])
+        let preferredWidth = hero.widthAnchor.constraint(equalToConstant: 650)
+        preferredWidth.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            preferredWidth,
+            hero.widthAnchor.constraint(lessThanOrEqualTo: column.widthAnchor, constant: -48),
+        ])
+        return column
+    }
+
+    private func rimesLinkPage(subpageID: String) -> NSView {
+        let title: String
+        let summary: String
+        let action: String
+        let destination: String
+        switch subpageID {
+        case "website":
+            (title, summary, action, destination) = (
+                "pm.scholay.com", "访问 RIMES 官网，了解产品与项目动态。", "打开官网",
+                "https://pm.scholay.com")
+        case "contact":
+            (title, summary, action, destination) = (
+                "pm@scholay.com", "反馈使用体验、问题或合作想法。", "写邮件",
+                "mailto:pm@scholay.com")
+        case "source":
+            (title, summary, action, destination) = (
+                "scholay / rimes", "查看源码、提交问题或参与改进。", "查看源码",
+                "https://github.com/scholay/rimes")
+        case "readme":
+            (title, summary, action, destination) = (
+                "从这里了解 RIMES", "输入法、Buffer、Capsule 与 Mailbox 的功能和安装说明。", "阅读 README",
+                "https://github.com/scholay/rimes/blob/main/README.md")
+        default:
+            (title, summary, action, destination) = (
+                "Apache License 2.0", "查看 RIMES 的开源许可原文。", "查看完整许可",
+                "https://github.com/scholay/rimes/blob/main/LICENSE")
+        }
+
+        let heading = NSTextField(labelWithString: title)
+        heading.font = .systemFont(ofSize: 22, weight: .semibold)
+        heading.textColor = RimeUI.textPrimary
+        heading.isSelectable = true
+        let detail = NSTextField(labelWithString: summary)
+        detail.font = .systemFont(ofSize: 13)
+        detail.textColor = RimeUI.textSecondary
+        detail.identifier = .init("settings.rimes.\(subpageID).summary")
+        let button = SettingsBrandLinkButton(title: action, target: self,
+                                              action: #selector(openBrandLink(_:)))
+        button.destination = URL(string: destination)
+        button.bezelStyle = .rounded
+        button.controlSize = .regular
+        button.toolTip = destination
+        button.identifier = .init("settings.rimes.\(subpageID).open")
+        return contentColumn([heading, detail, spacer(12), button])
     }
 
     @objc private func openBrandLink(_ sender: SettingsBrandLinkButton) {
@@ -5253,7 +5291,8 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
         guard confirmLeavingChordEditor() else { return }
         guard navigation.selectRoute(sender.routeID, catalog: routeCatalog) else { return }
         if let route = routeCatalog.route(for: sender.routeID) {
-            settingsStatusLabel.stringValue = "已打开\(route.title)"
+            settingsStatusLabel.stringValue = route.id == SettingsCoreRoute.rimes.id
+                ? "" : "已打开\(route.title)"
             settingsStatusLabel.textColor = RimeUI.textMuted
         }
         reload()
@@ -5272,7 +5311,8 @@ final class SettingsWindowController: NSObject, NSTextFieldDelegate, NSWindowDel
             return
         }
         guard navigation.selectSubpage(subpage, catalog: routeCatalog) else { return }
-        settingsStatusLabel.stringValue = "已打开\(route.subpages[sender.selectedSegment].title)"
+        settingsStatusLabel.stringValue = route.id == SettingsCoreRoute.rimes.id
+            ? "" : "已打开\(route.subpages[sender.selectedSegment].title)"
         settingsStatusLabel.textColor = RimeUI.textMuted
         showCurrentRoute()
     }
