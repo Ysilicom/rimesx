@@ -208,7 +208,7 @@ final class KeyboardViewController: UIInputViewController {
     private var associationHistoryLoaded = false, associationHistoryChanges = 0
     private var showingAssociations: Bool { snapshot.candidates.isEmpty && !associations.isEmpty }
     private var height: NSLayoutConstraint!
-    private var hostWidth: NSLayoutConstraint?
+    private var hostEdges = [NSLayoutConstraint]()
     private var preparingPresentation = false
     private struct MenuState: Equatable {
         var scheme: InputScheme
@@ -1144,16 +1144,23 @@ final class KeyboardViewController: UIInputViewController {
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
         // Only the width follows the host; inheriting its provisional height
-        // recreates the blank area.
+        // recreates the blank area. The host resizes its container a few frames
+        // after each requested height (and passes through a taller provisional
+        // one on a cold start), so the content stays on the container's bottom
+        // edge: the keys hold their screen position while the container catches
+        // up, instead of jumping from its top edge or being cropped below it.
         if let parent = view.superview {
-            if hostWidth?.secondItem as? UIView !== parent {
-                hostWidth?.isActive = false
-                hostWidth = view.widthAnchor.constraint(equalTo: parent.widthAnchor)
-                hostWidth?.priority = .defaultHigh
+            if hostEdges.first?.secondItem as? UIView !== parent {
+                NSLayoutConstraint.deactivate(hostEdges)
+                hostEdges = [view.widthAnchor.constraint(equalTo: parent.widthAnchor),
+                             view.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
+                             view.bottomAnchor.constraint(equalTo: parent.bottomAnchor)]
+                // Below required: these must never contend with the content height.
+                for edge in hostEdges { edge.priority = .defaultHigh }
             }
-            hostWidth?.isActive = true
+            NSLayoutConstraint.activate(hostEdges)
         } else {
-            hostWidth?.isActive = false; hostWidth = nil
+            NSLayoutConstraint.deactivate(hostEdges); hostEdges = []
         }
         // Resolve the current width before UIKit lays out the input view, including
         // first attachment, rotation and presentations that only change the height.

@@ -143,6 +143,42 @@ import RimesCore
         }
     }
 
+    func testContentStaysOnHostBottomEdgeWhileContainerHeightLags() throws {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 900))
+        let parent = UIViewController()
+        window.rootViewController = parent; window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        // Like the remote host, this container imposes only its own size.
+        let container = UIView(frame: CGRect(x: 0, y: 0, width: 393, height: 874))
+        parent.view.addSubview(container)
+        let keyboard = KeyboardViewController()
+        keyboard.layoutNeedsInputModeSwitchKey = false
+        keyboard.loadViewIfNeeded()
+        keyboard.developmentResetPreferences(); keyboard.developmentChoose(.chord)
+        parent.addChild(keyboard); container.addSubview(keyboard.view)
+        keyboard.didMove(toParent: parent)
+        container.layoutIfNeeded()
+        let idleHeight = keyboard.view.bounds.height
+
+        func check(container height: CGFloat, content: CGFloat, file: StaticString = #filePath, line: UInt = #line) {
+            container.frame.size.height = height
+            container.setNeedsLayout(); container.layoutIfNeeded()
+            XCTAssertFalse(keyboard.view.hasAmbiguousLayout, file: file, line: line)
+            XCTAssertEqual(keyboard.view.frame.minX, 0, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(keyboard.view.frame.height, content, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(keyboard.view.frame.maxY, height, accuracy: 0.5, file: file, line: line)
+        }
+        // Cold start: full screen, then a provisional height, then the requested one.
+        for height in [874, 444, idleHeight] { check(container: height, content: idleHeight) }
+        // Buffer grows and shrinks the content before the container follows.
+        keyboard.developmentBuffer("底边检查")
+        check(container: idleHeight, content: idleHeight + 80)
+        check(container: idleHeight + 80, content: idleHeight + 80)
+        keyboard.developmentBuffer(nil)
+        check(container: idleHeight + 80, content: idleHeight)
+        check(container: idleHeight, content: idleHeight)
+    }
+
     func testHeightFollowsContentAndRotationAfterSystemSizing() throws {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 900, height: 900))
         let parent = UIViewController()
