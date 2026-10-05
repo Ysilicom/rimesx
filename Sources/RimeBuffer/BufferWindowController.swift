@@ -1269,6 +1269,10 @@ final class FirstMousePopUpButton: RimeFixedAccentPopUpButton {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    // This control draws inside its bounds, without a native popup bezel.
+    // Native alignment insets otherwise let that drawing exceed its slot.
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsetsZero }
+
     /// The title column is the only part that grows with content; the divider
     /// and disclosure columns are fixed.
     override var intrinsicContentSize: NSSize {
@@ -1279,7 +1283,7 @@ final class FirstMousePopUpButton: RimeFixedAccentPopUpButton {
             width: BufferPopUpControlMetrics.intrinsicWidth(
                 titleWidth: ceil(titleWidth)
             ),
-            height: max(super.intrinsicContentSize.height, 18)
+            height: BufferWorkbenchMetrics.controlSize
         )
     }
 
@@ -1338,7 +1342,8 @@ final class FirstMousePopUpButton: RimeFixedAccentPopUpButton {
             xRadius: BufferPopUpControlMetrics.cornerRadius,
             yRadius: BufferPopUpControlMetrics.cornerRadius
         )
-        RimeUI.surface2.withAlphaComponent(alpha).setFill()
+        (RimeUI.isLiquidGlass ? NSColor.labelColor.withAlphaComponent(0.035 * alpha)
+            : RimeUI.surface2.withAlphaComponent(alpha)).setFill()
         shape.fill()
         let pointerFill = BufferWorkbenchPointerRules.backgroundColor(for: state)
         if pointerFill != .clear {
@@ -1539,7 +1544,9 @@ private final class BufferRailActionClusterView: NSView {
 
     func applyAppearance() {
         let background = RimeUI.candidateBackgroundColor
-        fadeLayer.colors = [
+        // Glass shares one material across the whole panel. Text is clipped
+        // before this cluster instead of hidden behind an opaque color plate.
+        fadeLayer.colors = RimeUI.isLiquidGlass ? [] : [
             background.withAlphaComponent(0).cgColor,
             background.withAlphaComponent(0.96).cgColor,
             background.cgColor,
@@ -2406,7 +2413,9 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         }
         buildWindow()
         restoreFrame()
-        installObservers()
+        // A fixture preview must stay on its supplied state while the native
+        // window is inspected; live focus observers would replace it at once.
+        if !CommandLine.arguments.contains("panel-render") { installObservers() }
     }
 
     func showOnLaunchIfNeeded() {
@@ -3075,6 +3084,15 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
             : presentationStyle
         let previewMode: BufferWorkbenchLayoutMode
         if let translationSnapshot {
+            if translationSnapshot.showsSourceRail {
+                refreshLanguageControls(workspace: AppleTranslationWorkspace.shared,
+                                        controls: AppleTranslationWorkspace.shared)
+                pluginButtonRow.isHidden = false
+                pluginSelector.removeAllItems()
+                pluginSelector.addItem(withTitle: "实时翻译")
+                autoSendButton.isHidden = true
+                closeAfterLastDeliverySwitch.isHidden = true
+            }
             previewMode = BufferDerivedPresentationRules.layoutMode(
                 style: previewStyle,
                 snapshot: translationSnapshot
@@ -3151,15 +3169,56 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         refreshRailActionOverlayGeometry()
         applyAppearance()
         applyPreviewPointerState(hoveredControl)
+        if translationSnapshot?.showsSourceRail == true {
+            autoSendButton.isHidden = true
+            closeAfterLastDeliverySwitch.isHidden = true
+        }
+        panel.contentView?.layoutSubtreeIfNeeded()
+        if translationSnapshot?.showsSourceRail == true,
+           !translationToolbarFitsForPreview() { return false }
+        if ProcessInfo.processInfo.environment["RIMES_UI_REVIEW"] == "buffer" {
+            panel.title = "Buffer Preview"
+            // The fixture has no real focus lease or delivery authority. Keep
+            // its controls visible for pointer/layout inspection only.
+            func makeInert(_ view: NSView) {
+                if let control = view as? NSControl { control.target = nil; control.action = nil }
+                view.subviews.forEach(makeInert)
+            }
+            makeInert(outerContainer)
+            panel.center()
+            panel.orderFrontRegardless()
+            let end = Date().addingTimeInterval(45)
+            while Date() < end { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        }
         return renderCurrentContent(to: path, scale: scale)
+    }
+
+    private func translationToolbarFitsForPreview() -> Bool {
+        let controls: [NSView] = [functionMenuButton, pluginSelector,
+            translationSourcePopup, translationSwapButton, translationTargetPopup,
+            translationSpeechToggle, targetApplicationIndicator, closeButton]
+        let frames = controls.map { $0.convert($0.bounds, to: utilityShelf) }
+        let withinToolbar = frames.allSatisfy {
+            utilityShelf.bounds.insetBy(dx: -0.5, dy: -0.5).contains($0)
+                && $0.width > 0 && $0.height <= BufferWorkbenchMetrics.controlSize + 0.5
+        }
+        let separate = zip(frames, frames.dropFirst()).allSatisfy {
+            $0.maxX <= $1.minX + 0.5 && abs($0.midY - $1.midY) <= 0.5
+        }
+        if !withinToolbar || !separate {
+            print("FAILED: translation toolbar controls overlap or exceed toolbar: \(frames)")
+        }
+        return withinToolbar && separate
     }
 
     /// Sample the actual source/target fade layers after theme notifications.
     /// Both clusters exist before switching, including the initially empty one.
     var themeSurfaceSnapshotForSmoke: (source: [CGColor], target: [CGColor],
-                                       glass: Bool, railAlpha: CGFloat, renderPasses: Int) {
+                                       glass: Bool, railAlpha: CGFloat, toolbarAlpha: CGFloat,
+                                       renderPasses: Int) {
         (sourceActionCluster.renderedFadeColors, railActionCluster.renderedFadeColors,
          visual.hasVisibleGlass, bufferRail.layer?.backgroundColor?.alpha ?? -1,
+         pluginActionsControl.layer?.backgroundColor?.alpha ?? -1,
          bufferRail.renderPassCount)
     }
 
@@ -4746,7 +4805,7 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         pluginActionsControl.alignment = .centerY
         pluginActionsControl.distribution = .fill
         pluginActionsControl.spacing = 6
-        pluginActionsControl.edgeInsets = NSEdgeInsets(top: 1, left: 5, bottom: 1, right: 3)
+        pluginActionsControl.edgeInsets = NSEdgeInsets(top: 0, left: 5, bottom: 0, right: 3)
         // Hidden loading state and an empty action row must leave the layout;
         // otherwise the shared surface draws a blank tail after every plugin
         // selector item.
@@ -5016,9 +5075,11 @@ final class BufferWindowController: NSObject, NSWindowDelegate {
         visual.strokeColor = RimeUI.borderStrong
         visual.showsRastaAccent = RimeUI.isRasta
         shelfDivider.layer?.backgroundColor = RimeUI.borderStrong.withAlphaComponent(0.55).cgColor
-        pluginActionsControl.layer?.backgroundColor = RimeUI.surface2.cgColor
+        pluginActionsControl.layer?.backgroundColor = (RimeUI.isLiquidGlass
+            ? NSColor.clear : RimeUI.surface2).cgColor
         pluginActionsControl.layer?.borderColor = RimeUI.border.cgColor
-        pluginActionsControl.layer?.borderWidth = 1 / max(panel.backingScaleFactor, 1)
+        pluginActionsControl.layer?.borderWidth = RimeUI.isLiquidGlass
+            ? 0 : 1 / max(panel.backingScaleFactor, 1)
         [functionMenuButton, clipboardImportButton, exchangeEditButton,
          autoSendButton, closeButton, copyResultButton, sendButton].forEach {
             $0.contentTintColor = $0.isEnabled

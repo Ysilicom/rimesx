@@ -388,9 +388,9 @@ func runThemeAppKitSmokeTest() -> Bool {
             && defaults.string(forKey: appearanceKey) == "liquidGlass",
           "Glass must persist as an opt-in choice")
     let glassBuffer = buffer.themeSurfaceSnapshotForSmoke
-    check(glassBuffer.source == glassBuffer.target
-            && glassBuffer.source != darkBuffer.source,
-          "source and target action fades must use the same current Glass palette")
+    check(glassBuffer.source.isEmpty && glassBuffer.target.isEmpty
+            && glassBuffer.toolbarAlpha == 0,
+          "Glass must not cover its material with toolbar or action color plates")
     check(glassBuffer.glass == RimeUI.usesLiquidGlassTransparency
             && glassBuffer.railAlpha == (RimeUI.usesLiquidGlassTransparency ? 0 : 1),
           "Buffer must expose its native material without an opaque rail covering it")
