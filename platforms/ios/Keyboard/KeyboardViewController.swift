@@ -72,8 +72,31 @@ final class KeyboardViewController: UIInputViewController {
     private let insertButton = InsertKeycapButton(), stopButton = KeycapButton()
     /// AI plugins never run on their own: Run is the only trigger.
     private let runButton = KeycapButton()
-    /// Clipboard text that arrived while iOS's paste alert had focus; added once we are back.
-    private var pendingPaste: String?
+    private struct PendingPaste {
+        let id = UUID()
+        var text: String?
+        let target: UUID, plugin: KeyboardPlugin?
+        let savedBuffer: BufferSession
+        var expectedRevision: UUID
+        var restoreBuffer = false
+    }
+    /// Bound to the same field, Buffer and plugin across iOS's paste alert.
+    private var pendingPaste: PendingPaste?
+    private let importPrompt = BufferImportPrompt(), pasteButton = BufferPasteButton()
+    private var offeredHostText: HostTextSnapshot?
+    private var hostImportTask: Task<Void, Never>?
+    private var bufferImportEpoch = UUID()
+    private var wasOfferingHostText = false
+    #if KEYBOARD_LAYOUT_TESTS
+    var developmentClipboardAccess: Bool?
+    var developmentReadClipboard: (() -> String?)?
+    #endif
+    private var canReadClipboard: Bool {
+        #if KEYBOARD_LAYOUT_TESTS
+        if let developmentClipboardAccess { return developmentClipboardAccess }
+        #endif
+        return hasFullAccess
+    }
     /// Left of the input line: opens the Buffer/plugin settings panel.
     private let settingsButton = KeycapButton()
     /// Left of the output line: display-only light for the output's state.
@@ -168,8 +191,10 @@ final class KeyboardViewController: UIInputViewController {
     private var lastHostTextChange: TimeInterval = -.infinity
     private var directEnglish: Bool { importedSchemeSelection != nil ? importedSchemeEnglish : (scheme == .english || preferences.englishInput) }
     private let globe = KeycapButton(), numbers = KeycapButton(), shiftButton = KeycapButton(), spaceKey = SpaceCursorButton()
+    private let spaceKeys = UIStackView(), chordSpaceKey = SpaceCursorButton()
     private var caretSteps = 0
-    /// Set while a left-half Space hold is extending a Buffer selection.
+    private var candidateSelectionSteps = 0
+    /// Set while the left Space is extending a Buffer selection on hold.
     private var selectingText = false
     /// Associated words offered after a Chinese commit, shown while nothing is composed.
     private var associations: [String] = []
@@ -184,6 +209,30 @@ final class KeyboardViewController: UIInputViewController {
     private var showingAssociations: Bool { snapshot.candidates.isEmpty && !associations.isEmpty }
     private var height: NSLayoutConstraint!
     private var hostWidth: NSLayoutConstraint?
+    private var preparingPresentation = false
+    private struct MenuState: Equatable {
+        var scheme: InputScheme
+        var imported: RimeSchemeSelection?
+        var schemas: [String]
+        var haptics: Bool
+        var hapticStrength: HapticStrength
+        var sounds: Bool
+        var traditional: Bool
+        var theme: StatusSkin
+        var layout: OrdinaryKeyboardLayout
+        var customLayout: Bool
+        var swipeSymbols: Bool
+        var english: Bool
+        var utilityCells: Bool
+        var language: String?
+    }
+    private var menuState: MenuState?
+    private struct SkinState: Equatable {
+        var theme: StatusSkin
+        var chord: Bool
+        var nineKey: Bool
+    }
+    private var skinState: SkinState?
     private var chordPreview = ""
     private var hasComposition: Bool { !snapshot.preedit.isEmpty || surface.isChordActive }
     private var compositionText: String {
@@ -211,22 +260,22 @@ final class KeyboardViewController: UIInputViewController {
     }
     override func viewDidLoad() {
         super.viewDidLoad()
+        HeightTrace.start(self); HeightTrace.log("viewDidLoad", self)
         preferences = preferencesStore.load(); surface.feedback.enabled = preferences.haptics; surface.feedback.strength = preferences.hapticStrength
         surface.feedback.soundEnabled = preferences.keySounds
         view.backgroundColor = .systemGroupedBackground
         // A provisional host frame must not become a competing height constraint.
         view.translatesAutoresizingMaskIntoConstraints = false
         inputView?.allowsSelfSizing = true
-        height = view.heightAnchor.constraint(equalToConstant: 240)
+        height = view.heightAnchor.constraint(equalToConstant: 0)
         height.identifier = "RIMES.keyboard.contentHeight"
-        height.isActive = true
         for item in [bufferPanel, candidatePanel, spellingStrip, surface, bottom, status, panel] { view.addSubview(item) }
         spellingStrip.isHidden = true
         spellingStrip.onSelect = { [weak self] spelling in self?.selectNineKeySpelling(spelling) }
         panel.isHidden = true
         panel.onPress = { [weak self] in self?.surface.feedback.send(.press) }
         panel.onClose = { [weak self] in self?.closePanel() }
-        candidatePanel.addSubview(bufferButton); candidatePanel.addSubview(candidateStrip); candidatePanel.addSubview(moreButton); candidatePanel.addSubview(handPreview); candidatePanel.addSubview(shortcuts)
+        candidatePanel.addSubview(candidateStrip); candidatePanel.addSubview(bufferButton); candidatePanel.addSubview(moreButton); candidatePanel.addSubview(handPreview); candidatePanel.addSubview(shortcuts)
         typingStats.font = .monospacedDigitSystemFont(ofSize: 16, weight: .medium)
         typingStats.textAlignment = .center
         typingStats.textColor = .secondaryLabel; typingStats.adjustsFontSizeToFitWidth = true; typingStats.minimumScaleFactor = 0.8
@@ -246,8 +295,7 @@ final class KeyboardViewController: UIInputViewController {
         settingsButton.symbol("slider.horizontal.3", label: L("插件与 Buffer 设置", "Plugin and Buffer settings"))
         settingsButton.accessibilityHint = L("打开插件与 Buffer 设置", "Open plugin and Buffer settings")
         configure(runButton, "") { [weak self] in self?.runSelectedPlugin() }
-        // Quick Q&A: tapping the empty input line pastes the clipboard as the question.
-        source.onTapBackground = { [weak self] in self?.pasteQuestion() }
+        source.onTapBackground = { [weak self] in self?.importHostText() }
         runButton.symbol("play.fill", label: L("执行插件", "Run plugin"))
         shortcuts.onPress = { [weak self] in self?.surface.feedback.send(.press) }
         shortcuts.onSelect = { [weak self] plugin in self?.openPlugin(plugin) }
@@ -279,12 +327,26 @@ final class KeyboardViewController: UIInputViewController {
             if self.showingAssociations { self.chooseAssociation(index) } else { self.receive(self.engine.candidate(index)) }
         }
         candidateStrip.onPress = { [weak self] in self?.surface.feedback.send(.press) }
+        candidateStrip.onSelectionChanged = { [weak self] in
+            guard let self else { return }
+            self.candidateSelectionSteps += 1
+            self.surface.feedback.send(.selection, combination: "candidate:\(self.candidateSelectionSteps)", minimumStrength: .strong)
+        }
         candidateStrip.onExpand = { [weak self] in self?.expanded.toggle(); self?.resize() }
         for (line, name) in [(source, "source"), (result, "result")] {
             line.accessibilityIdentifier = "keyboard.buffer.\(name)"
             bufferPanel.addSubview(line)
         }
         source.role = .input; result.role = .output
+        source.trailingAccessoryWidth = 44
+        importPrompt.isHidden = true
+        importPrompt.addAction(UIAction { [weak self] _ in self?.importHostText() }, for: .touchUpInside)
+        pasteButton.onPaste = { [weak self] in self?.pasteIntoBuffer(itemProviders: $0) }
+        pasteButton.onNeedsAccess = { [weak self] in self?.explainClipboardAccess() }
+        #if KEYBOARD_LAYOUT_TESTS
+        pasteButton.addAction(UIAction { [weak self] _ in self?.developmentPasteClipboard() }, for: .touchUpInside)
+        #endif
+        bufferPanel.addSubview(importPrompt); bufferPanel.addSubview(pasteButton)
         // Tapping an output block reads it aloud without sending it; tap again to hear it again.
         result.onTapBlock = { [weak self] index in self?.readOutputBlock(index) }
         result.onTapBackground = { [weak self] in if self?.isDefaultBuffer == true { self?.showTypingCard() } }
@@ -325,10 +387,24 @@ final class KeyboardViewController: UIInputViewController {
             self?.toggleShift()
         }
         shiftButton.symbol("shift", label: L("大写切换", "Shift"))
-        configure(spaceKey, "") { [weak self] in guard let self, self.spaceKey.consumeTap() else { return }; self.noteTypingKey(); self.space() }
-        spaceKey.symbol("space", label: L("空格", "Space"))
-        spaceKey.onCursorBegan = { [weak self] half in self?.beginCaretDrag(selecting: half == .left) ?? false }
-        spaceKey.onCursorMove = { [weak self] steps in self?.moveCaret(steps) }
+        spaceKeys.axis = .horizontal; spaceKeys.distribution = .fillEqually; spaceKeys.spacing = bottom.spacing
+        spaceKeys.accessibilityIdentifier = "keyboard.spaces"
+        for key in [spaceKey, chordSpaceKey] {
+            configure(key, "") { [weak self, weak key] in
+                guard let self, let key, key.consumeTap() else { return }
+                self.noteTypingKey(); self.space()
+            }
+            key.symbol("space", label: key === spaceKey ? L("空格", "Space") : L("右空格", "Right space"))
+            key.onCursorBegan = { [weak self, weak key] in
+                guard let self, let key else { return false }
+                for other in [self.spaceKey, self.chordSpaceKey] where other !== key { other.cancelTracking(with: nil) }
+                return self.beginCaretDrag(selecting: key === self.spaceKey && self.compactTypingKeys)
+            }
+            key.onCursorMove = { [weak self] steps in self?.moveCaret(steps) }
+            spaceKeys.addArrangedSubview(key)
+        }
+        chordSpaceKey.isHidden = true
+        chordSpaceKey.accessibilityIdentifier = "keyboard.space.right"
         for delete in [deleteButton, chordDelete] {
             delete.symbol("delete.left", label: L("删除", "Delete"))
             delete.onPressBegan = { [weak self, weak delete] in
@@ -362,13 +438,13 @@ final class KeyboardViewController: UIInputViewController {
         enter.addAction(UIAction { [weak self] _ in self?.pressedReturn = self?.returnPressContext }, for: .touchDown)
         enter.addAction(UIAction { [weak self] _ in self?.pressedReturn = nil }, for: [.touchCancel, .touchUpOutside])
         enter.titleLabel?.adjustsFontSizeToFitWidth = true; enter.titleLabel?.minimumScaleFactor = 0.7
-        for item in [globe, numbers, shiftButton, spaceKey, deleteButton, bottomLanguage, enter] { bottom.addArrangedSubview(item) }
+        for item in [globe, numbers, shiftButton, spaceKeys, deleteButton, bottomLanguage, enter] { bottom.addArrangedSubview(item) }
         // The functional widths never depend on the optional globe; its removal widens Space.
         for item in [globe, numbers, shiftButton, deleteButton, bottomLanguage, enter] {
             let width = item.widthAnchor.constraint(equalTo: bottom.widthAnchor, multiplier: 1 / 7.5, constant: -20 / 7.5)
             width.priority = .defaultHigh; width.isActive = true; bottomKeyWidths.append(width)
         }
-        spaceMinimumWidth = spaceKey.widthAnchor.constraint(greaterThanOrEqualTo: numbers.widthAnchor, multiplier: 2.5)
+        spaceMinimumWidth = spaceKeys.widthAnchor.constraint(greaterThanOrEqualTo: numbers.widthAnchor, multiplier: 2.5)
         spaceMinimumWidth?.isActive = true
         configure(customEmojiKey, "") { [weak self] in self?.surface.showEmoji() }
         customEmojiKey.symbol("face.smiling", label: L("表情", "Emoji"))
@@ -400,19 +476,33 @@ final class KeyboardViewController: UIInputViewController {
         }
         NotificationCenter.default.addObserver(self, selector: #selector(hostResigned), name: .NSExtensionHostWillResignActive, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(resume), name: .NSExtensionHostDidBecomeActive, object: nil)
+        // Load the selected scheme/layout before publishing any height. Startup
+        // must not advertise a default layout and correct it after presentation.
+        preparePresentation()
+        height.isActive = true
+        HeightTrace.log("viewDidLoad.end", self)
+    }
+    private func preparePresentation() {
+        preparingPresentation = true
+        reloadPreferences(); choose(preferences.scheme)
+        preparingPresentation = false
         render()
     }
     override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated); onscreen = true; reloadPreferences()
-        if currentDocument != DocumentIdentity.read(textDocumentProxy) { delivery.abandonMarkedText(); cancelRequest(); buffer = .init() }; currentDocument = DocumentIdentity.read(textDocumentProxy); choose(preferences.scheme); render()
+        super.viewWillAppear(animated); onscreen = true
+        HeightTrace.log("viewWillAppear", self)
+        if currentDocument != DocumentIdentity.read(textDocumentProxy) { delivery.abandonMarkedText(); cancelRequest(); buffer = .init() }
+        currentDocument = DocumentIdentity.read(textDocumentProxy); preparePresentation()
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        HeightTrace.log("viewDidAppear", self)
         #if DEBUG
         SharedStorageDeviceSmoke.keyboard(fullAccess: hasFullAccess)
         #endif
-        // Reinstall our own constraint after the remote host has attached us.
-        // An unchanged constant alone does not renegotiate a stale host height.
+        // Keep the native remote-host sizing registration. This preserves height
+        // changes for Buffer and candidates; it does not eliminate iOS cold-start
+        // presentation flicker on its own.
         height.isActive = false
         updateHeight()
         height.isActive = true
@@ -444,10 +534,14 @@ final class KeyboardViewController: UIInputViewController {
     /// cleared, but the Buffer and the open plugin stay, so you carry on where you were.
     @objc private func hostResigned() {
         let mode = (bufferEnabled, selectedPlugin)
+        var paste = pendingPaste
         protect()
+        if paste != nil { paste?.restoreBuffer = true; paste?.expectedRevision = buffer.sourceRevision; pendingPaste = paste }
         bufferEnabled = mode.0; selectedPlugin = mode.1; refreshPluginMenu(); render()
     }
     @objc private func protect() {
+        cancelBufferImport(); pendingPaste = nil
+        candidateStrip.cancelSelection()
         dismissTypingCard(resume: false)
         breakAssociationChain(); saveAssociationHistory()
         stopDefaultAutoSend(); liveTyping.reset()
@@ -457,38 +551,45 @@ final class KeyboardViewController: UIInputViewController {
         delivery.discardMarkedText()
         onscreen = false; consentThisSession.removeAll(); speaker.stop(); session.reset(); statsTimer?.invalidate(); statsTimer = nil; surface.retire(); cancelRequest(); engine.clear(); snapshot = .init(); buffer = .init(); bufferEnabled = false; selectedPlugin = nil; panelOpen = false; status.text = ""; refreshPluginMenu(); render()
     }
-    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) { cancelDeletes(); insertButton.cancelPress(); surface.retire(); super.viewWillTransition(to: size, with: coordinator); coordinator.animate(alongsideTransition: { _ in self.resize() }) }
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) { candidateStrip.cancelSelection(); cancelDeletes(); insertButton.cancelPress(); surface.retire(); super.viewWillTransition(to: size, with: coordinator); coordinator.animate(alongsideTransition: { _ in self.resize() }) }
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
+        delivery.hostContextDidChange()
         delivery.finishDocumentResetIfNeeded()
         hostTextChanged()
         if currentDocument != DocumentIdentity.read(textDocumentProxy) {
             // A field change within this visible session stops work for the old
             // target, but keeps unsubmitted blocks for another explicit insertion.
             // Hiding/resigning the keyboard ends the session and clears the draft.
+            cancelBufferImport(); pendingPaste = nil
             cancelDeletes(); delivery.abandonMarkedText(); cancelRequest(); engine.clear(); snapshot = .init(); chordPreview = ""; surface.retire()
             dismissTypingCard(resume: false)
             stopDefaultAutoSend(); autoSuspended = true; liveTyping.reset(); breakAssociationChain()
             currentDocument = DocumentIdentity.read(textDocumentProxy); render()
         }
         if !hasFullAccess && selectedPlugin?.isAI == true { cancelRequest(); render() }
+        refreshBufferImports()
     }
     override func selectionDidChange(_ textInput: UITextInput?) {
         super.selectionDidChange(textInput)
+        delivery.hostContextDidChange()
         // A caret move without new text starts over from the new position; dictation
         // moves the caret along with its text, so that case keeps tracking.
         if !delivery.isWriting, ProcessInfo.processInfo.systemUptime - lastHostTextChange > 0.3 {
             captureTimer?.invalidate(); captureTimer = nil; hostSnapshot = nil
         }
+        if !delivery.isImportingHostText { refreshBufferImports() }
     }
     override func selectionWillChange(_ textInput: UITextInput?) {
         if !delivery.isWriting {
+            candidateStrip.cancelSelection()
             autoClock.pause()
             cancelDeletes(); abandonHostComposition()
         }
         super.selectionWillChange(textInput)
     }
     override func textWillChange(_ textInput: UITextInput?) {
+        if !delivery.isWriting { candidateStrip.cancelSelection() }
         abandonHostComposition()
         super.textWillChange(textInput)
     }
@@ -498,6 +599,7 @@ final class KeyboardViewController: UIInputViewController {
     private func hostTextChanged() {
         captureTimer?.invalidate(); captureTimer = nil
         lastHostTextChange = ProcessInfo.processInfo.systemUptime
+        guard !delivery.isImportingHostText else { hostSnapshot = nil; return }
         guard bufferEnabled, onscreen, currentDocument != nil else { hostSnapshot = nil; return }
         let ours = delivery.isWriting || ProcessInfo.processInfo.systemUptime - delivery.lastWriteTime < 0.6
         guard !ours, hostSnapshot != nil else { snapshotHost(); return }
@@ -548,6 +650,7 @@ final class KeyboardViewController: UIInputViewController {
         let button = KeycapButton(); configure(button, title, action: action); return button
     }
     private func choose(_ requested: InputScheme) {
+        candidateStrip.cancelSelection()
         let value: InputScheme = requested == .chord && officialPlugins?.isEnabled(legacyID: "chord") != true ? .pinyin : requested
         cancelDeletes()
         spellingChoicesOpen = false; symbolPage = false
@@ -571,12 +674,12 @@ final class KeyboardViewController: UIInputViewController {
         shiftButton.isSelected = false; numbers.setTitle("123", for: .normal)
         refreshMoreMenu()
     }
-    private func receive(_ state: EngineSnapshot) {
+    private func receive(_ state: EngineSnapshot, renderImmediately: Bool = true) {
         snapshot = state
         if !state.preedit.isEmpty && realtime { cancelRequest() }
         if !state.preedit.isEmpty { associations = [] }
         if !state.commit.isEmpty { insert(state.commit); committed(state.commit, composing: !state.preedit.isEmpty) }
-        render()
+        if renderImmediately { render() }
     }
     // MARK: Associations
     /// Learns `previous → text` for consecutive Chinese commits and, once nothing is
@@ -675,13 +778,16 @@ final class KeyboardViewController: UIInputViewController {
         if directEnglish || surface.shifted { breakAssociationChain(); insert(surface.shifted ? text.uppercased() : text); render(); return }
         guard engine.available else { return }
         for scalar in text.unicodeScalars {
-            let (state, handled) = engine.handledKey(Int32(scalar.value), generatedSeparator: chord && scalar.value == 39); receive(state)
+            let (state, handled) = engine.handledKey(Int32(scalar.value), generatedSeparator: chord && scalar.value == 39)
+            receive(state, renderImmediately: false)
             if importedSchemeSelection != nil && !engine.lastError.isEmpty {
                 status.text = L("方案扩展处理失败，可在 App 的“测试候选”中查看原因。", "Scheme extension failed. Check details with Test candidates in the app.")
             }
             if !handled { insert(String(scalar)) }
+            // Publish each scalar in order (including chord-generated commits),
+            // once its error and fallback state are final.
+            render()
         }
-        render()
     }
     private func insertAlternate(_ text: String) {
         guard onscreen, currentDocument == DocumentIdentity.read(textDocumentProxy) else { return }
@@ -774,8 +880,9 @@ final class KeyboardViewController: UIInputViewController {
         else if bufferEnabled && !bufferIsEmpty { cancelRequest(); if isDefaultBuffer { buffer.deleteBlockBackward() } else { buffer.backspace() }; sourceChanged(); render() }
         else if let target = currentDocument { _ = delivery.deleteBackward(target:target) }
     }
-    private func toggleBuffer() { breakAssociationChain(); stopDefaultAutoSend(); autoSuspended = false; liveTyping.reset(); cancelDeletes(); surface.cancel(); settle(); bufferEnabled.toggle(); if !bufferEnabled { cancelRequest(); selectedPlugin = nil; panelOpen = false; refreshPluginMenu() }; bufferButton.isSelected = bufferEnabled; render() }
+    private func toggleBuffer() { cancelBufferImport(); pendingPaste = nil; breakAssociationChain(); stopDefaultAutoSend(); autoSuspended = false; liveTyping.reset(); cancelDeletes(); surface.cancel(); settle(); bufferEnabled.toggle(); if !bufferEnabled { cancelRequest(); selectedPlugin = nil; panelOpen = false; refreshPluginMenu() }; bufferButton.isSelected = bufferEnabled; render() }
     private func render() {
+        guard !preparingPresentation else { return }
         syncCustomLayout()
         var spellings = usesNineKey ? nineKeySpelling.choices(for: engine.rawInput) : []
         if let best = engine.candidateReadings.first?.split(separator: " ").first.map(String.init),
@@ -788,7 +895,9 @@ final class KeyboardViewController: UIInputViewController {
             if bufferEnabled { delivery.discardMarkedText() }
             else if let target = currentDocument { delivery.updateMarkedText(compositionText, target: target) }
         }
-        candidateStrip.update(showingAssociations ? associations : snapshot.candidates); renderHandPreview(); renderShortcuts(); refreshLanguageSwap(); refreshKeyboardSkin(); renderBuffer(); resize()
+        candidateStrip.update(showingAssociations ? associations : snapshot.candidates,
+                              context: showingAssociations ? "associations" : "composition:\(snapshot.preedit)")
+        renderHandPreview(); renderShortcuts(); refreshLanguageSwap(); refreshKeyboardSkin(); renderBuffer(); resize()
     }
     private func syncCustomLayout() {
         guard !syncingCustomLayout else { return }
@@ -798,9 +907,11 @@ final class KeyboardViewController: UIInputViewController {
         guard desired != surface.customLayout || standard != surface.standardMode else { return }
         syncingCustomLayout = true
         defer { syncingCustomLayout = false }
-        cancelDeletes(); spaceKey.cancelTracking(with: nil)
+        cancelDeletes(); spaceKey.cancelTracking(with: nil); chordSpaceKey.cancelTracking(with: nil)
         NSLayoutConstraint.deactivate(bottomKeyWidths); spaceMinimumWidth?.isActive = false
         if desired != nil || standard != nil {
+            spaceKeys.removeArrangedSubview(spaceKey)
+            bottom.removeArrangedSubview(spaceKeys); spaceKeys.removeFromSuperview()
             for button in standardFunctions.values {
                 bottom.removeArrangedSubview(button); button.removeFromSuperview()
                 button.translatesAutoresizingMaskIntoConstraints = true
@@ -817,7 +928,8 @@ final class KeyboardViewController: UIInputViewController {
             surface.customLayout = nil; surface.customFunctionViews = [:]; surface.standardMode = nil; surface.standardFunctionViews = [:]
             bottom.removeArrangedSubview(customGlobeSpacer); customGlobeSpacer.removeFromSuperview()
             for button in standardFunctions.values { button.removeFromSuperview(); button.isHidden = false }
-            for button in [numbers, shiftButton, spaceKey, deleteButton, bottomLanguage, returnKey] {
+            spaceKeys.insertArrangedSubview(spaceKey, at: 0)
+            for button in [numbers, shiftButton, spaceKeys, deleteButton, bottomLanguage, returnKey] {
                 button.translatesAutoresizingMaskIntoConstraints = false
                 bottom.addArrangedSubview(button)
             }
@@ -853,30 +965,35 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func refreshKeyboardSkin() {
         let theme = preferences.resolvedTheme, skin = theme.keyboardStyle
-        surface.theme = theme
-        view.backgroundColor = theme.palette.background; view.tintColor = theme.palette.accent
-        panel.backgroundColor = theme.palette.background
-        handPreview.theme = theme
-        for (action, view) in standardFunctions {
-            guard let button = view as? KeycapButton else { continue }
-            button.theme = theme; button.functionalCap = !usesNineKey && action != .space
-            button.accentCap = action == .enter
-            button.titleLabel?.font = .systemFont(ofSize: scheme != .chord && (action == .language || skin == .system) ? 18 : 14, weight: scheme != .chord && skin == .system ? .regular : .medium)
-            button.setPreferredSymbolConfiguration(.init(pointSize: scheme != .chord && skin == .system ? 21 : 17, weight: .medium), forImageIn: .normal)
-            button.titleHorizontalInset = scheme == .chord ? 6 : 2
-            button.titleLabel?.adjustsFontSizeToFitWidth = scheme != .chord || action == .enter
-            button.titleLabel?.minimumScaleFactor = 0.7
+        let appearance = SkinState(theme: theme, chord: scheme == .chord, nineKey: usesNineKey)
+        if skinState != appearance {
+            skinState = appearance
+            surface.theme = theme
+            view.backgroundColor = theme.palette.background; view.tintColor = theme.palette.accent
+            panel.backgroundColor = theme.palette.background
+            handPreview.theme = theme
+            for (action, view) in standardFunctions {
+                guard let button = view as? KeycapButton else { continue }
+                button.theme = theme; button.functionalCap = !usesNineKey && action != .space
+                button.accentCap = action == .enter
+                button.titleLabel?.font = .systemFont(ofSize: scheme != .chord && (action == .language || skin == .system) ? 18 : 14, weight: scheme != .chord && skin == .system ? .regular : .medium)
+                button.setPreferredSymbolConfiguration(.init(pointSize: scheme != .chord && skin == .system ? 21 : 17, weight: .medium), forImageIn: .normal)
+                button.titleHorizontalInset = scheme == .chord ? 6 : 2
+                button.titleLabel?.adjustsFontSizeToFitWidth = scheme != .chord || action == .enter
+                button.titleLabel?.minimumScaleFactor = 0.7
+            }
+            for button in [moreButton, bufferButton, aiButton, settingsButton, insertButton, stopButton, runButton, globe, chordDelete] { button.theme = theme }
+            chordSpaceKey.theme = theme
+            bufferButton.accentCap = true; insertButton.accentCap = true
         }
-        for button in [moreButton, bufferButton, aiButton, settingsButton, insertButton, stopButton, runButton, globe, chordDelete] { button.theme = theme }
-        bufferButton.accentCap = true; insertButton.accentCap = true
         symbolsKey.setTitle(symbolPage ? "123" : "#+=", for: .normal)
         numbers.setTitle(surface.numeric ? (usesNineKeyEngine && !directEnglish ? "拼音" : "ABC") : "123", for: .normal)
         if surface.usesStandardLayout && skin == .system {
             spaceKey.setImage(nil, for: .normal)
             spaceKey.setTitle(usesNineKey && !snapshot.candidates.isEmpty ? "选定" : directEnglish ? "space" : "空格", for: .normal)
             spaceKey.titleLabel?.font = .systemFont(ofSize: 18)
-        } else if spaceKey.image(for: .normal) == nil && !spaceKey.split {
-            spaceKey.symbol("space", label: L("空格", "Space"))
+        } else if spaceKey.image(for: .normal) == nil {
+            spaceKey.symbol("space", label: compactTypingKeys ? L("左空格", "Left space") : L("空格", "Space"))
         }
     }
     private func renderHandPreview() {
@@ -887,8 +1004,10 @@ final class KeyboardViewController: UIInputViewController {
     /// An empty candidate row offers the plugins instead.
     private func renderShortcuts() {
         let empty = snapshot.preedit.isEmpty && snapshot.candidates.isEmpty && !showingAssociations && !surface.isChordActive && handPreview.isHidden
-        let choosing = handPreview.isHidden && (!snapshot.preedit.isEmpty || !snapshot.candidates.isEmpty || showingAssociations)
+        let choosing = handPreview.isHidden && !showingAssociations && (!snapshot.preedit.isEmpty || !snapshot.candidates.isEmpty)
         if moreButton.isHidden != choosing { moreButton.isHidden = choosing }
+        if bufferButton.isHidden != choosing { bufferButton.isHidden = choosing }
+        candidateStrip.controlInsets = .init(top: 0, left: choosing ? 0 : 36, bottom: 0, right: choosing ? 0 : 36)
         // The empty strip stays in place underneath, so the row keeps its reserved slot.
         shortcuts.isHidden = !empty
         shortcuts.selected = bufferEnabled ? selectedPlugin : nil
@@ -897,12 +1016,21 @@ final class KeyboardViewController: UIInputViewController {
             if button.isEnabled != enabled { button.isEnabled = enabled }
         }
     }
-    private var candidateLeadingInset: CGFloat { moreButton.isHidden ? 0 : 36 }
-    private func candidateWidth(in panelWidth: CGFloat) -> CGFloat { max(0, panelWidth - candidateLeadingInset - 36) }
     private func renderBuffer() {
         bufferPanel.isHidden = !bufferEnabled; bufferButton.isSelected = bufferEnabled
-        if !bufferEnabled { hostSnapshot = nil; captureTimer?.invalidate(); captureTimer = nil }
-        else if hostSnapshot == nil, captureTimer == nil, onscreen, !delivery.isWriting,
+        defer { refreshMoreMenu(); refreshDefaultBuffer(); renderPanel(); refreshReturnKey() }
+        guard bufferEnabled else {
+            hostSnapshot = nil; captureTimer?.invalidate(); captureTimer = nil
+            // Hidden text must be cleared, but ordinary keystrokes must not build
+            // attributed Buffer composition or run its text layout and pet updates.
+            if !source.text.isEmpty { source.text = ""; source.setBlocks([], active: nil) }
+            if !result.text.isEmpty { result.text = ""; result.setBlocks([], active: nil) }
+            source.caretLocation = nil
+            insertButton.isEnabled = false; insertButton.cancelPress()
+            refreshBufferImports()
+            return
+        }
+        if hostSnapshot == nil, captureTimer == nil, onscreen, !delivery.isWriting,
                 ProcessInfo.processInfo.systemUptime - delivery.lastWriteTime >= 0.6 { snapshotHost() }
         // Default shows its delivery blocks in the input line (caret block outlined);
         // plugins send their result, so their output line shows those blocks instead.
@@ -962,20 +1090,19 @@ final class KeyboardViewController: UIInputViewController {
         runButton.isHidden = !bufferEnabled || selectedPlugin?.isAI != true
         runButton.isEnabled = !buffer.generating && !buffer.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         stopButton.isHidden = !buffer.generating; insertButton.isHidden = buffer.generating
-        // Quick Q&A invites a paste only when the clipboard has text (checked without reading it).
-        source.placeholder = selectedPlugin == .ask && hasFullAccess && UIPasteboard.general.hasStrings
-            ? L("轻点这里粘贴剪贴板，或直接输入问题", "Tap here to paste, or type a question") : selectedPlugin?.placeholder ?? ""
+        source.placeholder = selectedPlugin?.placeholder ?? ""
+        refreshBufferImports()
         let hasOutput = needsPluginResult ? !buffer.pluginPending.isEmpty : !buffer.pending.isEmpty
         insertButton.isEnabled = hasOutput && !buffer.generating && !hasComposition
         if let pressedInsertion, pressedInsertion != insertionContext { insertButton.cancelPress() }
-        refreshMoreMenu(); refreshDefaultBuffer(); renderPanel(); refreshReturnKey()
     }
     /// Only the auxiliaries change height. The typing block stays at a fixed offset
     /// from the system's bottom edge, including while a chord is being held.
     private func layoutRows(width: CGFloat) -> [(UIView, CGFloat)] {
         let landscape = width > 600
         bottom.spacing = compactTypingKeys ? 2 : 4
-        for case let button as KeycapButton in bottom.arrangedSubviews where button.compactCap != compactTypingKeys {
+        spaceKeys.spacing = bottom.spacing
+        for case let button as KeycapButton in bottom.arrangedSubviews + [spaceKey, chordSpaceKey] where button.compactCap != compactTypingKeys {
             button.compactCap = compactTypingKeys
         }
         for constraint in bottomKeyWidths { constraint.constant = -5 * bottom.spacing / 7.5 }
@@ -987,7 +1114,7 @@ final class KeyboardViewController: UIInputViewController {
         let customHeight = surface.usesCustomLayout ? surface.customLayout.map { CGFloat($0.geometry(width: Double(max(1, width - 10)), landscape: landscape).height) } : nil
         let standardHeight = surface.usesStandardLayout ? StandardKeyboardGeometry.height(landscape: landscape) : nil
         return [(status, 28), (bufferPanel, bufferHeight),
-                (candidatePanel, max(32, candidateStrip.fittingHeight(width: candidateWidth(in: width - 10)))),
+                (candidatePanel, max(32, candidateStrip.fittingHeight(width: max(0, width - 10)))),
                 (spellingStrip, 34),
                 (surface, customHeight ?? standardHeight ?? KeyboardGeometry.height(layout: surface.chordLayout, chord: surface.chordMode, numeric: surface.numeric, emoji: surface.emojiMode, landscape: landscape, width: max(1, width - 10), profile: surface.profile)), (bottom, landscape ? 34 : 40)].filter { !$0.0.isHidden }
     }
@@ -1001,9 +1128,8 @@ final class KeyboardViewController: UIInputViewController {
     }
     private func updateHeight() {
         guard height != nil else { return }
-        // First presentation can be measured before the input view has bounds.
-        // Use the attached host (or screen before attachment) instead of leaving
-        // the initial 240-point constraint in UIKit's first sizing response.
+        // Keep UIKit's original input view: replacing it loses the remote host
+        // resize behavior. Compute content height even before bounds are assigned.
         let width = [view.bounds.width, view.superview?.bounds.width ?? 0,
                      view.window?.windowScene?.screen.bounds.width ?? UIScreen.main.bounds.width]
             .first { $0.isFinite && $0 > 0 } ?? 320
@@ -1021,8 +1147,8 @@ final class KeyboardViewController: UIInputViewController {
     }
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
-        // Keep UIKit's original input view and host-sizing behavior. Only the width
-        // follows the host; inheriting its provisional height recreates the blank area.
+        // Only the width follows the host; inheriting its provisional height
+        // recreates the blank area.
         if let parent = view.superview {
             if hostWidth?.secondItem as? UIView !== parent {
                 hostWidth?.isActive = false
@@ -1039,6 +1165,7 @@ final class KeyboardViewController: UIInputViewController {
     }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        HeightTrace.log("didLayout", self)
         let rows = layoutRows(width: view.bounds.width)
         var y = view.bounds.height - 5
         for (item, rowHeight) in rows.reversed() {
@@ -1062,9 +1189,11 @@ final class KeyboardViewController: UIInputViewController {
         // Default sends what you type, so the input line sits beside Send and the typing
         // readout drops below it. Plugins send their output, which stays on top.
         if isDefaultBuffer { source.frame = topLine; result.frame = bottomLine } else { result.frame = topLine; source.frame = bottomLine }
+        pasteButton.frame = CGRect(x: source.frame.maxX - 44, y: source.frame.minY, width: 44, height: bufferRowHeight)
+        importPrompt.frame = CGRect(x: source.frame.minX + 3, y: source.frame.minY + 2, width: max(0, source.frame.width - 50), height: max(0, bufferRowHeight - 4))
         typingStats.frame = CGRect(x: 8, y: 0, width: max(0, result.bounds.width - 16), height: bufferRowHeight)
         bufferButton.frame = CGRect(x: candidatePanel.bounds.width - 32, y: 0, width: 32, height: 32)
-        candidateStrip.frame = CGRect(x: candidateLeadingInset, y: 0, width: candidateWidth(in: candidatePanel.bounds.width), height: candidatePanel.bounds.height)
+        candidateStrip.frame = candidatePanel.bounds
         moreButton.frame = CGRect(x: 0, y: 0, width: 32, height: 32)
         handPreview.frame = CGRect(x: 36, y: 0, width: max(0, candidatePanel.bounds.width - 72), height: 32)
         shortcuts.frame = handPreview.frame
@@ -1086,11 +1215,16 @@ final class KeyboardViewController: UIInputViewController {
         bottomLanguage.setTitle(surface.englishInput ? "EN" : "中", for: .normal)
         bottomLanguage.isSelected = surface.englishInput
         bottomLanguage.accessibilityLabel = surface.englishInput ? L("英文，切换中文", "English; switch to Chinese") : L("中文，切换英文", "Chinese; switch to English")
-        // Chord mode splits Space: hold the left half to select, the right half to move.
-        spaceKey.split = swapped
+        // Independent chord Space controls retain separate presses and hold gestures.
+        if chordSpaceKey.isHidden == swapped {
+            spaceKey.cancelTracking(with: nil); chordSpaceKey.cancelTracking(with: nil)
+            chordSpaceKey.isHidden = !swapped
+        }
+        spaceKey.accessibilityLabel = swapped ? L("左空格", "Left space") : L("空格", "Space")
         spaceKey.accessibilityHint = swapped
-            ? L("左半按住拖动可在 Buffer 中选择文字，右半按住拖动可移动光标", "Hold the left half and drag to select text in the Buffer; hold the right half and drag to move the cursor")
+            ? L("点按输入空格；按住拖动可在 Buffer 中选择文字", "Tap for space; hold and drag to select text in the Buffer")
             : L("按住并左右拖动可移动光标", "Hold and drag left or right to move the cursor")
+        chordSpaceKey.accessibilityHint = L("点按输入空格；按住并左右拖动可移动光标", "Tap for space; hold and drag left or right to move the cursor")
         if surface.usesCustomLayout {
             let actions = Set(surface.customLayout?.rows.flatMap { $0 }.map(\.action) ?? [])
             for (action, button) in customFunctions { button.isHidden = !actions.contains(action) }
@@ -1103,7 +1237,7 @@ final class KeyboardViewController: UIInputViewController {
     }
     /// Space hold starts caret movement only when nothing is being composed.
     /// Selecting works only in the Buffer: iOS gives keyboards no way to select
-    /// host text, so there the left half moves the caret like the right half.
+    /// host text, so there the left Space moves the caret like the right Space.
     private func beginCaretDrag(selecting: Bool = false) -> Bool {
         guard onscreen, !hasComposition, engine.rawInput.isEmpty else { return false }
         if !bufferEnabled { guard let target = currentDocument, target == DocumentIdentity.read(textDocumentProxy) else { return false } }
@@ -1137,6 +1271,7 @@ final class KeyboardViewController: UIInputViewController {
         expanded = false; candidateStrip.setNeedsLayout(); resize()
     }
     private func noteTypingKey(backspace: Bool = false) {
+        candidateStrip.cancelSelection()
         // A key press hides associations; Delete also ends the learning chain.
         if backspace { breakAssociationChain() } else { associations = [] }
         if !backspace {
@@ -1198,6 +1333,16 @@ final class KeyboardViewController: UIInputViewController {
         refreshDefaultBuffer()
     }
     private func refreshMoreMenu() {
+        let state = MenuState(scheme: scheme, imported: importedSchemeSelection,
+            schemas: importedSchemeLibrary.packages.flatMap { package in
+                package.schemas.flatMap { [package.id, $0.id, $0.name] }
+            }, haptics: preferences.haptics, hapticStrength: preferences.hapticStrength,
+            sounds: preferences.keySounds, traditional: preferences.traditional, theme: preferences.resolvedTheme,
+            layout: preferences.ordinaryLayout, customLayout: customLayoutSnapshot != nil,
+            swipeSymbols: preferences.longPressSwipeSymbols, english: directEnglish,
+            utilityCells: surface.hasUtilityCells, language: Locale.preferredLanguages.first)
+        guard state != menuState else { return }
+        menuState = state
         let levels: [(String, HapticStrength?)] = [(L("关闭", "Off"), nil), (L("轻", "Light"), .light), (L("强", "Strong"), .strong), (L("更强", "Stronger"), .strongest)]
         let haptics = UIMenu(title: L("按键震动", "Key haptics"), image: UIImage(systemName: "iphone.radiowaves.left.and.right"), children: levels.map { title, strength in
             UIAction(title: title, state: (strength == nil ? !preferences.haptics : preferences.haptics && preferences.hapticStrength == strength) ? .on : .off) { [weak self] _ in
@@ -1369,22 +1514,96 @@ final class KeyboardViewController: UIInputViewController {
         if let keys = session.keysPerSecond { figures.append(String(format: L("击键 %.1f 触/秒", "%.1f keys/s"), keys)) }
         return "—\n" + figures.joined(separator: " · ") + "\n" + L("来自 RIMES 免费开源输入法", "Sent from RIMES, the free open-source input method")
     }
-    private func pasteQuestion() {
-        guard bufferEnabled, selectedPlugin == .ask, buffer.source.isEmpty, !hasComposition else { return }
-        guard hasFullAccess else { status.text = L("读取剪贴板需要为 RIMES 开启“完全访问”", "Pasting needs Full Access for RIMES"); render(); return }
-        // iOS may ask "Allow Paste?" here. The read waits for the answer, and the alert takes
-        // focus meanwhile, so keep the text and add it once the keyboard is back if needed.
-        let text = String((UIPasteboard.general.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(4000))
-        guard !text.isEmpty else { status.text = L("剪贴板里没有文字", "Nothing to paste"); render(); return }
-        pendingPaste = text
-        if onscreen { applyPendingPaste() }
+    private func refreshBufferImports() {
+        let visible = bufferEnabled && onscreen
+        pasteButton.isHidden = !bufferEnabled
+        pasteButton.fullAccess = canReadClipboard
+        pasteButton.isEnabled = visible && pendingPaste == nil && hostImportTask == nil
+        let canOffer = visible && buffer.source.isEmpty && !hasComposition && !buffer.generating && hostImportTask == nil
+        let beganOffering = canOffer && !wasOfferingHostText
+        wasOfferingHostText = canOffer
+        if beganOffering, let target = currentDocument {
+            delivery.requestHostContext(target: target)
+            let epoch = bufferImportEpoch
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                guard let self, self.bufferImportEpoch == epoch, self.currentDocument == target else { return }
+                self.refreshBufferImports()
+            }
+        }
+        offeredHostText = canOffer ? currentDocument.flatMap { delivery.hostTextSnapshot(target: $0) }.flatMap { $0.text.isEmpty ? nil : $0 } : nil
+        importPrompt.update(text: offeredHostText?.text)
+        source.placeholder = offeredHostText == nil ? selectedPlugin?.placeholder ?? "" : ""
+        source.caretLocation = visible && offeredHostText == nil ? BufferComposition(source: buffer.source, cursor: buffer.cursor, preedit: compositionText, font: source.font).caretRange.location : nil
+    }
+    private func cancelBufferImport() {
+        bufferImportEpoch = UUID(); hostImportTask?.cancel(); hostImportTask = nil
+        wasOfferingHostText = false
+        offeredHostText = nil; importPrompt.update(text: nil)
+    }
+    private func importHostText() {
+        guard onscreen, bufferEnabled, buffer.source.isEmpty, !hasComposition,
+              hostImportTask == nil, let offered = offeredHostText else { return }
+        let epoch = bufferImportEpoch, plugin = selectedPlugin
+        let wasSuspended = autoSuspended
+        surface.feedback.send(.press); cancelDeletes(); surface.cancel(); cancelRequest()
+        captureTimer?.invalidate(); captureTimer = nil; hostSnapshot = nil
+        stopDefaultAutoSend(); autoSuspended = true
+        hostImportTask = Task { [weak self] in
+            guard let self else { return }
+            let outcome = await self.delivery.importHostText(offered, valid: {
+                self.onscreen && self.bufferEnabled && self.bufferImportEpoch == epoch && self.selectedPlugin == plugin
+            }, keep: { text in
+                guard self.buffer.source.isEmpty, !self.hasComposition else { return false }
+                self.buffer.insert(text); self.render()
+                return true
+            })
+            guard self.bufferImportEpoch == epoch else { return }
+            self.hostImportTask = nil; self.autoSuspended = wasSuspended; self.snapshotHost()
+            switch outcome {
+            case .moved: self.status.text = L("已移入 Buffer", "Moved into Buffer")
+            case .copied: self.status.text = L("已复制可读取的文字，输入框原文保留", "Readable text copied; the original stays in the input field")
+            case .retained: self.status.text = L("文字已存入 Buffer，输入框剩余文字保留", "Text saved in Buffer; remaining text stays in the input field")
+            case .changed: self.status.text = L("输入框已变化，请重新点击导入", "The input field changed; tap to import again")
+            }
+            self.sourceChanged(); self.render()
+        }
+        refreshBufferImports()
+    }
+    private func explainClipboardAccess() {
+        status.text = L("读取剪贴板需要为 RIMES 开启“完全访问”", "Pasting needs Full Access for RIMES"); render()
+    }
+    private func beginPaste() -> Bool {
+        guard onscreen, bufferEnabled, pendingPaste == nil, hostImportTask == nil, let target = currentDocument,
+              target == DocumentIdentity.read(textDocumentProxy) else { return false }
+        guard canReadClipboard else { explainClipboardAccess(); return false }
+        surface.feedback.send(.press); surface.cancel(); settle(); cancelDeletes()
+        pendingPaste = PendingPaste(target: target, plugin: selectedPlugin, savedBuffer: buffer, expectedRevision: buffer.sourceRevision)
+        refreshBufferImports()
+        return true
+    }
+    private func pasteIntoBuffer(itemProviders: [NSItemProvider]) {
+        guard let provider = itemProviders.first(where: { $0.canLoadObject(ofClass: NSString.self) }), beginPaste(),
+              let request = pendingPaste?.id else { return }
+        // UIPasteControl supplies the provider for this explicit tap. Retain the
+        // draft while loading it, including a host's first-paste permission alert.
+        _ = provider.loadObject(ofClass: NSString.self) { [weak self] object, _ in
+            let text = object as? String ?? ""
+            Task { @MainActor [weak self] in
+                guard let self, self.pendingPaste?.id == request else { return }
+                self.pendingPaste?.text = text
+                self.applyPendingPaste()
+            }
+        }
     }
     private func applyPendingPaste() {
-        guard let text = pendingPaste else { return }
+        guard onscreen, let paste = pendingPaste, let text = paste.text else { return }
         pendingPaste = nil
-        guard onscreen, bufferEnabled, selectedPlugin == .ask, buffer.source.isEmpty else { return }
-        surface.cancel(); surface.feedback.send(.commit)
-        insert(text); status.text = L("已粘贴，点 ▶ 提问", "Pasted; tap ▶ to ask"); render()
+        guard bufferEnabled, selectedPlugin == paste.plugin, currentDocument == paste.target,
+              DocumentIdentity.read(textDocumentProxy) == paste.target, buffer.sourceRevision == paste.expectedRevision else { refreshBufferImports(); return }
+        if paste.restoreBuffer { buffer = paste.savedBuffer; buffer.cancel() }
+        guard !text.isEmpty else { status.text = L("剪贴板里没有可粘贴的文字", "No clipboard text is available to paste"); render(); return }
+        surface.cancel(); surface.feedback.send(.commit); cancelRequest()
+        buffer.insert(text); sourceChanged(); status.text = L("已粘贴到 Buffer", "Pasted into Buffer"); render()
     }
     private func readOutputBlock(_ index: Int) {
         guard onscreen, needsPluginResult, selectedPlugin != .art, !buffer.generating, buffer.pluginPending.indices.contains(index) else { return }
@@ -1493,6 +1712,7 @@ final class KeyboardViewController: UIInputViewController {
             status.text = L("请在 RIMES App 的“官方插件”中安装并启用", "Install and enable this plugin in RIMES → Official plugins")
             return
         }
+        cancelBufferImport(); pendingPaste = nil
         cancelRequest(); buffer.invalidateResult(); selectedPlugin = plugin
         if plugin != .translate { speaker.stop() }
         status.text = plugin?.isAI == true ? aiReadinessHint() ?? "" : ""
@@ -1719,6 +1939,14 @@ final class KeyboardViewController: UIInputViewController {
         } catch { status.text = (error as? CoreError)?.localizedDescription ?? L("无法读取 AI 配置", "Unable to read AI configuration") }
     }
     #if KEYBOARD_LAYOUT_TESTS
+    private func developmentPasteClipboard() {
+        guard beginPaste() else { return }
+        let text = developmentReadClipboard?() ?? ""
+        pendingPaste?.text = text
+        applyPendingPaste()
+    }
+    func developmentWaitForBufferImport() async { await hostImportTask?.value }
+    func developmentResume() { resume() }
     var layoutViews: (buffer: UIView, candidates: CandidateStrip, keys: KeySurface, settings: KeycapButton, bottom: UIStackView, source: SingleLineTextView, insert: InsertKeycapButton, globe: KeycapButton, result: SingleLineTextView, stop: KeycapButton) {
         (bufferPanel, candidateStrip, surface, moreButton, bottom, source, insertButton, globe, result, stopButton)
     }
@@ -1777,6 +2005,15 @@ final class KeyboardViewController: UIInputViewController {
     func developmentFinish(_ output: String) { if let id = buffer.generation { buffer.finish(output, id: id); render() } }
     var developmentPanel: KeyboardPanel? { panelOpen ? panel : nil }
     var developmentSpaceKey: SpaceCursorButton { spaceKey }
+    var developmentRightSpaceKey: SpaceCursorButton { chordSpaceKey }
+    func developmentWaitForDelivery() async {
+        for _ in 0..<100 {
+            guard delivery.hasPendingWrites else { return }
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+    }
     var developmentBufferSelection: Range<Int>? { buffer.selection }
     var developmentAssociations: [String] { showingAssociations ? associations : [] }
     func developmentClearAssociationHistory() { applyAssociationReset(UUID()); render() }
@@ -1949,5 +2186,29 @@ final class KeyboardViewController: UIInputViewController {
         let tail = current.trimmingCharacters(in: .whitespaces)
         if let last = sentences.last, tail.count < 24 { return String(last.suffix(80)) }
         return tail.count >= 10 ? String(tail.suffix(80)) : ""
+    }
+}
+
+// TEMP-TRACE
+enum HeightTrace {
+    static var lines = [String](), last = "", link: CADisplayLink?, target: Ticker?, t0 = ProcessInfo.processInfo.systemUptime
+    final class Ticker: NSObject { weak var c: KeyboardViewController?; var n = 0
+        @objc func tick() { n += 1; if let c { HeightTrace.log("tick", c, dedupe: true) }; if n > 600 { HeightTrace.link?.invalidate() } } }
+    static func start(_ c: KeyboardViewController) {
+        t0 = ProcessInfo.processInfo.systemUptime; lines = []; last = ""
+        let t = Ticker(); t.c = c; target = t
+        link?.invalidate(); link = CADisplayLink(target: t, selector: #selector(Ticker.tick)); link?.add(to: .main, forMode: .common)
+    }
+    static func log(_ event: String, _ c: KeyboardViewController, dedupe: Bool = false) {
+        var chain = [String](); var node: UIView? = c.viewIfLoaded
+        while let v = node { let f = v.frame; chain.append("\(String(describing: type(of: v))):\(Int(f.minX)),\(Int(f.minY)),\(Int(f.width))x\(Int(f.height))"); node = v.superview }
+        let cs = (c.viewIfLoaded?.constraints ?? []).filter { $0.firstAttribute == .height && $0.secondItem == nil }.map { "\($0.identifier ?? "?")=\($0.constant)@\($0.priority.rawValue)\($0.isActive ? "" : "off")" }.joined(separator: ";")
+        let state = chain.joined(separator: " < ") + " | pcs=\(Int(c.preferredContentSize.height)) alpha=\(c.viewIfLoaded?.alpha ?? -1) | " + cs
+        if dedupe && state == last { return }
+        last = state
+        lines.append(String(format: "%7.1f ", (ProcessInfo.processInfo.systemUptime - t0) * 1000) + event + " " + state)
+        let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try? lines.joined(separator: "\n").write(to: root.appendingPathComponent("height-trace.log"), atomically: true, encoding: .utf8)
     }
 }

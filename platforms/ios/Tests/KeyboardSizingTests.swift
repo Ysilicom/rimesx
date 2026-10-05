@@ -55,7 +55,7 @@ import RimesCore
         }
     }
 
-    func testUIKitPresentsKeyboardAtContentHeightOnFirstFocus() async throws {
+    func testUIKitPresentsAndResizesKeyboardAtContentHeight() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
@@ -69,6 +69,17 @@ import RimesCore
             field.resignFirstResponder(); window.isHidden = true
             previousKeyWindow?.makeKeyAndVisible()
         }
+        // Capture the sizes announced for the animation, not only its settled
+        // endpoint: a tall first frame followed by a short one visibly flashes.
+        var announcedHeights = [CGFloat]()
+        let observation = NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification,
+                                                                object: nil, queue: .main) { notification in
+            if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+               frame.minY < scene.coordinateSpace.bounds.maxY, frame.height > 0 {
+                announcedHeights.append(frame.height)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observation) }
         // UIKit owns the container and all its constraints in this test.
         XCTAssertTrue(field.becomeFirstResponder())
         try await Task.sleep(nanoseconds: 500_000_000)
@@ -79,6 +90,28 @@ import RimesCore
         XCTAssertLessThan(keyboard.view.bounds.height, 300)
         let candidates = keyboard.layoutViews.candidates
         XCTAssertEqual(candidates.convert(candidates.bounds, to: keyboard.view).minY, 5, accuracy: 0.5)
+        let finalHeight = try XCTUnwrap(announcedHeights.last)
+        XCTAssertTrue(announcedHeights.allSatisfy { $0 <= finalHeight + 0.5 }, "Initial keyboard animation heights: \(announcedHeights)")
+
+        // Check visible content through UIKit's responder/container lifecycle.
+        // A local inputViewController is not the remote keyboard extension: UIKit
+        // height notifications can lag even for a bare UIInputView (see the
+        // validation/build48/UIKitHeightProbe.swift diagnostic). Remote-host
+        // height and first-frame flicker require the actual extension recording.
+        let idleHeight = keyboard.view.bounds.height
+        keyboard.developmentBuffer("展开检查")
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(keyboard.view.bounds.height, idleHeight + 80, accuracy: 0.5)
+        keyboard.developmentContent(preedit: "ni", candidates: Array(repeating: "候选词", count: 60))
+        keyboard.layoutViews.candidates.onExpand?()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertGreaterThan(keyboard.view.bounds.height, idleHeight + 80)
+        keyboard.layoutViews.candidates.onExpand?()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(keyboard.view.bounds.height, idleHeight + 80, accuracy: 0.5)
+        keyboard.developmentBuffer(nil); keyboard.developmentContent()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(keyboard.view.bounds.height, idleHeight, accuracy: 0.5)
     }
 
     func testFirstMountDiscardsProvisionalHostHeight() throws {

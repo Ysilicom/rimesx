@@ -100,6 +100,7 @@ import RimesCore
         defer { removeUserData(for: package) }
         let (window, controller) = host()
         defer { window.isHidden = true }
+        try await Task.sleep(nanoseconds: 80_000_000)
         controller.developmentChooseImported(.init(packageID: package.id, schemaID: "fixture_function_keys"), store: store)
         controller.developmentType("a")
         XCTAssertTrue(descendants(controller.layoutViews.candidates).contains { $0.accessibilityLabel == "默认候选" })
@@ -108,6 +109,7 @@ import RimesCore
         XCTAssertEqual(controller.layoutProxy.native.text, "空格经过Lua", "Space must reach the imported processor, not directly commit candidate zero.")
         controller.developmentType("a")
         controller.developmentEnter()
+        await controller.developmentWaitForDelivery()
         XCTAssertEqual(controller.layoutProxy.native.text, "空格经过Lua回车经过Lua", "Return must use the imported processor while composing.")
         XCTAssertNil(store.load().active)
     }
@@ -145,6 +147,7 @@ import RimesCore
         for buffered in [false, true] {
             let (window, controller) = host()
             defer { window.isHidden = true }
+            try await Task.sleep(nanoseconds: 80_000_000)
             controller.developmentChooseImported(.init(packageID: package.id, schemaID: "fixture_top_up"), store: store)
             let proxy = controller.layoutProxy
             if buffered {
@@ -155,6 +158,7 @@ import RimesCore
             controller.developmentType("nkhz")
             XCTAssertTrue(descendants(controller.layoutViews.candidates).contains { $0.accessibilityLabel == "你好" })
             controller.developmentType("n")
+            await controller.developmentWaitForDelivery()
             XCTAssertEqual(controller.developmentRaw, "n", "The same key starts the next composition after committing the old word.")
             if buffered {
                 XCTAssertEqual(controller.developmentBufferSource.text, "前😀你好后")
@@ -165,7 +169,7 @@ import RimesCore
                 XCTAssertEqual(proxy.native.text, "前😀你好n后")
                 let range = try XCTUnwrap(proxy.native.markedTextRange)
                 XCTAssertEqual(proxy.native.text(in: range), "n")
-                XCTAssertEqual(proxy.insertions, ["你好"], "Committed text must cross the native insertion boundary before marking its continuation.")
+                XCTAssertEqual(proxy.native.selectedRange, NSRange(location: 6, length: 0), "The caret must follow the new preedit, after the committed word.")
             }
             controller.developmentBackspace()
             XCTAssertTrue(controller.developmentRaw.isEmpty)
