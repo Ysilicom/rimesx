@@ -8,6 +8,7 @@ Core maintainer / 核心维护者: [学术海](https://pm.scholay.com) ([GitHub:
 - EboneA
 - cuihaiyang
 - pengjiebo
+- [Kindred5210](https://github.com/Kindred5210) — Liquid Glass theme design and implementation adapted from [PR #46](https://github.com/scholay/rimes/pull/46).
 
 ## AI coding assistants
 

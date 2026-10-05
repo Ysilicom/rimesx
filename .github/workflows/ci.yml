@@ -677,7 +677,7 @@ jobs:
         run: |
           BIN="$(swift build --show-bin-path)/RimeBuffer"
           ROOT="$RUNNER_TEMP/rimebuffer-settings-render"
-          for MODE in night day quiet; do
+          for MODE in night day quiet liquidGlass; do
             OUTPUT="$ROOT/$MODE/output"
             mkdir -p "$OUTPUT" "$ROOT/$MODE/profile" "$ROOT/$MODE/local" "$ROOT/$MODE/plugins"
             RIMEBUFFER_APPEARANCE_MODE="$MODE" \
