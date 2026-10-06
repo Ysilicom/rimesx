@@ -7,7 +7,7 @@ RIMES is an input method for more than one operating system. Three original slot
 
 Schemes include full Pinyin, double Pinyin, Shengbi, Wubi, and English, plus the chorded input used in stenography and custom imports. For new users, the package **bundles** librime and the dictionaries and is ready to use.
 
-> The public product name is **RIMES** (rime-scholay).
+> **RIMES** is the name of the project’s architecture. The public product names are **Lingxi IME** in English, **灵犀输入法** in Simplified Chinese, and **靈犀輸入法** in Traditional Chinese. These names are already used for the iOS App Store listing.
 
 ## Demo videos
 
