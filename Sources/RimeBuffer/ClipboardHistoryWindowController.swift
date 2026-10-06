@@ -147,13 +147,23 @@ func clipboardHistoryStandalonePanelKeyboardProbe() -> Bool {
         && handlesStandaloneKeyEquivalent
 }
 
-private final class ClipboardHistoryChromeView: NSVisualEffectView {
+private final class ClipboardHistoryChromeView: NSView {
     private let borderLayer = CAShapeLayer()
+    private let classicMaterial = NSVisualEffectView()
+    private let glass = RimeGlassBackgroundView()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        RoundedWindowChrome.maskMaterial(self, radius: ClipboardHistoryWindowMetrics.cornerRadius)
+        let radius = ClipboardHistoryWindowMetrics.cornerRadius
+        classicMaterial.frame = bounds
+        classicMaterial.autoresizingMask = [.width, .height]
+        RoundedWindowChrome.maskMaterial(classicMaterial, radius: radius)
+        addSubview(classicMaterial)
+        glass.frame = bounds
+        glass.autoresizingMask = [.width, .height]
+        glass.cornerRadius = radius
+        addSubview(glass)
         borderLayer.fillColor = NSColor.clear.cgColor
         layer?.addSublayer(borderLayer)
     }
@@ -177,12 +187,17 @@ private final class ClipboardHistoryChromeView: NSVisualEffectView {
     }
 
     func applyAppearance() {
-        material = RimeUI.isDark ? .hudWindow : .popover
-        blendingMode = .behindWindow
-        state = .active
+        let transparent = RimeUI.usesLiquidGlassTransparency
         appearance = RimeUI.appKitAppearance
-        layer?.backgroundColor = RimeUI.workbenchChrome.cgColor
-        borderLayer.strokeColor = RimeUI.borderStrong.cgColor
+        classicMaterial.material = RimeUI.isDark ? .hudWindow : .popover
+        classicMaterial.blendingMode = .behindWindow
+        classicMaterial.state = .active
+        classicMaterial.isHidden = transparent
+        glass.applyTheme()
+        // Liquid Glass supplies its own backdrop; an opaque fill would hide it.
+        layer?.backgroundColor = (transparent ? NSColor.clear : RimeUI.workbenchChrome).cgColor
+        borderLayer.strokeColor = (transparent
+            ? NSColor.white.withAlphaComponent(0.24) : RimeUI.borderStrong).cgColor
         needsLayout = true
     }
 }
