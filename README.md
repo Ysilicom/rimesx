@@ -9,6 +9,12 @@
 
 > 对外产品名统一为 **RIMES**（rime-scholay）。
 
+## 联系与交流
+
+邮箱：[pm@scholay.com](mailto:pm@scholay.com) · 微信 ID：`scholar_hi`，诚邀添加微信进群交流。
+
+**前 1000 位为本项目点亮 Star 的用户，可免费预约永久 AI 能力会员。** 欢迎添加微信预约。
+
 ## 演示视频
 
 - [哔哩哔哩 · 完整介绍](https://www.bilibili.com/video/BV17XuH6SEDg/)
