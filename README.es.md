@@ -7,7 +7,7 @@ Es un método de entrada para varios sistemas operativos. Tres superficies origi
 
 Admite esquemas de pinyin completo, doble pinyin, Shengbi, Wubi e inglés, además de la escritura por acordes usada en estenotipia y de la importación personalizada. Para quien empieza, el paquete **incluye** librime y los diccionarios, y se puede usar al instalarlo.
 
-> El nombre público del producto es **RIMES** (rime-scholay).
+> **RIMES** es el nombre de la arquitectura del proyecto. Los nombres públicos del producto son **Lingxi IME** en inglés, **灵犀输入法** en chino simplificado y **靈犀輸入法** en chino tradicional. Estos nombres ya se utilizan en la ficha de iOS en el App Store.
 
 ## Vídeos
 
