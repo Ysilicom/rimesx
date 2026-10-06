@@ -399,12 +399,13 @@ enum BufferWindowGeometry {
             )
         }
 
-        // The caret marks where the host's next character appears, so the
-        // workbench's own first character has to land there — not its window
-        // edge, which sits one content inset further left. A box anchor is a
-        // frame rather than a text position, so those two edges stay flush.
-        var x = alignedBox?.minX
-            ?? (targetRect.minX - BufferWorkbenchMetrics.contentLeadingInset)
+        // A real input box fixes both horizontal edges: the left edge is the
+        // box's, and the width is the box's clamped to the configured
+        // minimum/maximum. A box outside that range keeps its left edge and
+        // takes the nearest limit; one inside it is aligned at both ends. The
+        // caret never decides the left edge — without a usable box the panel
+        // keeps its width and centres on the caret.
+        var x = alignedBox?.minX ?? (targetRect.midX - width / 2)
         x = min(max(x, safeTarget.minX), max(safeTarget.minX, safeTarget.maxX - width))
 
         // A short field anchors the workbench to the box, so its top edge sits

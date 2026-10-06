@@ -11094,10 +11094,9 @@ func runBufferWindowSmokeTest() -> Bool {
           tallBoxOpening.frame.maxY
             == editorCaret.minY - BufferWindowGeometry.inputAnchorGap,
           staleBoxOpening == caretOnlyOpening,
-          // Caret-anchored openings compensate the workbench's content inset;
-          // a box anchor is a frame, so those edges stay flush.
-          caretOnlyOpening.frame.minX
-            == chatCaret.minX - BufferWorkbenchMetrics.contentLeadingInset,
+          // Without a box the caret no longer fixes the left edge; the panel
+          // centres on it at its current width.
+          caretOnlyOpening.frame.midX == chatCaret.midX,
           flippedBoxOpening.side == .aboveTarget,
           flippedBoxOpening.frame.minX == bottomBox.minX,
           flippedBoxOpening.frame.width == bottomBox.width,
@@ -11150,10 +11149,7 @@ func runBufferWindowSmokeTest() -> Bool {
               $0.maxY == middleCaret.minY - BufferWindowGeometry.inputAnchorGap
                   && !$0.intersects(middleCaret)
           }),
-          // The workbench's first character lands on the caret, so its window
-          // starts one content inset to the left of it.
-          belowCaret.frame.minX
-            == middleCaret.minX - BufferWorkbenchMetrics.contentLeadingInset,
+          belowCaret.frame.midX == middleCaret.midX,
           BufferWorkbenchMetrics.contentLeadingInset == 12,
           aboveCaret.side == .aboveTarget,
           aboveCaret.frame.minY
