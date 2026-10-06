@@ -2557,7 +2557,7 @@ class ClipboardFirstMouseButton: NSButton {
 /// manager shows the same row, so both surfaces read as one Capsule.
 final class CapsuleRailTabStrip: NSView {
     var onSelect: ((CapsuleRailTab) -> Void)?
-    private let stack = NSStackView()
+    private let document = NSView()
     private let tabScroll = NSScrollView()
     private var buttons: [CapsuleRailTabButton] = []
     private var selectedTab: CapsuleRailTab = .recent
@@ -2568,34 +2568,24 @@ final class CapsuleRailTabStrip: NSView {
         wantsLayer = true
         layer?.cornerRadius = 8
         layer?.borderWidth = 1
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = 2
-        stack.edgeInsets = NSEdgeInsets(top: 3, left: 3, bottom: 3, right: 3)
         tabScroll.drawsBackground = false
         tabScroll.hasHorizontalScroller = false
+        tabScroll.hasVerticalScroller = false
         tabScroll.horizontalScrollElasticity = .automatic
-        // Pin the document to the viewport vertically. A manually sized
-        // NSStackView document can be collapsed by a later scroll-view layout
-        // when the panel is shown or its system appearance changes.
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        tabScroll.documentView = stack
-        tabScroll.translatesAutoresizingMaskIntoConstraints = false
+        tabScroll.verticalScrollElasticity = .none
+        tabScroll.automaticallyAdjustsContentInsets = false
+        // The document has one explicit, noncompressible row. Do not constrain
+        // its origin to the moving clip view or let a stack detach its buttons
+        // while the surrounding header is negotiating a provisional size.
+        tabScroll.documentView = document
+        tabScroll.frame = bounds
+        tabScroll.autoresizingMask = [.width, .height]
         addSubview(tabScroll)
-        NSLayoutConstraint.activate([
-            tabScroll.leadingAnchor.constraint(equalTo: leadingAnchor),
-            tabScroll.trailingAnchor.constraint(equalTo: trailingAnchor),
-            tabScroll.topAnchor.constraint(equalTo: topAnchor),
-            tabScroll.bottomAnchor.constraint(equalTo: bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: tabScroll.contentView.leadingAnchor),
-            stack.topAnchor.constraint(equalTo: tabScroll.contentView.topAnchor),
-            stack.heightAnchor.constraint(equalTo: tabScroll.contentView.heightAnchor),
-            stack.widthAnchor.constraint(greaterThanOrEqualTo: tabScroll.contentView.widthAnchor),
-        ])
         heightAnchor.constraint(equalToConstant: 28).isActive = true
         widthAnchor.constraint(greaterThanOrEqualToConstant: 170).isActive = true
         refreshTabs()
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        setContentHuggingPriority(.defaultHigh, for: .horizontal)
         setAccessibilityElement(true)
         setAccessibilityRole(.tabGroup)
         setAccessibilityLabel("Capsule 模块")
@@ -2606,7 +2596,6 @@ final class CapsuleRailTabStrip: NSView {
         let ordered = CapsuleRailTab.ordered
         guard buttons.map(\.tab) != ordered else { return }
         for button in buttons {
-            stack.removeArrangedSubview(button)
             button.removeFromSuperview()
         }
         buttons.removeAll()
@@ -2614,24 +2603,46 @@ final class CapsuleRailTabStrip: NSView {
             let button = CapsuleRailTabButton(tab: tab)
             button.target = self
             button.action = #selector(tabPressed(_:))
-            stack.addArrangedSubview(button)
+            document.addSubview(button)
             buttons.append(button)
         }
         if !ordered.contains(selectedTab) { selectedTab = ordered.first ?? .recent }
+        invalidateIntrinsicContentSize()
+        lastViewportSize = .zero
         needsLayout = true
         applyAppearance()
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    override var intrinsicContentSize: NSSize { NSSize(width: 350, height: 28) }
+    private var rowWidth: CGFloat {
+        6 + buttons.reduce(0) { $0 + $1.intrinsicContentSize.width }
+            + CGFloat(max(0, buttons.count - 1)) * 2
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: max(170, min(350, rowWidth)), height: 28)
+    }
 
     override func layout() {
         super.layout()
+        tabScroll.frame = bounds
+        tabScroll.tile()
         let size = tabScroll.contentView.bounds.size
-        guard size != lastViewportSize else { return }
+        let viewportChanged = size != lastViewportSize
         lastViewportSize = size
-        revealSelectedTab()
+        let documentSize = NSSize(width: max(rowWidth, size.width), height: max(28, size.height))
+        if document.frame.size != documentSize { document.setFrameSize(documentSize) }
+        var x: CGFloat = 3
+        for button in buttons {
+            let width = button.intrinsicContentSize.width
+            button.frame = NSRect(x: x, y: (documentSize.height - 22) / 2, width: width, height: 22)
+            x += width + 2
+        }
+        let clip = tabScroll.contentView
+        clip.scroll(to: NSPoint(x: min(max(0, clip.bounds.minX), max(0, documentSize.width - size.width)), y: 0))
+        tabScroll.reflectScrolledClipView(clip)
+        if viewportChanged { revealSelectedTab() }
     }
 
     func select(_ tab: CapsuleRailTab) {
@@ -2639,6 +2650,7 @@ final class CapsuleRailTabStrip: NSView {
             selectedTab = tab
             applyAppearance()
         }
+        layoutSubtreeIfNeeded()
         revealSelectedTab()
     }
 
@@ -2707,7 +2719,8 @@ final class CapsuleRailTabButton: ClipboardFirstMouseButton {
     required init?(coder: NSCoder) { fatalError() }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: ceil(content.fittingSize.width) + 20, height: 22)
+        NSSize(width: ceil(label.intrinsicContentSize.width)
+            + (tab == .saved(.password) ? 11 : 0) + 20, height: 22)
     }
 
     /// One control: a click on the label or the lock is a click on the tab.

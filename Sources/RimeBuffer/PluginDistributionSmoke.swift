@@ -1,6 +1,7 @@
 import AppKit
 import CryptoKit
 import Foundation
+import RimesCore
 
 private final class PluginDistributionSmokeDownloader: ActionPluginManifestDownloading {
     private let result: Result<Data, Error>
@@ -89,6 +90,7 @@ private enum PluginDistributionSmokeHarnessError: Error {
 /// and hash-pinned optional package installation. Every scenario owns an
 /// isolated defaults suite and filesystem root, and downloads are local fakes.
 func runPluginDistributionSmokeTest() -> Bool {
+    guard checkDevelopmentHostCompatibility() else { return false }
     let fileManager = FileManager.default
     let expectedDefaultIDs = Set([BuiltInPluginID.appleTranslation, BuiltInPluginID.streamInput,
         BuiltInPluginID.statistics, BuiltInPluginID.typingSpeed, BuiltInPluginID.flyChordLearning])
@@ -917,4 +919,58 @@ func runPluginDistributionSmokeTest() -> Bool {
 
     print("PASSED: plugin distribution smoke test")
     return true
+}
+
+/// Exercise the Info.plist path used by an installed app, not the command-line
+/// executable's catalog-version fallback. No user preferences or stores change.
+private func checkDevelopmentHostCompatibility() -> Bool {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "rimes-host-version-smoke-\(UUID().uuidString)", isDirectory: true
+    )
+    defer { try? FileManager.default.removeItem(at: root) }
+    do {
+        let id = BuiltInPluginID.capsule(.temporary)
+        guard let data = PresetBufferPluginInstallationStore.bundledPackageData(id: id) else {
+            throw PluginPackageError.invalid
+        }
+        let cases: [(String, String, PluginPackageError?)] = [
+            ("1.1.0", "1.1.0", nil),
+            ("1.1.0-dev.1a832865da0f", "1.1.0", nil),
+            ("1.1.0-dev.1a832865da0f.dirty", "1.1.0", nil),
+            ("1.0.0-dev.1a832865da0f", "1.0.0", .hostTooOld),
+            ("1.1.0-dev.invalid", "1.1.0-dev.invalid", .invalid),
+            ("1.1.0-preview.1", "1.1.0-preview.1", .invalid),
+        ]
+        for (index, item) in cases.enumerated() {
+            let (displayVersion, expectedVersion, expectedError) = item
+            let app = root.appendingPathComponent("Probe\(index).app")
+            let contents = app.appendingPathComponent("Contents")
+            try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+            let plist = try PropertyListSerialization.data(fromPropertyList: [
+                "CFBundleIdentifier": "com.scholay.rimes.host-version-probe.\(index)",
+                "CFBundlePackageType": "APPL",
+                "CFBundleShortVersionString": displayVersion,
+            ], format: .xml, options: 0)
+            try plist.write(to: contents.appendingPathComponent("Info.plist"))
+            guard let bundle = Bundle(url: app),
+                  PresetBufferPluginInstallationStore.currentHostVersion(bundle: bundle) == expectedVersion,
+                  bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String == displayVersion else {
+                throw PluginPackageError.invalid
+            }
+            var validationError: PluginPackageError?
+            do {
+                _ = try OfficialPluginPackage.validated(data, expectedID: id,
+                    expectedVersion: "1.1.0", platform: "macos",
+                    hostVersion: PresetBufferPluginInstallationStore.currentHostVersion(bundle: bundle))
+            } catch let error as PluginPackageError { validationError = error }
+            guard validationError == expectedError else {
+                print("FAILED: installed host compatibility for \(displayVersion)")
+                return false
+            }
+        }
+        return true
+    } catch {
+        print("FAILED: installed host compatibility fixture: \(error)")
+        return false
+    }
 }

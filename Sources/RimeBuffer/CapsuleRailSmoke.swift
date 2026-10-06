@@ -16,6 +16,7 @@ enum CapsuleRailSmoke {
 
         checkRules(expect: expect)
         checkTabLayout(expect: expect)
+        checkHeaderTabLayout(expect: expect)
         checkLibraryProjection(expect: expect)
         checkPane(expect: expect)
         checkSaveRules(expect: expect)
@@ -139,10 +140,10 @@ enum CapsuleRailSmoke {
                 window.setContentSize(NSSize(width: width, height: 28))
                 strip.layoutSubtreeIfNeeded()
                 guard let scroll = strip.subviews.compactMap({ $0 as? NSScrollView }).first,
-                      let document = scroll.documentView as? NSStackView else {
+                      let document = scroll.documentView else {
                     expect(false, "tabs retain a scrollable document"); return
                 }
-                let buttons = document.arrangedSubviews.compactMap { $0 as? CapsuleRailTabButton }
+                let buttons = document.subviews.compactMap { $0 as? CapsuleRailTabButton }
                 expect(!buttons.isEmpty && buttons.allSatisfy {
                     $0.frame.width > 20 && abs($0.frame.height - 22) < 0.5
                         && $0.frame.minY >= 0 && $0.frame.maxY <= document.bounds.height
@@ -152,6 +153,62 @@ enum CapsuleRailSmoke {
                     expect(last.visibleRect.width > 0, "last Capsule tab scrolls into view")
                 }
             }
+        }
+    }
+
+    private static func checkHeaderTabLayout(expect: (@autoclosure () -> Bool, String) -> Void) {
+        let pane = ClipboardHistorySmoke.makeThemeProbePane()
+        let window = NSPanel(contentRect: pane.frame,
+                             styleMask: [.borderless, .nonactivatingPanel],
+                             backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let chrome = NSView(frame: pane.frame)
+        pane.translatesAutoresizingMaskIntoConstraints = false
+        chrome.addSubview(pane)
+        NSLayoutConstraint.activate([
+            pane.leadingAnchor.constraint(equalTo: chrome.leadingAnchor, constant: 2),
+            pane.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -2),
+            pane.topAnchor.constraint(equalTo: chrome.topAnchor, constant: 2),
+            pane.bottomAnchor.constraint(equalTo: chrome.bottomAnchor, constant: -2),
+        ])
+        window.contentView = chrome
+        defer { window.close() }
+        func descendants(_ view: NSView) -> [NSView] {
+            view.subviews.flatMap { [$0] + descendants($0) }
+        }
+        guard let strip = descendants(pane).compactMap({ $0 as? CapsuleRailTabStrip }).first else {
+            expect(false, "full Capsule header retains its tabs"); return
+        }
+        for width: CGFloat in [940, 620, 940] {
+            window.setContentSize(NSSize(width: width, height: 208))
+            window.orderFront(nil)
+            chrome.layoutSubtreeIfNeeded()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            chrome.layoutSubtreeIfNeeded()
+            let buttons = descendants(strip).compactMap { $0 as? CapsuleRailTabButton }
+            expect(!buttons.isEmpty, "full header tabs must not detach at width \(width)")
+            for button in buttons {
+                strip.select(button.tab)
+                pane.layoutSubtreeIfNeeded()
+                let center = pane.superview!.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), from: button)
+                expect(button.visibleRect.width >= button.bounds.width - 0.5
+                    && button.visibleRect.height >= 21,
+                    "tab \(button.tab.label) must remain visible in full header at width \(width): \(button.frame) / \(button.visibleRect)")
+                expect(pane.hitTest(center) === button,
+                       "tab \(button.tab.label) must be clickable in full header at width \(width)")
+                button.performClick(nil)
+                expect(pane.selectedTab == button.tab,
+                       "tab click must switch the Capsule module at width \(width)")
+            }
+            if let header = descendants(pane).compactMap({ $0 as? NSStackView })
+                .first(where: { $0.arrangedSubviews.contains(strip) }) {
+                for control in header.arrangedSubviews.compactMap({ $0 as? NSButton }) where !control.isHidden {
+                    let rect = pane.convert(control.bounds, from: control)
+                    expect(pane.bounds.contains(rect) && rect.height > 0 && rect.width > 0,
+                           "header action must fit the Capsule window at width \(width): \(rect)")
+                }
+            }
+            window.orderOut(nil)
         }
     }
 
