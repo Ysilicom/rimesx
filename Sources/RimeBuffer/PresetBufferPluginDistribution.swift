@@ -170,8 +170,17 @@ final class PresetBufferPluginInstallationStore {
     }
 
     static func currentHostVersion(bundle: Bundle = .main) -> String {
-        bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString")
+        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString")
             as? String ?? PresetBufferPluginCatalog.releaseVersion
+        // build_install.sh adds source provenance to local builds. Plugin
+        // compatibility uses their product version; keep the displayed version
+        // (and the updater's exclusion of development builds) unchanged.
+        guard let suffix = version.range(
+            of: #"-dev\.[0-9a-f]{12}(?:\.dirty)?$"#, options: .regularExpression
+        ), PluginPackageVersion(String(version[..<suffix.lowerBound])) != nil else {
+            return version
+        }
+        return String(version[..<suffix.lowerBound])
     }
 
     static func bundledPackageData(id: String) -> Data? {
