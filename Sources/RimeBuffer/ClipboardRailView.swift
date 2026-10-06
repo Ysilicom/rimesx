@@ -1818,7 +1818,9 @@ final class ClipboardHistoryPaneView: NSView, NSTextFieldDelegate {
 
     private func applyAppearance() {
         appearance = RimeUI.appKitAppearance
-        layer?.backgroundColor = RimeUI.workbenchChrome.cgColor
+        // The window chrome owns the glass material behind this content pane.
+        layer?.backgroundColor = (RimeUI.usesLiquidGlassTransparency
+            ? NSColor.clear : RimeUI.workbenchChrome).cgColor
         searchShell.layer?.backgroundColor = RimeUI.surface2.cgColor
         searchShell.layer?.borderWidth = 1
         searchCaret.layer?.backgroundColor = RimeUI.accentTextColor.cgColor
