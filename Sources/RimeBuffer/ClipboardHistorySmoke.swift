@@ -211,6 +211,15 @@ enum ClipboardHistorySmoke {
         return pane.capturesBandMatchesRecentForSmoke
     }
 
+    @MainActor
+    static func makeThemeProbePane() -> ClipboardHistoryPaneView {
+        ClipboardHistoryPaneView(model: ClipboardHistoryModel(
+            configuration: .init(),
+            pasteboard: ClipboardHistoryPasteboardDouble(),
+            schedulesAutomaticPolling: false
+        ))
+    }
+
     static func run() -> Bool {
         var ok = true
         func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

@@ -382,8 +382,15 @@ func runThemeAppKitSmokeTest() -> Bool {
     candidate.frame = NSRect(x: 10, y: 5, width: 100, height: 30)
     candidateSurface.addSubview(candidate)
     let candidateFrame = candidate.frame
+    let clipboardPane = MainActor.assumeIsolated {
+        ClipboardHistorySmoke.makeThemeProbePane()
+    }
     RimeUI.appearance = .liquidGlass
     drainMainRunLoop { settingsWindow?.appearance == nil }
+    let clipboardGlassAlpha: CGFloat = RimeUI.usesLiquidGlassTransparency ? 0 : 1
+    drainMainRunLoop { clipboardPane.layer?.backgroundColor?.alpha == clipboardGlassAlpha }
+    check(clipboardPane.layer?.backgroundColor?.alpha == clipboardGlassAlpha,
+          "clipboard content must not cover the Glass backdrop with an opaque fill")
     check(RimeUI.appearance == .liquidGlass
             && defaults.string(forKey: appearanceKey) == "liquidGlass",
           "Glass must persist as an opt-in choice")
@@ -434,6 +441,9 @@ func runThemeAppKitSmokeTest() -> Bool {
     app.appearance = previousAppAppearance
     RimeUI.selectThemeFamily(.classic)
     drainMainRunLoop { matches(settingsWindow, mode: .night) }
+    drainMainRunLoop { clipboardPane.layer?.backgroundColor?.alpha == 1 }
+    check(clipboardPane.layer?.backgroundColor?.alpha == 1,
+          "clipboard content must restore its opaque background when leaving Glass")
     check(RimeUI.appearance == .night && !candidateSurface.hasVisibleMaterial,
           "switching away from Glass should restore the remembered Classic colorway")
     check(SettingsWindowController.shared.validateTitlebarCoverageForSmoke(),
