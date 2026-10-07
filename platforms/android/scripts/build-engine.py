@@ -9,7 +9,7 @@ NDK = '29.0.14206865'
 CMAKE = '3.22.1'
 SCHEMAS = ('rimes_pinyin', 'rimes_pinyin9', 'rimes_ziranma', 'rimes_flypy', 'rimes_wubi')
 def schema_source(name):
-    root = ANDROID/'resources' if name in ('rimes_pinyin9', 'rimes_flypy') else ROOT/'platforms/ios/Resources/EngineData'
+    root = ANDROID/'resources' if name in ('rimes_pinyin', 'rimes_pinyin9', 'rimes_flypy') else ROOT/'platforms/ios/Resources/EngineData'
     return root/(name+'.schema.yaml')
 def run(*args, **kw):
     subprocess.run([str(a) for a in args], check=True, **kw)

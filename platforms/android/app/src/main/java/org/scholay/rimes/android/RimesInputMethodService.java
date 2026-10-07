@@ -240,7 +240,7 @@ public final class RimesInputMethodService extends InputMethodService {
         if(KeyboardSettings.KEY_TRANSLATION_DIRECTION.equals(key)) {
             if(!saved.translationDirection.equals(translationDirection)) {
                 translationDirection=saved.translationDirection;
-                if("translate".equals(activePlugin)) invalidatePlugin();
+                if("translate".equals(activePlugin)) { invalidatePlugin(); scheduleAutoPlugin(); }
                 render();
             }
             return;
@@ -361,7 +361,11 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private boolean deliver(String text,boolean block) {
         if(!ownsTarget()) return false;
-        if(buffer.isEnabled()) return block ? buffer.appendCommittedBlock(text) : buffer.appendLiteral(text);
+        if(buffer.isEnabled()) {
+            boolean accepted=block ? buffer.appendCommittedBlock(text) : buffer.appendLiteral(text);
+            if(accepted && activePlugin!=null) scheduleAutoPlugin();
+            return accepted;
+        }
         int start=hostComposing ? composingStart : Math.min(selectionStart,selection);
         expect(start<0 ? -1 : start+text.length());
         boolean accepted=target.commitText(text,1);
@@ -443,7 +447,13 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private void deleteHostOrBuffer() {
         if(!ownsTarget()) return;
-        if(buffer.isEnabled()) buffer.deleteLastBlock();
+        if(buffer.isEnabled()) {
+            buffer.deleteLastBlock();
+            if(activePlugin!=null) {
+                if(buffer.blockCount()>0) scheduleAutoPlugin();
+                else invalidatePlugin();
+            }
+        }
         else {
             CharSequence selected=target.getSelectedText(0);
             if(selected!=null && selected.length()>0) { expect(Math.min(selectionStart,selection)); target.commitText("",1); }
@@ -744,9 +754,12 @@ public final class RimesInputMethodService extends InputMethodService {
             public void onPlugin(String id) { openPluginSettings(id); }
             public void onDefaultBuffer() { cancelPlugin(); pluginSession.clear(); activePlugin=null; pluginSettingsOpen=false; render(); }
             public void onClose() { pluginSettingsOpen=false; render(); }
-            public void onDirection(String direction) { settings.setTranslationDirection(direction); render(); }
+            public void onDirection(String direction) { settings.setTranslationDirection(direction); if("translate".equals(activePlugin)) scheduleAutoPlugin(); render(); }
         }); surfaceContainer.addView(pluginPanel,new FrameLayout.LayoutParams(-1,-1));
         pluginOutput=new BufferRail(this);
+        pluginOutput.setOnClickListener(v -> {
+            if(pluginSession.snapshot(buffer).status==PluginSession.Status.READY) insertPluginResult();
+        });
         renderedPluginMode=false;
         keyboard.addView(surfaceContainer,new LinearLayout.LayoutParams(-1,dp(KeyboardLayout.height(landscape(),heightFactor))));
         chordFooter=row(keyboard,landscape()?34:40); ((LinearLayout.LayoutParams)chordFooter.getLayoutParams()).bottomMargin=0;
@@ -772,7 +785,9 @@ public final class RimesInputMethodService extends InputMethodService {
         if(!canSelectPlugin() || !officialPlugins.enabled(id)) return;
         cancelChord(); cancelPlugin(); if(!buffer.isEnabled()) buffer.setEnabled(true); activePlugin=id.equals(activePlugin)?null:id;
         pluginSession.select(activePlugin);
-        punctuationOpen=false; appearanceOpen=false; pluginSettingsOpen=false; render();
+        punctuationOpen=false; appearanceOpen=false; pluginSettingsOpen=false;
+        if(activePlugin!=null && buffer.blockCount()>0) scheduleAutoPlugin();
+        render();
     }
     private void openPluginSettings(String id) {
         if(!canSelectPlugin()) return;
@@ -780,19 +795,44 @@ public final class RimesInputMethodService extends InputMethodService {
         if(!java.util.Objects.equals(activePlugin,id)) cancelPlugin(); activePlugin=id; pluginSession.select(id);
         appearanceOpen=false; pluginSettingsOpen=true; render();
     }
+    private final Runnable autoPluginTask=this::autoRunPlugin;
+    private void scheduleAutoPlugin() {
+        main.removeCallbacks(autoPluginTask);
+        if(!destroyed && activePlugin!=null && buffer.isEnabled() && buffer.blockCount()>0 && pluginAllowed()) {
+            main.postDelayed(autoPluginTask,280);
+        }
+    }
+    private void autoRunPlugin() {
+        if(!destroyed && activePlugin!=null && buffer.isEnabled() && buffer.blockCount()>0 && pluginAllowed()
+                && !snapshot.composing() && pending==0 && !chords.isChordActive()) {
+            PluginSession.Snapshot state=pluginSession.snapshot(buffer);
+            if(state.status!=PluginSession.Status.RUNNING) {
+                runPlugin();
+            }
+        }
+    }
     private void cancelPlugin() {
+        main.removeCallbacks(autoPluginTask);
         if(pluginJob!=null) { pluginJob.cancel(); pluginJob=null; }
     }
-    private void invalidatePlugin() { cancelPlugin(); pluginSession.invalidate(); }
+    private void invalidatePlugin() {
+        cancelPlugin();
+        pluginSession.invalidate();
+        if(activePlugin!=null && buffer.isEnabled() && buffer.blockCount()>0) {
+            scheduleAutoPlugin();
+        }
+    }
     private String pluginStatus(PluginSession.Snapshot state) {
         if(cometProfile.remote(activePlugin)) {
             if(state.status==PluginSession.Status.ERROR) return state.message;
-            return state.status==PluginSession.Status.RUNNING?"AI 生成中… · 点停止可取消":"CometAPI · "+cometProfile.model+" · 点执行";
+            if(state.status==PluginSession.Status.READY) return "AI 实时翻译就绪 · 点此或回车上屏";
+            return state.status==PluginSession.Status.RUNNING?"AI 实时翻译中… · 点停止可取消":"AI 实时翻译 · "+cometProfile.model;
         }
-        if(state.status==PluginSession.Status.RUNNING) return activePlugin.equals("translate")?"本机词典查译中…":"Mock 生成中…";
+        if(state.status==PluginSession.Status.RUNNING) return activePlugin.equals("translate")?"实时查译中…":"Mock 生成中…";
+        if(state.status==PluginSession.Status.READY) return activePlugin.equals("translate")?"实时翻译就绪 · 点此或回车上屏":"生成完成 · 点此或回车发送";
         if(state.status==PluginSession.Status.ERROR) return state.message;
         if(!"translate".equals(activePlugin) && !aiMockEnabled) return "AI Mock 已关闭 · 在 RIMES 主应用中启用";
-        return activePlugin.equals("translate")?"本机中英词典 · 点执行查译":"OpenAI 格式 Mock · 点执行生成";
+        return activePlugin.equals("translate")?"实时中英互译 · 键入文字即可实时翻译":"OpenAI 格式 Mock · 点执行生成";
     }
     private void runOrCancelPlugin() {
         if(pluginSession.snapshot(buffer).status==PluginSession.Status.RUNNING) { invalidatePlugin(); render(); }

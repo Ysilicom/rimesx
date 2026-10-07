@@ -1,4 +1,4 @@
-# RIMES iOS original minimal schema (Apache-2.0).
+# RIMES mobile original minimal schema (Apache-2.0).
 # Enhanced with standard fuzzy pinyin (平翘舌、前后鼻音、鼻边音、唇齿音).
 schema:
   schema_id: rimes_pinyin
