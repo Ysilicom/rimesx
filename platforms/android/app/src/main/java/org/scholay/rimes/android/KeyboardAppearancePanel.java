@@ -196,8 +196,7 @@ final class KeyboardAppearancePanel extends ScrollView {
         button.setContentDescription(description);
         button.icon(description.equals(getResources().getString(R.string.switch_keyboard))?KeyboardIcon.GLOBE
                 :description.equals(getResources().getString(R.string.insert_all))?KeyboardIcon.SEND_ALL
-                :title.contains("剪贴") || title.contains("粘贴")?KeyboardIcon.WRITE
-                :title.contains("模糊")?KeyboardIcon.SLIDERS:KeyboardIcon.CLEAR,18,true);
+                :title.equals("应用设置")?KeyboardIcon.SETTINGS:KeyboardIcon.CLEAR,18,true);
         actions.add(button);
     }
 

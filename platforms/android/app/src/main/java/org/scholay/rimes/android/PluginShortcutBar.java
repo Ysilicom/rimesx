@@ -32,7 +32,7 @@ final class PluginShortcutBar extends HorizontalScrollView {
         addView(row,new HorizontalScrollView.LayoutParams(LayoutParams.WRAP_CONTENT,dp(32)));
         pasteButton=new KeyButton(context);
         pasteButton.setText("剪贴板"); pasteButton.setContentDescription("打开剪贴板历史选择粘贴");
-        pasteButton.fontStyle(false,13,true); pasteButton.appearance(true,true,true); pasteButton.shortcut(true);
+        pasteButton.fontStyle(false,KeyboardTypography.shortcutSp(landscape()),true); pasteButton.appearance(true,true,true); pasteButton.shortcut(true);
         pasteButton.icon(KeyboardIcon.WRITE,12,true); pasteButton.theme(theme);
         pasteButton.setOnClickListener(view -> listener.onPasteTap());
         LinearLayout.LayoutParams pasteCell=new LinearLayout.LayoutParams(dp(72),dp(30));
@@ -41,7 +41,7 @@ final class PluginShortcutBar extends HorizontalScrollView {
 
         emojiButton=new KeyButton(context);
         emojiButton.setText("表情"); emojiButton.setContentDescription("打开表情面板");
-        emojiButton.fontStyle(false,13,true); emojiButton.appearance(true,true,true); emojiButton.shortcut(true);
+        emojiButton.fontStyle(false,KeyboardTypography.shortcutSp(landscape()),true); emojiButton.appearance(true,true,true); emojiButton.shortcut(true);
         emojiButton.icon(KeyboardIcon.SMILE,12,true); emojiButton.theme(theme);
         emojiButton.setOnClickListener(view -> listener.onEmojiTap());
         LinearLayout.LayoutParams emojiCell=new LinearLayout.LayoutParams(dp(68),dp(30));
@@ -52,7 +52,7 @@ final class PluginShortcutBar extends HorizontalScrollView {
             final String id=IDS[i];
             KeyButton button=new KeyButton(context);
             button.setText(LABELS[i]); button.setContentDescription("Buffer 插件："+LABELS[i]);
-            button.fontStyle(false,13,true); button.appearance(true,true,true); button.shortcut(true);
+            button.fontStyle(false,KeyboardTypography.shortcutSp(landscape()),true); button.appearance(true,true,true); button.shortcut(true);
             button.icon(ICONS[i],12,true); button.theme(theme);
             button.setOnClickListener(view -> { if(button.isEnabled()) listener.onPluginTap(id); });
             button.setOnLongClickListener(view -> {
@@ -70,11 +70,13 @@ final class PluginShortcutBar extends HorizontalScrollView {
         render(theme,selectedID,enabled,id -> true);
     }
     void render(KeyboardTheme theme,String selectedID,boolean available,java.util.function.Predicate<String> installed) {
-        pasteButton.theme(theme);
-        emojiButton.theme(theme);
+        int label=KeyboardTypography.shortcutSp(landscape());
+        pasteButton.fontStyle(false,label,true); pasteButton.theme(theme);
+        emojiButton.fontStyle(false,label,true); emojiButton.theme(theme);
         for(int i=0;i<buttons.length;i++) {
             KeyButton button=buttons[i];
             boolean enabled=available && installed.test(IDS[i]);
+            button.fontStyle(false,label,true);
             button.theme(theme);
             boolean selected=IDS[i].equals(selectedID);
             if(button.isSelected()!=selected) button.setSelected(selected);
@@ -85,5 +87,6 @@ final class PluginShortcutBar extends HorizontalScrollView {
         }
     }
 
+    private boolean landscape() { return getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE; }
     private int dp(float value) { return Math.round(value*getResources().getDisplayMetrics().density); }
 }

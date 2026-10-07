@@ -126,7 +126,8 @@ final class CandidateGridPanel extends ScrollView {
 
             KeyButton btn = new KeyButton(getContext());
             btn.setText(displayText);
-            btn.font(16);
+            boolean landscape=getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+            btn.fontStyle(false,KeyboardTypography.candidateSp(landscape),true);
             btn.plain(true);
             btn.setSingleLine(true);
             btn.setEllipsize(TextUtils.TruncateAt.END);

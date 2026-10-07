@@ -44,6 +44,11 @@ public final class SetupActivity extends Activity {
     private final ExecutorService documents=Executors.newSingleThreadExecutor();
     private long documentGeneration;
     private boolean destroyed,resumed;
+    /** Unfinished AI form. Kept across leaving the app so a copied URL or key is not replaced by the DeepSeek defaults. */
+    private boolean aiDraft;
+    private String aiAddress="",aiModel="",aiKey="";
+    private boolean aiEnabled,aiTranslation;
+    private EditText aiAddressField,aiModelField,aiKeyField;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -54,6 +59,11 @@ public final class SetupActivity extends Activity {
         } else if(state!=null) {
             page=state.getString("settings.page","home"); license=state.getString("settings.license");
             java.util.ArrayList<String> saved=state.getStringArrayList("settings.navigation"); if(saved!=null) navigation.addAll(saved);
+        }
+        if(state!=null && state.getBoolean("settings.ai.draft",false) && "ai".equals(page)) {
+            aiDraft=true;
+            aiAddress=state.getString("settings.ai.address",""); aiModel=state.getString("settings.ai.model","");
+            aiEnabled=state.getBoolean("settings.ai.enabled",false); aiTranslation=state.getBoolean("settings.ai.translation",false);
         }
         getWindow().setFlags(android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
         if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.M) {
@@ -82,15 +92,20 @@ public final class SetupActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume();
-        // Returning from the system IME picker must not discard a playground draft.
-        if(resumed && content!=null && !page.equals("playground")) render();
+        // Returning from the system IME picker refreshes status pages. Trial text and the AI form stay as typed.
+        if(resumed && content!=null && !page.equals("playground") && !page.equals("ai")) render();
         resumed=true;
     }
     @Override protected void onSaveInstanceState(Bundle state) {
+        if(page.equals("ai")) rememberAiDraft();
         super.onSaveInstanceState(state);
         state.putString("settings.page",page); state.putString("settings.license",license);
         state.putStringArrayList("settings.navigation",new java.util.ArrayList<>(navigation));
-        // Typing fields deliberately have no saved state or preference entry.
+        // Trial fields stay out of this bundle. The unfinished AI form is kept so leaving to copy a URL or key does not restore DeepSeek.
+        state.putBoolean("settings.ai.draft",aiDraft);
+        if(!aiDraft) return;
+        state.putString("settings.ai.address",aiAddress); state.putString("settings.ai.model",aiModel);
+        state.putBoolean("settings.ai.enabled",aiEnabled); state.putBoolean("settings.ai.translation",aiTranslation);
     }
     // API 33+ uses the native dispatcher registered above; retain this hook for API 26–32.
     @android.annotation.SuppressLint("GestureBackNavigation")
@@ -109,7 +124,19 @@ public final class SetupActivity extends Activity {
     private void show(String destination) {
         getSystemService(InputMethodManager.class).hideSoftInputFromWindow(getWindow().getDecorView().getWindowToken(),0);
         if(currentScroll!=null) scrollPositions.put(page,currentScroll.getScrollY());
+        if(page.equals("ai") && !destination.equals("ai")) clearAiDraft();
         page=destination; render();
+    }
+    private void rememberAiDraft() {
+        aiDraft=true;
+        if(aiAddressField!=null) aiAddress=aiAddressField.getText().toString();
+        if(aiModelField!=null) aiModel=aiModelField.getText().toString();
+        // The unfinished key stays in the live field only. It is not written into the saved Activity state.
+        if(aiKeyField!=null) aiKey=aiKeyField.getText().toString();
+    }
+    private void clearAiDraft() {
+        aiDraft=false; aiAddress=""; aiModel=""; aiKey=""; aiEnabled=false; aiTranslation=false;
+        aiAddressField=null; aiModelField=null; aiKeyField=null;
     }
     private String t(String chinese,String english) {
         return getResources().getConfiguration().getLocales().get(0).getLanguage().equals("zh")?chinese:english;
@@ -475,29 +502,33 @@ public final class SetupActivity extends Activity {
     }
     private void ai() {
         OpenAiSettings comet=new OpenAiSettings(this); OpenAiSettings.Snapshot profile=comet.snapshot();
+        String addressText=aiDraft?aiAddress:profile.baseURL, modelText=aiDraft?aiModel:profile.model, keyText=aiDraft?aiKey:"";
+        boolean enabledValue=aiDraft?aiEnabled:profile.enabled, translationValue=aiDraft?aiTranslation:profile.translation;
+        aiEnabled=enabledValue; aiTranslation=translationValue;
         LinearLayout remote=group(t("联网 AI","Online AI"));
         row(remote,KeyboardIcon.MAGIC_WAND,t("联网 AI","Online AI"),profile.baseURL,profile.enabled?t("已启用","Enabled"):t("未启用","Off"),"settings.ai.comet",null);
         note(t("启用并点执行后，仅将本次 Buffer 原文发送给你配置的 AI 服务。普通打字不联网；密码和隐私输入框禁用 AI。结果须手动发送。","After enabling, Run sends only the current Buffer source to your configured AI service. Ordinary typing stays offline; AI is disabled in password and private fields. Insert results manually."));
         LinearLayout configuration=group(t("连接设置","Connection settings"));
-        EditText address=aiField(configuration,t("API 地址","API URL"),profile.baseURL,"settings.ai.base_url",false);
-        EditText model=aiField(configuration,t("模型","Model"),profile.model,"settings.ai.comet.model",false);
-        note(t("可填写服务根地址或完整的 /chat/completions 地址。例如 DeepSeek：https://api.deepseek.com。更换服务时请同时填写对应密钥。","Use a base URL or a full /chat/completions URL. For DeepSeek: https://api.deepseek.com. Enter that provider’s key when switching services."));
-        EditText key=aiField(configuration,"API Key","","settings.ai.comet.key",true);
+        EditText address=aiField(configuration,t("API 地址","API URL"),addressText,"settings.ai.base_url",false);
+        EditText model=aiField(configuration,t("模型","Model"),modelText,"settings.ai.comet.model",false);
+        note(t("可填写服务根地址或完整的 /chat/completions 地址。例如 DeepSeek：https://api.deepseek.com。更换服务时请同时填写对应密钥。地址和密钥可以分两次从别的应用复制，回到本页不会被清掉。","Use a base URL or a full /chat/completions URL. For DeepSeek: https://api.deepseek.com. Enter that provider’s key when switching services. You can copy the URL and key from another app in two trips; leaving this page keeps what you already typed."));
+        EditText key=aiField(configuration,"API Key",keyText,"settings.ai.comet.key",true);
         key.setHint(profile.hasKey()?t("已安全保存；留空保留现有密钥","Saved securely; leave blank to keep"):t("输入 API Key","Enter API key"));
-        boolean[] enabled={profile.enabled},translation={profile.translation};
-        toggle(configuration,t("启用联网 AI","Enable online AI"),"settings.ai.comet.enabled",enabled[0],value -> enabled[0]=value);
-        toggle(configuration,t("翻译也使用 AI","Use AI for translation"),"settings.ai.comet.translation",translation[0],value -> translation[0]=value);
+        aiAddressField=address; aiModelField=model; aiKeyField=key;
+        boolean[] enabled={enabledValue},translation={translationValue};
+        toggle(configuration,t("启用联网 AI","Enable online AI"),"settings.ai.comet.enabled",enabled[0],value -> { enabled[0]=value; aiEnabled=value; });
+        toggle(configuration,t("翻译也使用 AI","Use AI for translation"),"settings.ai.comet.translation",translation[0],value -> { translation[0]=value; aiTranslation=value; });
         TextView status=text("",14,secondary,false); status.setPadding(dp(16),dp(8),dp(16),dp(8)); status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); configuration.addView(status);
         row(configuration,KeyboardIcon.CHECK,t("保存设置","Save settings"),null,null,"settings.ai.comet.save",() -> {
             try {
                 comet.save(address.getText().toString(),model.getText().toString(),key.getText().toString(),enabled[0],translation[0]);
-                key.setText(""); show("ai");
+                clearAiDraft(); show("ai");
                 android.widget.Toast.makeText(this,t("AI 设置已保存","AI settings saved"),android.widget.Toast.LENGTH_SHORT).show();
-            } catch(OpenAiChatCodec.Failure error) { status.setText(error.getMessage()); }
+            } catch(OpenAiChatCodec.Failure error) { status.setText(error.getMessage()); android.widget.Toast.makeText(this,error.getMessage(),android.widget.Toast.LENGTH_LONG).show(); }
         });
         row(configuration,null,t("移除密钥并关闭联网 AI","Remove key and disable online AI"),null,null,"settings.ai.comet.clear",() -> {
-            try { comet.clear(); key.setText(""); show("ai"); }
-            catch(OpenAiChatCodec.Failure error) { status.setText(error.getMessage()); }
+            try { comet.clear(); clearAiDraft(); show("ai"); }
+            catch(OpenAiChatCodec.Failure error) { status.setText(error.getMessage()); android.widget.Toast.makeText(this,error.getMessage(),android.widget.Toast.LENGTH_LONG).show(); }
         });
         note(t("密钥由 Android Keystore 加密，不参与备份。不保存请求或回复正文。未启用 AI 翻译时，翻译仍使用本机词典。","Keys are encrypted with Android Keystore and excluded from backup. Request and reply text is not saved. Translation uses the local dictionary unless AI translation is enabled."));
         LinearLayout service=group(t("本机演示","Local demo")); row(service,KeyboardIcon.MAGIC_WAND,t("本机演示服务","On-device demo service"),"OpenAI Chat Completions · Mock",null,"settings.ai.service",null);

@@ -102,6 +102,12 @@ public final class RimesInputMethodService extends InputMethodService {
     private List<String> spellingChoices=java.util.Collections.emptyList();
     private static final String[] MARKS={",",".","?","!","、",":",";","'"};
     private static final String[] MARK_LABELS={"，","。","？","！","、","：","；","'"};
+    /** Number and symbol keys show the character they commit. Chinese uses the full-width mark. */
+    private String shapedMark(String text) {
+        if(!numeric || english || directOnly) return text;
+        for(int i=0;i<MARKS.length;i++) if(text.equals(MARKS[i])) return MARK_LABELS[i];
+        return text;
+    }
     private TextView preedit;
     private HorizontalScrollView candidateScroll;
     private LinearLayout candidateStrip;
@@ -579,16 +585,6 @@ public final class RimesInputMethodService extends InputMethodService {
         }
         render();
     }
-    private void commitSystemClipboard() {
-        captureClipboard();
-        String text=clipText(primaryClip());
-        if(text!=null && !text.trim().isEmpty()) { deliver(text,false); render(); return; }
-        if(ownsTarget()) {
-            if(hostComposing) { target.finishComposingText(); hostComposing=false; composingStart=-1; }
-            if(target.performContextMenuAction(android.R.id.paste)) return;
-        }
-        Toast.makeText(this,"剪贴板为空",Toast.LENGTH_SHORT).show();
-    }
     private void updateComposition() {
         if(!ownsTarget() || buffer.isEnabled() || directOnly) return;
         if(visiblePassword) {
@@ -810,11 +806,12 @@ public final class RimesInputMethodService extends InputMethodService {
             if(chordLayout()) english=false;
         });
     }
-    private void openFuzzySettings() {
+    private void openAppSettings() {
+        appearanceOpen=false;
         android.content.Intent intent=new android.content.Intent(this,SetupActivity.class);
-        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-        intent.putExtra("settings.page","fuzzy");
+        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK|android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
         startActivity(intent);
+        render();
     }
     private void chooseHeightScale(String selected) {
         settings.setHeightScale(selected);
@@ -945,7 +942,8 @@ public final class RimesInputMethodService extends InputMethodService {
             switch(key.action) {
                 case TEXT:
                     if(nineKeyVisible()) return new String[]{"ABC","DEF","GHI","JKL","MNO","PQRS","TUV","WXYZ"}[Integer.parseInt(key.text)-2];
-                    if(numeric || emoji) return key.text;
+                    if(emoji) return key.text;
+                    if(numeric) return shapedMark(key.text);
                     return uppercase?key.text.toUpperCase(Locale.ROOT):key.text;
                 case SHIFT: return uppercase?"⇪":"⇧";
                 case DELETE: return "⌫";
@@ -1014,8 +1012,7 @@ public final class RimesInputMethodService extends InputMethodService {
             switch(key.action) {
                 case TEXT:
                     String text=uppercase && !numeric && !emoji?key.text.toUpperCase(Locale.ROOT):key.text;
-                    if(numeric && !english && !directOnly) for(int i=0;i<MARKS.length;i++) if(text.equals(MARKS[i])) { text=MARK_LABELS[i]; break; }
-                    type(text,biasX,biasY); break;
+                    type(shapedMark(text),biasX,biasY); break;
                 case SHIFT: settleAndSwitch(() -> uppercase=!uppercase); break;
                 case DELETE: delete(); break;
                 case RETURN: enter(); break;
@@ -1133,8 +1130,9 @@ public final class RimesInputMethodService extends InputMethodService {
         candidateBox.setOrientation(LinearLayout.VERTICAL);
         center.addView(candidateBox,new FrameLayout.LayoutParams(-1,-1));
         preedit=new TextView(this); preedit.setSingleLine(true); preedit.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        preedit.setTextSize(landscape()?13:15); preedit.setGravity(Gravity.CENTER_VERTICAL);
-        preedit.setPadding(dp(12),dp(2),dp(12),dp(2)); preedit.setTypeface(android.graphics.Typeface.create("sans-serif-medium",android.graphics.Typeface.NORMAL));
+        preedit.setTextSize(KeyboardTypography.preeditSp(landscape())); preedit.setGravity(Gravity.CENTER_VERTICAL);
+        preedit.setIncludeFontPadding(false);
+        preedit.setPadding(dp(12),0,dp(12),0); preedit.setTypeface(android.graphics.Typeface.create("sans-serif-medium",android.graphics.Typeface.NORMAL));
         preedit.setOnClickListener(v -> { if(snapshot.composing()) enter(); });
         candidateBox.addView(preedit,new LinearLayout.LayoutParams(-1,dp(landscape()?16:22)));
         candidateScroll=new HorizontalScrollView(this); candidateScroll.setFillViewport(false); candidateScroll.setHorizontalScrollBarEnabled(false);
@@ -1172,9 +1170,8 @@ public final class RimesInputMethodService extends InputMethodService {
         appearancePanel=new KeyboardAppearancePanel(this,this::chooseLayout,settings::setTheme,this::chooseHeightPercent,this::chooseBottomInset);
         appearancePanel.schemes(schema,this::chooseSchema);
         appearancePanel.action("全部插入",getString(R.string.insert_all),() -> insert(true));
-        appearancePanel.action("粘贴剪贴板","读取剪贴板内容并上屏",this::commitSystemClipboard);
         appearancePanel.action("清空 Buffer",getString(R.string.clear),() -> { if(pending==0 && !snapshot.composing()) { invalidatePlugin(); buffer.clear(); retryRetained(); render(); } });
-        appearancePanel.action("模糊音设置","配置平翘舌与前后鼻音",this::openFuzzySettings);
+        appearancePanel.action("应用设置","打开 RIMES 应用设置",this::openAppSettings);
         appearancePanel.action("系统键盘",getString(R.string.switch_keyboard),() -> { endTarget(); getSystemService(InputMethodManager.class).showInputMethodPicker(); });
         surfaceContainer.addView(appearancePanel,new FrameLayout.LayoutParams(-1,-1));
         pluginPanel=new BufferPluginPanel(this,new BufferPluginPanel.Listener() {
@@ -1232,7 +1229,7 @@ public final class RimesInputMethodService extends InputMethodService {
         KeyboardLayout.Action[] actions={KeyboardLayout.Action.NUMBERS,KeyboardLayout.Action.SHIFT,KeyboardLayout.Action.SPACE,KeyboardLayout.Action.LANGUAGE,KeyboardLayout.Action.RETURN};
         for(KeyboardLayout.Action action:actions) {
             KeyButton button=button(chordFooter,"",() -> chordControl(action),action==KeyboardLayout.Action.SPACE?3.5f:1);
-            button.classic(true); button.fontStyle(false,action==KeyboardLayout.Action.SHIFT?17:14,true); button.appearance(action!=KeyboardLayout.Action.SPACE,true,action==KeyboardLayout.Action.RETURN); if(!chordControls.isEmpty()) gapLeft(button,2); chordControls.add(button);
+            button.classic(true); button.fontStyle(false,KeyboardTypography.functionSp(landscape()),true); button.appearance(action!=KeyboardLayout.Action.SPACE,true,action==KeyboardLayout.Action.RETURN); if(!chordControls.isEmpty()) gapLeft(button,2); chordControls.add(button);
         }
         rebuildKeys(); render(); return keyboard;
     }
@@ -1360,10 +1357,10 @@ public final class RimesInputMethodService extends InputMethodService {
         while(candidates.size()<count) {
             final int index=candidates.size();
             KeyButton candidate=button(candidateStrip,"",() -> candidateTapped(index),0);
-            candidate.setLayoutParams(new LinearLayout.LayoutParams(-2,-1)); candidate.fontStyle(false,landscape()?15:17,false); candidate.plain(true);
+            candidate.setLayoutParams(new LinearLayout.LayoutParams(-2,-1)); candidate.fontStyle(false,KeyboardTypography.candidateSp(landscape()),true); candidate.plain(true);
             candidate.setMinWidth(dp(32)); candidate.setMinimumWidth(dp(32)); candidate.setPadding(dp(8),0,dp(8),0);
             gapRight(candidate,2);
-            candidate.setAutoSizeTextTypeWithDefaults(TextView.AUTO_SIZE_TEXT_TYPE_NONE); candidate.setTextSize(landscape()?15:17);
+            candidate.setAutoSizeTextTypeWithDefaults(TextView.AUTO_SIZE_TEXT_TYPE_NONE); candidate.setTextSize(KeyboardTypography.candidateSp(landscape()));
             candidates.add(candidate);
         }
     }
@@ -1380,7 +1377,7 @@ public final class RimesInputMethodService extends InputMethodService {
         int desiredPreeditHeight=dp(landscape()?16:22);
         if(preedit.getLayoutParams().height!=desiredPreeditHeight) {
             preedit.getLayoutParams().height=desiredPreeditHeight;
-            preedit.setTextSize(landscape()?13:15);
+            preedit.setTextSize(KeyboardTypography.preeditSp(landscape()));
             preedit.requestLayout();
         }
 
@@ -1415,8 +1412,10 @@ public final class RimesInputMethodService extends InputMethodService {
         chordReadout.render(heldPreview,theme,landscape());
         int count=directOnly?0:!chordPreview.isEmpty()?1:marks?MARKS.length:snapshot.candidates.size();
         ensureCandidateButtons(count);
+        int candidateSize=KeyboardTypography.candidateSp(landscape());
         for(int i=0;i<candidates.size();i++) {
             KeyButton item=candidates.get(i); boolean exists=i<count;
+            item.fontStyle(false,candidateSize,true);
             item.setVisibility(exists?View.VISIBLE:View.GONE);
             if(exists) {
                 String value=!chordPreview.isEmpty()?chordPreview:marks?(english || numeric || emoji?MARKS[i]:MARK_LABELS[i]):snapshot.candidates.get(i);
@@ -1465,7 +1464,8 @@ public final class RimesInputMethodService extends InputMethodService {
         metrics.setTextColor(palette.ink);
         if(metrics.getTag()==null || !metrics.getTag().equals(palette.ink)) { android.graphics.drawable.GradientDrawable output=new android.graphics.drawable.GradientDrawable(); output.setColor((palette.ink&0xffffff)|0x10000000); output.setCornerRadius(dp(7)); metrics.setBackground(output); metrics.setTag(palette.ink); }
         spellingRow.setVisibility(spellingOpen?View.VISIBLE:View.GONE);
-        for(int i=0;i<9;i++) { KeyButton key=spellingButtons.get(i); boolean exists=spellingPage+i<spellingChoices.size(); key.setVisibility(exists?View.VISIBLE:View.GONE);
+        int spellingSize=KeyboardTypography.candidateSp(landscape());
+        for(int i=0;i<9;i++) { KeyButton key=spellingButtons.get(i); key.fontStyle(false,spellingSize,true); boolean exists=spellingPage+i<spellingChoices.size(); key.setVisibility(exists?View.VISIBLE:View.GONE);
             if(exists) { String value=spellingChoices.get(spellingPage+i); setText(key,value); key.setContentDescription("拼音 "+value); } key.setEnabled(exists && pending==0); }
         PluginSession.Status pluginState=pluginSession.snapshot(buffer).status;
         pluginRunButton.setVisibility(plugin?View.VISIBLE:View.GONE); pluginRunButton.setContentDescription(pluginState==PluginSession.Status.RUNNING?"取消执行":"执行"+pluginName(activePlugin));
@@ -1496,7 +1496,7 @@ public final class RimesInputMethodService extends InputMethodService {
         String[] footerLabels={"123",uppercase?"⇪":"⇧","空格",english?"EN":"中",returnLabel()};
         String[] footerDescriptions={"数字与字母","Shift",getString(R.string.space),"中英切换",getString(R.string.enter)};
         for(int i=0;i<chordControls.size();i++) {
-            KeyButton button=chordControls.get(i); setText(button,footerLabels[i]); button.setContentDescription(footerDescriptions[i]);
+            KeyButton button=chordControls.get(i); button.fontStyle(false,KeyboardTypography.functionSp(landscape()),true); setText(button,footerLabels[i]); button.setContentDescription(footerDescriptions[i]);
             LinearLayout.LayoutParams params=(LinearLayout.LayoutParams)button.getLayoutParams(); int keyWidth=i==2?0:Math.round((width/getResources().getDisplayMetrics().density-10)/7.5f*getResources().getDisplayMetrics().density);
             float weight=i==2?1:0; if(params.width!=keyWidth || params.weight!=weight) { params.width=keyWidth; params.weight=weight; button.requestLayout(); }
             button.setEnabled(!chords.isChordActive());

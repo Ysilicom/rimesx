@@ -57,12 +57,12 @@ final class KeyboardSurface extends ViewGroup {
             button.icon(key.action==KeyboardLayout.Action.SHIFT?(handler.selected(key)?KeyboardIcon.SHIFT_FILL:KeyboardIcon.SHIFT)
                     :key.action==KeyboardLayout.Action.DELETE?KeyboardIcon.DELETE:key.action==KeyboardLayout.Action.EMOJI && mode!=KeyboardLayout.Mode.EMOJI?KeyboardIcon.SMILE:null);
             String label=handler.label(key); if(!android.text.TextUtils.equals(button.getText(),label)) button.setText(label);
-            // Latin keys use Manrope. Emoji and Chinese labels keep their own faces.
-            boolean latin=letter && mode!=KeyboardLayout.Mode.EMOJI;
-            int baseFont=latin?(mode==KeyboardLayout.Mode.NINE_KEY?18:landscape()?20:22)
-                    :key.action==KeyboardLayout.Action.LANGUAGE || key.action==KeyboardLayout.Action.PUNCTUATION?15:14;
+            // Latin keys use Manrope at the letter size. Full-width punctuation keeps that size on the system face.
+            boolean textKey=letter && mode!=KeyboardLayout.Mode.EMOJI;
+            boolean nine=mode==KeyboardLayout.Mode.NINE_KEY;
+            int baseFont=textKey?KeyboardTypography.letterSp(landscape(),nine):KeyboardTypography.functionSp(landscape());
             int font=Math.round(baseFont*(1.0f+(heightFactor-1.0f)*0.25f));
-            if(latin) button.letterFace(font); else button.fontStyle(false,font,true);
+            if(textKey && fitsLetterFace(label)) button.letterFace(font); else button.fontStyle(false,font,true);
             String description=handler.description(key);
             if(!android.text.TextUtils.equals(button.getContentDescription(),description)) button.setContentDescription(description);
             String hint=mode==KeyboardLayout.Mode.QWERTY && letter?handler.hint(key):null;
@@ -70,6 +70,11 @@ final class KeyboardSurface extends ViewGroup {
             button.setEnabled(handler.enabled(key));
             button.setSelected(handler.selected(key)); button.theme(theme);
         }
+    }
+    /** Manrope covers Latin, digits and ASCII symbols. Full-width punctuation stays on the system face. */
+    private static boolean fitsLetterFace(String text) {
+        for(int i=0;i<text.length();i++) if(text.charAt(i)>0x024F) return false;
+        return true;
     }
     static String hintForLetter(String letter) {
         if(letter==null || letter.length()!=1) return null;
