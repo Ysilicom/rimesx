@@ -81,6 +81,9 @@ public final class RimesInputMethodService extends InputMethodService {
     private final List<KeyButton> chromeButtons=new ArrayList<>();
     private KeyboardTheme theme=KeyboardTheme.ALL[0];
     private String layout="qwerty";
+    private String heightScale=KeyboardSettings.DEFAULT_HEIGHT_SCALE;
+    private float heightFactor=1.0f;
+    private boolean visiblePassword;
     private boolean symbols,emoji,appearanceOpen,spellingOpen,punctuationOpen;
     private int spellingPage;
     private NineKeyPinyin spellings=new NineKeyPinyin(java.util.Collections.emptyList());
@@ -148,8 +151,10 @@ public final class RimesInputMethodService extends InputMethodService {
         restoreSettings();
         int kind=info.inputType&InputType.TYPE_MASK_CLASS;
         numeric=kind==InputType.TYPE_CLASS_NUMBER || kind==InputType.TYPE_CLASS_PHONE || kind==InputType.TYPE_CLASS_DATETIME;
+        visiblePassword=kind==InputType.TYPE_CLASS_TEXT
+                && (info.inputType&InputType.TYPE_MASK_VARIATION)==InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD;
         directOnly=numeric || isPassword(info) || kind!=InputType.TYPE_CLASS_TEXT;
-        privateField=!allowsBuffer(info);
+        privateField=!allowsBuffer(info) || visiblePassword;
         uppercase=false; symbols=false; emoji=false; appearanceOpen=false; spellingOpen=false; punctuationOpen=false;
         selection=info.initialSelEnd; selectionStart=info.initialSelStart;
         buffer.beginTarget(target!=null && allowsBuffer(info));
@@ -186,6 +191,7 @@ public final class RimesInputMethodService extends InputMethodService {
         KeyboardSettings.Snapshot saved=settings.snapshot();
         cometProfile=cometSettings.snapshot();
         schema=saved.schema; layout=saved.layout; theme=KeyboardTheme.named(saved.theme);
+        heightScale=saved.heightScale; heightFactor=saved.heightFactor;
         translationDirection=saved.translationDirection; aiMockEnabled=saved.aiMockEnabled; learningEnabled=saved.learning;
     }
     private void changeSettingsPair(Runnable write) {
@@ -223,6 +229,9 @@ public final class RimesInputMethodService extends InputMethodService {
             cometProfile=cometSettings.snapshot(); invalidatePlugin(); render(); return;
         }
         if(KeyboardSettings.KEY_THEME.equals(key)) { theme=KeyboardTheme.named(saved.theme); render(); return; }
+        if(KeyboardSettings.KEY_HEIGHT_SCALE.equals(key)) {
+            heightScale=saved.heightScale; heightFactor=saved.heightFactor; render(); return;
+        }
         if(KeyboardSettings.KEY_SCHEMA.equals(key) || KeyboardSettings.KEY_LAYOUT.equals(key)) {
             // Both per-key notifications see the same atomic pair. Settle the old code only once.
             applySettingsPair(saved);
@@ -270,10 +279,11 @@ public final class RimesInputMethodService extends InputMethodService {
         int kind=info.inputType&InputType.TYPE_MASK_CLASS, variation=info.inputType&InputType.TYPE_MASK_VARIATION;
         return kind==InputType.TYPE_CLASS_NUMBER && variation==InputType.TYPE_NUMBER_VARIATION_PASSWORD
                 || kind==InputType.TYPE_CLASS_TEXT && (variation==InputType.TYPE_TEXT_VARIATION_PASSWORD
-                || variation==InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD || variation==InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD);
+                || variation==InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD);
     }
     static boolean allowsBuffer(EditorInfo info) {
         return (info.inputType&InputType.TYPE_MASK_CLASS)==InputType.TYPE_CLASS_TEXT && !isPassword(info)
+                && (info.inputType&InputType.TYPE_MASK_VARIATION)!=InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
                 && (info.imeOptions&EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING)==0;
     }
     private boolean ownsTarget() { return !destroyed && target!=null && target==getCurrentInputConnection(); }
@@ -355,11 +365,20 @@ public final class RimesInputMethodService extends InputMethodService {
         int start=hostComposing ? composingStart : Math.min(selectionStart,selection);
         expect(start<0 ? -1 : start+text.length());
         boolean accepted=target.commitText(text,1);
+        if(!accepted) {
+            target.finishComposingText();
+            accepted=target.commitText(text,1);
+        }
         if(accepted) { hostComposing=false; composingStart=-1; }
         return accepted;
     }
     private void updateComposition() {
         if(!ownsTarget() || buffer.isEnabled() || directOnly) return;
+        if(visiblePassword) {
+            // Terminals using VISIBLE_PASSWORD eager-commit deltas if setComposingText is called.
+            // Avoid setting host composition to prevent premature shell pollution; preedit renders in our preedit view.
+            return;
+        }
         if(snapshot.composing()) {
             if(hostComposing && hostPreedit.equals(snapshot.preedit)) return;
             if(!hostComposing) composingStart=Math.min(selectionStart,selection);
@@ -486,6 +505,12 @@ public final class RimesInputMethodService extends InputMethodService {
             if(selected.equals("nineKey")) english=false;
             if(chordLayout()) english=false;
         });
+    }
+    private void chooseHeightScale(String selected) {
+        settings.setHeightScale(selected);
+        heightScale=selected;
+        heightFactor=KeyboardSettings.heightScaleFactor(selected);
+        render();
     }
     private void typeChord(String code) {
         if(code.isEmpty() || !ownsTarget() || !ready) return;
@@ -709,7 +734,7 @@ public final class RimesInputMethodService extends InputMethodService {
             public String label(ChordLayout.Action action) { return action==ChordLayout.Action.DELETE?"⌫":"☺"; }
             public String description(ChordLayout.Action action) { return action==ChordLayout.Action.DELETE?getString(R.string.backspace):"表情"; }
         }); surfaceContainer.addView(chords,new FrameLayout.LayoutParams(-1,-1));
-        appearancePanel=new KeyboardAppearancePanel(this,this::chooseLayout,settings::setTheme);
+        appearancePanel=new KeyboardAppearancePanel(this,this::chooseLayout,settings::setTheme,this::chooseHeightScale);
         appearancePanel.schemes(schema,this::chooseSchema);
         appearancePanel.action("全部插入",getString(R.string.insert_all),() -> insert(true));
         appearancePanel.action("清空 Buffer",getString(R.string.clear),() -> { if(pending==0 && !snapshot.composing()) { invalidatePlugin(); buffer.clear(); retryRetained(); render(); } });
@@ -723,7 +748,7 @@ public final class RimesInputMethodService extends InputMethodService {
         }); surfaceContainer.addView(pluginPanel,new FrameLayout.LayoutParams(-1,-1));
         pluginOutput=new BufferRail(this);
         renderedPluginMode=false;
-        keyboard.addView(surfaceContainer,new LinearLayout.LayoutParams(-1,dp(KeyboardLayout.height(landscape()))));
+        keyboard.addView(surfaceContainer,new LinearLayout.LayoutParams(-1,dp(KeyboardLayout.height(landscape(),heightFactor))));
         chordFooter=row(keyboard,landscape()?34:40); ((LinearLayout.LayoutParams)chordFooter.getLayoutParams()).bottomMargin=0;
         KeyboardLayout.Action[] actions={KeyboardLayout.Action.NUMBERS,KeyboardLayout.Action.SHIFT,KeyboardLayout.Action.SPACE,KeyboardLayout.Action.LANGUAGE,KeyboardLayout.Action.RETURN};
         for(KeyboardLayout.Action action:actions) {
@@ -835,6 +860,7 @@ public final class RimesInputMethodService extends InputMethodService {
         bufferButton.setEnabled(buffer.isPermitted() && pending==0 && !snapshot.composing() && retained.isEmpty() && !chords.isChordActive());
         String status=failed?getString(R.string.engine_failed):!ready?getString(R.string.engine_loading):"";
         if(!retained.isEmpty()) status=getString(R.string.delivery_pending);
+        else if(status.isEmpty() && !hostComposing && snapshot.composing()) status=snapshot.preedit;
         setText(preedit,status); preedit.setTextColor(palette.accentText); preedit.setVisibility(!directOnly && !status.isEmpty()?View.VISIBLE:View.GONE);
         spellingChoices=nineKeyVisible()?spellings.choices(snapshot.raw):java.util.Collections.emptyList();
         if(spellingChoices.isEmpty()) spellingOpen=false;
@@ -897,11 +923,12 @@ public final class RimesInputMethodService extends InputMethodService {
         retryButton.setVisibility(failed || !retained.isEmpty()?View.VISIBLE:View.GONE);
         boolean chord=chordVisible();
         float width=(keyboard.getWidth()>0?keyboard.getWidth():getResources().getDisplayMetrics().widthPixels)-keyboard.getPaddingLeft()-keyboard.getPaddingRight();
-        float surfaceHeight=chord?ChordLayout.height(Math.max(1,width/getResources().getDisplayMetrics().density),"splitOrthogonal".equals(layout)):KeyboardLayout.height(landscape());
+        float surfaceHeight=chord?ChordLayout.height(Math.max(1,width/getResources().getDisplayMetrics().density),"splitOrthogonal".equals(layout)):KeyboardLayout.height(landscape(),heightFactor);
         boolean panelOpen=appearanceOpen || pluginSettingsOpen;
         if(chord && panelOpen) surfaceHeight+=landscape()?35:41;
         int desiredHeight=Math.round(surfaceHeight*getResources().getDisplayMetrics().density);
         if(surfaceContainer.getLayoutParams().height!=desiredHeight) { surfaceContainer.getLayoutParams().height=desiredHeight; surfaceContainer.requestLayout(); }
+        keys.setHeightFactor(heightFactor);
         keys.render(visibleMode(),theme); keys.setVisibility(panelOpen || chord?View.GONE:View.VISIBLE);
         chords.render("splitOrthogonal".equals(layout),!english && !uppercase,uppercase,theme); chords.setVisibility(panelOpen || !chord?View.GONE:View.VISIBLE);
         chordFooter.setVisibility(!panelOpen && chord?View.VISIBLE:View.GONE);
@@ -919,7 +946,7 @@ public final class RimesInputMethodService extends InputMethodService {
         insertNext.setSelected(insertNext.isEnabled());
         if(appearanceOpen) appearancePanel.schemes(schema,this::chooseSchema);
         appearancePanel.setVisibility(appearanceOpen?View.VISIBLE:View.GONE);
-        if(appearanceOpen) appearancePanel.render(layout,theme);
+        if(appearanceOpen) appearancePanel.render(layout,theme,heightScale);
         pluginPanel.setVisibility(pluginSettingsOpen?View.VISIBLE:View.GONE);
         if(pluginSettingsOpen) pluginPanel.render(theme,activePlugin,translationDirection);
     }

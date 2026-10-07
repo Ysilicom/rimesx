@@ -22,11 +22,15 @@ public final class KeyboardLayout {
         }
     }
     private KeyboardLayout() {}
-    public static int height(boolean landscape) { return landscape?143:206; }
+    public static int height(boolean landscape,float scale) { return Math.max(80,Math.round((landscape?143:206)*scale)); }
+    public static int height(boolean landscape) { return height(landscape,1.0f); }
     public static List<Key> keys(float width,boolean landscape,Mode mode) {
+        return keys(width,landscape,mode,1.0f);
+    }
+    public static List<Key> keys(float width,boolean landscape,Mode mode,float scale) {
         if(width<=0) throw new IllegalArgumentException("Keyboard width must be positive");
-        List<Key> result=new ArrayList<>(); float row=height(landscape)/4f;
-        float gap=landscape?5:6,rowGap=landscape?5:10,capHeight=(height(landscape)-3*rowGap)/4f;
+        List<Key> result=new ArrayList<>(); float h=height(landscape,scale); float row=h/4f;
+        float gap=landscape?5:6,rowGap=landscape?5:10,capHeight=(h-3*rowGap)/4f;
         if(mode==Mode.NINE_KEY) {
             float unit=width/5,capUnit=(width-4*gap)/5;
             nine(result,Action.NUMBERS,"",0,0,1,1,unit,row,capUnit,capHeight,gap,rowGap);

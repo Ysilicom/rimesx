@@ -12,10 +12,14 @@ import java.util.function.Consumer;
 final class KeyboardAppearancePanel extends ScrollView {
     private final List<KeyButton> themes=new ArrayList<>(),actions=new ArrayList<>();
     private final KeyButton qwerty,nine,chord,split;
+    private final KeyButton hShort,hNormal,hMediumTall,hTall;
     private final List<KeyButton> schemas=new ArrayList<>();
     private String schema="rimes_pinyin";
-    private final TextView title,note;
+    private final TextView title,heightTitle,note;
     KeyboardAppearancePanel(Context context,Consumer<String> layout,Consumer<String> theme) {
+        this(context,layout,theme,h -> {});
+    }
+    KeyboardAppearancePanel(Context context,Consumer<String> layout,Consumer<String> theme,Consumer<String> heightChange) {
         super(context); setFillViewport(true);
         LinearLayout column=new LinearLayout(context); column.setOrientation(LinearLayout.VERTICAL); addView(column);
         title=new TextView(context); title.setText("键位布局"); title.setTextSize(13); title.setPadding(dp(8),dp(8),0,dp(4)); column.addView(title);
@@ -25,6 +29,14 @@ final class KeyboardAppearancePanel extends ScrollView {
         LinearLayout chords=row(column);
         chord=button(chords,"并击 · 正交",() -> layout.accept("orthogonal")); chord.setContentDescription("布局 正交并击");
         split=button(chords,"并击 · 分体正交",() -> layout.accept("splitOrthogonal")); split.setContentDescription("布局 分体并击");
+
+        heightTitle=new TextView(context); heightTitle.setText("键盘高度"); heightTitle.setTextSize(13); heightTitle.setPadding(dp(8),dp(8),0,dp(4)); column.addView(heightTitle);
+        LinearLayout heights=row(column);
+        hShort=button(heights,"偏矮 · 90%",() -> heightChange.accept("short")); hShort.setContentDescription("高度 偏矮");
+        hNormal=button(heights,"适中 · 标准",() -> heightChange.accept("normal")); hNormal.setContentDescription("高度 标准");
+        hMediumTall=button(heights,"偏高 · 110%",() -> heightChange.accept("medium_tall")); hMediumTall.setContentDescription("高度 偏高");
+        hTall=button(heights,"高 · 120%",() -> heightChange.accept("tall")); hTall.setContentDescription("高度 高");
+
         note=new TextView(context); note.setText("配色 · 跟随系统浅色 / 深色"); note.setTextSize(13); note.setPadding(dp(8),dp(8),0,dp(4)); column.addView(note);
         LinearLayout current=null;
         for(int i=0;i<KeyboardTheme.ALL.length;i++) {
@@ -34,14 +46,18 @@ final class KeyboardAppearancePanel extends ScrollView {
             item.icon(KeyboardIcon.APPEARANCE,16,true); item.setContentDescription("配色 "+option.title); themes.add(item);
         }
     }
-    void render(String layout,KeyboardTheme theme) {
+    void render(String layout,KeyboardTheme theme) { render(layout,theme,"normal"); }
+    void render(String layout,KeyboardTheme theme,String heightScale) {
         qwerty.setSelected(layout.equals("qwerty")); nine.setSelected(layout.equals("nineKey"));
         chord.setSelected(layout.equals("orthogonal")); split.setSelected(layout.equals("splitOrthogonal"));
         chord.theme(theme); split.theme(theme);
+        hShort.setSelected("short".equals(heightScale)); hNormal.setSelected("normal".equals(heightScale));
+        hMediumTall.setSelected("medium_tall".equals(heightScale)); hTall.setSelected("tall".equals(heightScale));
+        hShort.theme(theme); hNormal.theme(theme); hMediumTall.theme(theme); hTall.theme(theme);
         for(int i=0;i<schemas.size();i++) { schemas.get(i).theme(theme); schemas.get(i).setSelected(schema.equals(new String[]{"rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi"}[i])); }
         qwerty.theme(theme); nine.theme(theme);
         for(KeyButton key:actions) key.theme(theme);
-        title.setTextColor(theme.palette(getContext()).ink); note.setTextColor(theme.palette(getContext()).ink);
+        title.setTextColor(theme.palette(getContext()).ink); heightTitle.setTextColor(theme.palette(getContext()).ink); note.setTextColor(theme.palette(getContext()).ink);
         for(int i=0;i<themes.size();i++) { KeyButton button=themes.get(i); button.theme(KeyboardTheme.ALL[i]); button.setSelected(KeyboardTheme.ALL[i]==theme); }
         setBackgroundColor(theme.palette(getContext()).background);
     }

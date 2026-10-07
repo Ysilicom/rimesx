@@ -6,7 +6,8 @@ import android.content.Context;
 /** Palette values mirror iOS Support/KeyboardTheme.swift; no image assets or animation runtime. */
 final class KeyboardTheme {
     static final KeyboardTheme[] ALL={
-        new KeyboardTheme("apple","原生","◐",0xFFD1D3D9,0xFFFFFFFF,0xFFABB0BA,0xFF007AFF,0xFF1F1F1F,0xFF6E6E6E,0xFF404040,0xFF0A84FF),
+        new KeyboardTheme("gboard","Gboard","G",0xFFECEFF1,0xFFFFFFFF,0xFFD2D6DC,0xFF1A73E8,0xFF1F2024,0xFF303134,0xFF3C4043,0xFF8AB4F8),
+        new KeyboardTheme("apple","原生iOS","◐",0xFFD1D3D9,0xFFFFFFFF,0xFFABB0BA,0xFF007AFF,0xFF1F1F1F,0xFF6E6E6E,0xFF404040,0xFF0A84FF),
         new KeyboardTheme("rhino","犀牛","🦏",0xFFD8D8D1,0xFFFFF9EB,0xFFB8BBB9,0xFFC65316,0xFF292A28,0xFF46463F,0xFF5C5E59,0xFFF49A53),
         new KeyboardTheme("crab","寄居蟹","🦀",0xFFEADDD1,0xFFFFF7EB,0xFFDEC1A7,0xFFBE4C3D,0xFF312925,0xFF504039,0xFF655045,0xFFF58E72),
         new KeyboardTheme("kitten","小猫","🐱",0xFFF1DFC9,0xFFFFFAF1,0xFFEBC797,0xFFA45B1E,0xFF30271F,0xFF514131,0xFF66503A,0xFFF5B968),
@@ -29,8 +30,9 @@ final class KeyboardTheme {
     private final Palette lightPalette,darkPalette;
     KeyboardTheme(String id,String title,String glyph,int... colors) {
         this.id=id; this.title=title; this.glyph=glyph;
-        lightPalette=new Palette(colors[0],colors[1],colors[2],colors[3],0xFF000000,id.equals("apple"),false);
-        darkPalette=new Palette(colors[4],colors[5],colors[6],colors[7],0xFFFFFFFF,id.equals("apple"),true);
+        boolean isGboard=id.equals("gboard"), isApple=id.equals("apple");
+        lightPalette=new Palette(colors[0],colors[1],colors[2],colors[3],isGboard?0xFF202124:0xFF000000,isApple,false,isGboard);
+        darkPalette=new Palette(colors[4],colors[5],colors[6],colors[7],0xFFFFFFFF,isApple,true,isGboard);
     }
     static KeyboardTheme named(String id) { for(KeyboardTheme theme:ALL) if(theme.id.equals(id)) return theme; return ALL[0]; }
     Palette palette(Context context) {
@@ -39,10 +41,10 @@ final class KeyboardTheme {
     }
     static final class Palette {
         final int background,key,functional,accent,ink,accentInk,accentText,pressedSelected,pressedSelectedInk;
-        final boolean system,dark;
-        Palette(int background,int key,int functional,int accent,int ink,boolean system,boolean dark) {
-            this.background=background; this.key=key; this.functional=functional; this.accent=accent; this.ink=ink; this.system=system; this.dark=dark;
-            accentInk=system?0xFFFFFFFF:contrastingInk(accent);
+        final boolean system,dark,isGboard;
+        Palette(int background,int key,int functional,int accent,int ink,boolean system,boolean dark,boolean isGboard) {
+            this.background=background; this.key=key; this.functional=functional; this.accent=accent; this.ink=ink; this.system=system; this.dark=dark; this.isGboard=isGboard;
+            accentInk=system || isGboard?0xFFFFFFFF:contrastingInk(accent);
             float[] hsv=new float[3]; android.graphics.Color.colorToHSV(accent,hsv); hsv[2]*=0.78f;
             pressedSelected=android.graphics.Color.HSVToColor(hsv); pressedSelectedInk=contrastingInk(pressedSelected);
             accentText=contrast(accent,background)>=4.5?accent:ink;

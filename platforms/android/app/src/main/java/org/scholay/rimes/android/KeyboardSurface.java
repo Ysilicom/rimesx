@@ -51,14 +51,20 @@ final class KeyboardSurface extends ViewGroup {
             button.setEnabled(handler.enabled(key));
             button.setSelected(handler.selected(key)); button.theme(theme);
         }
+    private float heightFactor=1.0f;
+    void setHeightFactor(float factor) {
+        if(Math.abs(this.heightFactor-factor)>0.001f) {
+            this.heightFactor=factor;
+            requestLayout();
+        }
     }
     private boolean landscape() { return getResources().getConfiguration().orientation==Configuration.ORIENTATION_LANDSCAPE; }
     @Override protected void onMeasure(int widthSpec,int heightSpec) {
         int width=MeasureSpec.getSize(widthSpec); float density=getResources().getDisplayMetrics().density;
-        int height=Math.round(KeyboardLayout.height(landscape())*density);
+        int height=Math.round(KeyboardLayout.height(landscape(),heightFactor)*density);
         setMeasuredDimension(width,resolveSize(height,heightSpec));
         if(mode==null) return;
-        frames=KeyboardLayout.keys(Math.max(1,width/density),landscape(),mode);
+        frames=KeyboardLayout.keys(Math.max(1,width/density),landscape(),mode,heightFactor);
         for(int i=0;i<frames.size();i++) {
             KeyboardLayout.Key key=frames.get(i);
             int w=Math.round((key.x+key.width)*density)-Math.round(key.x*density);

@@ -132,7 +132,7 @@ final class KeyButton extends Button {
         float x=frameX*density,y=frameY*density;
         float width=frameWidth<0?getWidth():frameWidth*density,height=frameHeight<0?getHeight():frameHeight*density;
         boolean pressed=isPressed(),selected=isSelected(); int alpha=isEnabled()?255:102;
-        float radius=(systemCaps()?5:compact?3:6)*density;
+        float radius=(palette!=null && palette.isGboard?7.5f:systemCaps()?5:compact?3:6)*density;
         if(shortcut) {
             cap.set(x,y,x+width,y+height);
             paint.setColor(pressed || selected?palette.accent:(palette.ink&0xffffff)|(palette.dark?0x1a000000:0x10000000));
@@ -143,6 +143,16 @@ final class KeyButton extends Button {
                 cap.set(x,y,x+width,y+height); paint.setColor(palette.accent); paint.setAlpha(alpha);
                 canvas.drawRoundRect(cap,4*density,4*density,paint);
             }
+        } else if(palette!=null && palette.isGboard) {
+            float dx=0.5f*density,dy=0.75f*density;
+            cap.set(x+dx,y+dy,x+width-dx,y+height-dy);
+            cap.offset(0,1.2f*density); paint.setColor(palette.dark?0x40000000:0x22000000);
+            if(!isEnabled()) paint.setAlpha(Math.round(paint.getAlpha()*0.4f));
+            canvas.drawRoundRect(cap,radius,radius,paint);
+            cap.offset(0,-1.2f*density);
+            int fill=pressed?(accent && selected?palette.pressedSelected:palette.accent)
+                    :accent && selected?palette.accent:selected?palette.key:functional?palette.functional:palette.key;
+            paint.setColor(fill); paint.setAlpha(alpha); canvas.drawRoundRect(cap,radius,radius,paint);
         } else if(systemCaps()) {
             cap.set(x,y+0.5f*density,x+width,y+height-0.5f*density);
             cap.offset(0,density); paint.setColor(palette.dark?0x80000000:0x40000000);
@@ -169,7 +179,7 @@ final class KeyButton extends Button {
         // Button text/content descriptions still provide native accessibility and keyboard focus.
         String text=getText().toString(); Paint textPaint=getPaint(); float originalSize=textPaint.getTextSize();
         float dx=(compact?0:0.5f)*density,dy=(compact?0.75f:1.5f)*density;
-        float centreY=y+height/2+(plain || shortcut?0:pressed?(compact?0.75f:1.5f):(compact?-0.25f:-0.5f))*density;
+        float centreY=y+height/2+(plain || shortcut || (palette!=null && palette.isGboard)?0:pressed?(compact?0.75f:1.5f):(compact?-0.25f:-0.5f))*density;
         float textWidth=textPaint.measureText(text),availableWidth=Math.max(1,plain || shortcut?width-getPaddingLeft()-getPaddingRight():width-2*dx-2*density);
         textPaint.getFontMetrics(fontMetrics); float availableHeight=Math.max(1,height-2*dy);
         if(icon!=null) {

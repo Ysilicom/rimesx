@@ -14,18 +14,21 @@ public final class KeyboardSettings {
     public static final String KEY_SCHEMA="schema";
     public static final String KEY_LAYOUT="layout";
     public static final String KEY_THEME="theme";
+    public static final String KEY_HEIGHT_SCALE="height_scale";
     public static final String KEY_TRANSLATION_DIRECTION="translation_direction";
     public static final String KEY_LEARNING="learning";
     public static final String KEY_AI_MOCK_ENABLED="ai_mock_enabled";
     public static final String DEFAULT_SCHEMA="rimes_pinyin";
     public static final String DEFAULT_LAYOUT="qwerty";
-    public static final String DEFAULT_THEME="apple";
+    public static final String DEFAULT_THEME="gboard";
+    public static final String DEFAULT_HEIGHT_SCALE="normal";
     public static final String DEFAULT_TRANSLATION_DIRECTION="auto";
     public static final boolean DEFAULT_LEARNING=true;
     public static final boolean DEFAULT_AI_MOCK_ENABLED=true;
 
     private static final List<String> SCHEMA_VALUES=values("rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi");
     private static final List<String> LAYOUT_VALUES=values("qwerty","nineKey","orthogonal","splitOrthogonal");
+    private static final List<String> HEIGHT_SCALE_VALUES=values("short","normal","medium_tall","tall");
     private static final List<String> DIRECTION_VALUES=values("auto","zh-en","en-zh");
     private static final List<String> THEME_VALUES=themeIDs();
     private final SharedPreferences preferences;
@@ -52,7 +55,14 @@ public final class KeyboardSettings {
     public static List<String> schemaValues() { return SCHEMA_VALUES; }
     public static List<String> layoutValues() { return LAYOUT_VALUES; }
     public static List<String> themeValues() { return THEME_VALUES; }
+    public static List<String> heightScaleValues() { return HEIGHT_SCALE_VALUES; }
     public static List<String> translationDirectionValues() { return DIRECTION_VALUES; }
+    public static float heightScaleFactor(String scale) {
+        if("short".equals(scale)) return 0.90f;
+        if("medium_tall".equals(scale)) return 1.10f;
+        if("tall".equals(scale)) return 1.20f;
+        return 1.00f;
+    }
     private static String normalized(String value,List<String> values,String fallback) {
         return values.contains(value)?value:fallback;
     }
@@ -75,13 +85,17 @@ public final class KeyboardSettings {
         String layout=text(stored,KEY_LAYOUT,LAYOUT_VALUES,DEFAULT_LAYOUT);
         // Repair a legacy/inconsistent pair in the projection, preserving a valid selected schema.
         if("nineKey".equals(layout) && !DEFAULT_SCHEMA.equals(schema)) layout=DEFAULT_LAYOUT;
+        String heightScale=text(stored,KEY_HEIGHT_SCALE,HEIGHT_SCALE_VALUES,DEFAULT_HEIGHT_SCALE);
         return new Snapshot(schema,layout,text(stored,KEY_THEME,THEME_VALUES,DEFAULT_THEME),
+                heightScale,heightScaleFactor(heightScale),
                 text(stored,KEY_TRANSLATION_DIRECTION,DIRECTION_VALUES,DEFAULT_TRANSLATION_DIRECTION),
                 flag(stored,KEY_LEARNING,DEFAULT_LEARNING),flag(stored,KEY_AI_MOCK_ENABLED,DEFAULT_AI_MOCK_ENABLED));
     }
     public String getSchema() { return snapshot().schema; }
     public String getLayout() { return snapshot().layout; }
     public String getTheme() { return snapshot().theme; }
+    public String getHeightScale() { return snapshot().heightScale; }
+    public float getHeightFactor() { return snapshot().heightFactor; }
     public String getTranslationDirection() { return snapshot().translationDirection; }
     public boolean isLearningEnabled() { return snapshot().learning; }
     public boolean isAiMockEnabled() { return snapshot().aiMockEnabled; }
@@ -106,6 +120,9 @@ public final class KeyboardSettings {
     public void setTheme(String value) {
         preferences.edit().putString(KEY_THEME,normalized(value,THEME_VALUES,DEFAULT_THEME)).apply();
     }
+    public void setHeightScale(String value) {
+        preferences.edit().putString(KEY_HEIGHT_SCALE,normalized(value,HEIGHT_SCALE_VALUES,DEFAULT_HEIGHT_SCALE)).apply();
+    }
     public void setTranslationDirection(String value) {
         preferences.edit().putString(KEY_TRANSLATION_DIRECTION,normalized(value,DIRECTION_VALUES,DEFAULT_TRANSLATION_DIRECTION)).apply();
     }
@@ -113,10 +130,11 @@ public final class KeyboardSettings {
     public void setAiMockEnabled(boolean enabled) { preferences.edit().putBoolean(KEY_AI_MOCK_ENABLED,enabled).apply(); }
 
     public static final class Snapshot {
-        public final String schema,layout,theme,translationDirection;
+        public final String schema,layout,theme,heightScale,translationDirection;
+        public final float heightFactor;
         public final boolean learning,aiMockEnabled;
-        private Snapshot(String schema,String layout,String theme,String direction,boolean learning,boolean aiMockEnabled) {
-            this.schema=schema; this.layout=layout; this.theme=theme; this.translationDirection=direction;
+        private Snapshot(String schema,String layout,String theme,String heightScale,float heightFactor,String direction,boolean learning,boolean aiMockEnabled) {
+            this.schema=schema; this.layout=layout; this.theme=theme; this.heightScale=heightScale; this.heightFactor=heightFactor; this.translationDirection=direction;
             this.learning=learning; this.aiMockEnabled=aiMockEnabled;
         }
     }
