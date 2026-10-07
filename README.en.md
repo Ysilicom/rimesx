@@ -51,19 +51,21 @@
 
 ---
 
-## 🛠️ Local Build & Signing Guide
+## ☁️ GitHub Actions Cloud Compilation (CI/CD)
 
-Run the automated one-click build script from the repository root:
+RIMES X fully supports automated cloud builds, R8 optimization, and signing on **GitHub Cloud Runners** (identical to the Haven cloud workflow), consuming zero local CPU/memory resources:
 
-```bash
-chmod +x build-rimesx.sh
-./build-rimesx.sh
-```
-
-Upon completion, the signed release APK will be located at:
-```
-build-output/rimesx-release.apk
-```
+1. **Automated Cloud Builds**:
+   - Pushing commits to `main` or creating `v*` release tags automatically triggers compilation on GitHub's high-speed x86_64 cloud runners.
+2. **One-Click Manual Trigger**:
+   - Navigate to the GitHub repository -> Click the **Actions** tab;
+   - Select **Build RIMES X Release APK** from the left sidebar;
+   - Click **Run workflow** to immediately trigger a cloud build on GitHub servers.
+3. **Download Signed Release APK**:
+   - Once the cloud build completes, scroll down to the **Artifacts** section on the Actions run summary page to download `rimesx-release-apk`.
+4. **Custom Keystore Secrets (Optional)**:
+   - To sign with your own permanent keystore in the cloud, configure your repository secrets under `Settings` -> `Secrets and variables` -> `Actions` (`KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`).
+   - If secrets are not set, the cloud builder automatically creates a dedicated self-signed release certificate, ensuring every build produces a ready-to-install APK.
 
 ---
 

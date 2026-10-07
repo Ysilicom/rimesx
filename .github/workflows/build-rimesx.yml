@@ -1,0 +1,125 @@
+name: Build RIMES X Release APK
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish as GitHub Release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rimesx-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Sign RIMES X APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK & NDK
+        run: |
+          sdkmanager_path="${ANDROID_HOME:?}/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdkmanager_path"
+          "$sdkmanager_path" 'platforms;android-37.2' 'build-tools;36.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
+
+      - name: Prepare official plugin sources
+        run: python3 scripts/prepare-official-plugins.py
+
+      - name: Build Native Rime Engine & Offline Dictionaries
+        run: python3 platforms/android/scripts/build-engine.py
+
+      - name: Prepare Release Signing Keystore
+        id: keystore
+        env:
+          SECRET_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 }}
+          SECRET_STORE_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          SECRET_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          SECRET_KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          mkdir -p "$HOME/.config/rimesx"
+          KEYSTORE_PATH="$HOME/.config/rimesx/rimesx-release.jks"
+          if [ -n "$SECRET_KEYSTORE" ]; then
+            echo "Using repository secret KEYSTORE_BASE64"
+            echo "$SECRET_KEYSTORE" | base64 -d > "$KEYSTORE_PATH"
+            echo "store_pass=${SECRET_STORE_PASS:-rimesx2026}" >> "$GITHUB_OUTPUT"
+            echo "key_alias=${SECRET_KEY_ALIAS:-rimesx}" >> "$GITHUB_OUTPUT"
+            echo "key_pass=${SECRET_KEY_PASS:-rimesx2026}" >> "$GITHUB_OUTPUT"
+          else
+            echo "Generating self-signed release keystore for CI"
+            keytool -genkeypair -v \
+              -keystore "$KEYSTORE_PATH" \
+              -alias "rimesx" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "rimesx2026" \
+              -keypass "rimesx2026" \
+              -dname "CN=RIMES X, OU=Mobile, O=Ysilicom, L=City, ST=State, C=CN"
+            echo "store_pass=rimesx2026" >> "$GITHUB_OUTPUT"
+            echo "key_alias=rimesx" >> "$GITHUB_OUTPUT"
+            echo "key_pass=rimesx2026" >> "$GITHUB_OUTPUT"
+          fi
+          echo "keystore_path=$KEYSTORE_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Build R8-Optimized Release APK with Gradle
+        env:
+          RIMES_ANDROID_KEYSTORE: ${{ steps.keystore.outputs.keystore_path }}
+          RIMES_ANDROID_STORE_PASSWORD: ${{ steps.keystore.outputs.store_pass }}
+          RIMES_ANDROID_KEY_ALIAS: ${{ steps.keystore.outputs.key_alias }}
+          RIMES_ANDROID_KEY_PASSWORD: ${{ steps.keystore.outputs.key_pass }}
+        run: |
+          cd platforms/android
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Align & Verify APK Signature
+        run: |
+          mkdir -p build-output
+          APK="$(find platforms/android/app/build/outputs/apk/release -name "*.apk" | head -n 1)"
+          cp "$APK" build-output/rimesx-release.apk
+
+          echo "Verifying 4-byte / 16KB zipalign..."
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -v 4 build-output/rimesx-release.apk || true
+
+          echo "Verifying V2+V3 signature with apksigner..."
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose build-output/rimesx-release.apk
+
+          ls -lh build-output/rimesx-release.apk
+
+      - name: Upload Signed Release APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rimesx-release-apk
+          path: build-output/rimesx-release.apk
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.publish_release == 'true'
+        uses: softprops/action-gh-release@c062e08bd532815e2082a85e87e3ef29c3e6d191 # v2.0.8
+        with:
+          files: build-output/rimesx-release.apk
+          name: RIMES X ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true

@@ -51,19 +51,21 @@
 
 ---
 
-## 🛠️ 本地构建与签名 (Build & Sign)
+## ☁️ GitHub 云端编译 (GitHub Actions CI/CD)
 
-在项目根目录下，直接运行一键构建脚本即可完成原生 C++ 核心编译、R8 Release 打包与本地自签名：
+本项目支持完全在 **GitHub 云端服务器** 自动执行 C++ 核心编译、R8 全量优化与签名打包（与 Haven 云端构建体验一致），无需消耗本地设备任何 CPU/内存资源：
 
-```bash
-chmod +x build-rimesx.sh
-./build-rimesx.sh
-```
-
-构建成功后，已签名的发布包将输出至：
-```
-build-output/rimesx-release.apk
-```
+1. **自动构建**：
+   - 每次向 `main` 分支推送代码或发布 `v*` 标签时，GitHub Actions 云端高速构建机（x86_64 16GB）会自动开始编译。
+2. **手动一键编译**：
+   - 访问 GitHub 仓库 -> 点击顶部 **Actions** 标签页；
+   - 在左侧选择 **Build RIMES X Release APK**；
+   - 点击右侧 **Run workflow** 按钮即可在云端即刻触发编译。
+3. **下载已签名 APK 成品**：
+   - 编译完成后，在 Actions 执行详情页底部的 **Artifacts** 区域，直接点击下载 `rimesx-release-apk` 即可安装到手机。
+4. **云端自签名密钥配置（可选）**：
+   - 若要在云端使用您固定的私钥签名，可在 GitHub 仓库的 `Settings` -> `Secrets and variables` -> `Actions` 中配置密钥（如 `KEYSTORE_BASE64`、`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD`）。
+   - 若未配置 Secret，云端构建系统会自动生成专用的 Release 证书完成自签名，保证任何情况下都能直接下载即用。
 
 ---
 
