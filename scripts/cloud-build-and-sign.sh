@@ -110,7 +110,7 @@ while true; do
     STATUS=$(echo "$RUN_DATA" | jq -r '.status // empty')
     CONCLUSION=$(echo "$RUN_DATA" | jq -r '.conclusion // empty')
 
-    if [ "$STATUS" = "null" ] || [ -z "$STATUS" ] || [ "$STATUS" = "401" ] || [ "$STATUS" = "403" ]; then
+    if [ "$STATUS" != "in_progress" ] && [ "$STATUS" != "completed" ] && [ "$STATUS" != "queued" ]; then
         PAGE_HTML=$(curl -sL "https://github.com/$REPO/actions/runs/$RUN_ID" 2>/dev/null || true)
         if echo "$PAGE_HTML" | grep -q 'currently running:' || echo "$PAGE_HTML" | grep -q 'data-concluded="false"'; then
             STATUS="in_progress"
