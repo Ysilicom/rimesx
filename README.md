@@ -1,4 +1,73 @@
-# RIMES
+# RIMES X
+
+[![Android](https://img.shields.io/badge/Platform-Android_8.0+-3DDC84.svg?logo=android&logoColor=white)](platforms/android/)
+[![Refresh Rate](https://img.shields.io/badge/Display-120Hz_Optimized-007AFF.svg)](platforms/android/)
+[![R8 Optimization](https://img.shields.io/badge/Compiler-R8_Optimized-orange.svg)](platforms/android/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![GitHub](https://img.shields.io/badge/Repo-Ysilicom%2Frimesx-black.svg?logo=github)](https://github.com/Ysilicom/rimesx)
+
+**RIMES X** 是基于开源 [RIMES](https://github.com/scholay/rimes) / [RIME](https://rime.im/) 架构深度定制与性能强化的高性能移动输入法发行版。针对移动端高刷流畅度、打字节奏与现代中文输入体验进行了全方位深度优化与重构。
+
+---
+
+## ✨ RIMES X 核心特性与定制优化 (Key Enhancements)
+
+1. 🕊️ **内置小鹤双拼方案（Xiaohe / FlyPY Built-in）**
+   - 官方原生集成 `rimes_flypy.schema.yaml` 方案定义与词库数据；
+   - 开箱即用，无需任何繁琐的外部配置导入；
+   - 支持与全拼、自然码、五笔等主流方案自由无缝切换。
+
+2. ⚡ **逗号/句号智能二合一极速按键（Smart Combo Punctuation Key）**
+   - 专为 26 键 QWERTY 全键盘布局打造的快速断句体验：
+     - **单击（Tap）**：快速输入标点逗号 `，`（半角英文下自动适配为 `,`）；
+     - **快速双击（Double-Tap ≤ 500ms）或长按（Long-Press）**：自动输入标点句号 `。`（半角模式下适配为 `.`）；
+   - 大幅减少频繁切换标点符号界面的手指位移，提升移动端高速盲打与打字连贯性。
+
+3. 🚀 **Android 120Hz 极限流畅度与低延迟流水线优化**
+   - **消除渲染主线程 GC 抖动（Zero-Allocation Rendering）**：
+     - 深度重构 `onDraw()` 渲染路径，移除 `FontMetrics`、`StringBuilder` 等每帧高频瞬态对象分配；
+     - 预计算九宫格候选映射数据，消除 400+ 次高频堆内存开销；
+     - 杜绝因 Android GC 垃圾回收引发的微小卡顿与掉帧，确保 120Hz 高刷新率屏幕下按键动画与拖拽丝滑满帧。
+   - **按键与候选低延迟响应**：
+     - 彻底消除键盘派发过程中的冗余无状态重绘（Redundant Redraw）；
+     - 底层 JNI 全局引用常驻内存缓存，削减 Java 跨层调用 C++ `librime` 的微秒级开销；
+     - 调度线程优先级智能提升（Thread Priority），触控按键即触即显。
+   - **极速冷启动优化**：
+     - 引入 `.verified` 资源状态标记机制，消除冷启动时对大文件字典的重复 SHA-256 全盘哈希重算，秒开即用。
+
+4. 🛡️ **R8 全量优化编译与代码收敛（R8 Optimization & Shrinking）**
+   - 启用 R8 编译器优化（`proguard-android-optimize.txt`），执行深度死代码消除、无用方法内联与包体积压缩；
+   - 专门定制 [proguard-rules.pro](platforms/android/app/proguard-rules.pro) JNI 防混淆保留规则，保证极致精简的同时杜绝崩溃风险。
+
+5. 🔒 **离线私密自签名与无缝升级体系（Isolated Offline Self-Signing）**
+   - 采用本地独立的永久 Keystore 体系（`~/.config/rimesx/rimesx-release.jks`），密钥绝对独立于代码仓库，不上传任何云端；
+   - 支持完整的 Android V2 + V3 签名方案与 4 字节内存对齐（`zipalign`）；
+   - 永久保持证书指纹一致，支持跨版本本地覆盖安装（`adb install -r`），无需卸载重装，用户个人词库永不丢失；
+   - 完全离线运行，零网络权限滥用，无任何隐私上传。
+
+6. 🎨 **全新 RIMES X 视觉品牌**
+   - 应用全局名称定制为 **RIMES X**；
+   - 全新设计的科技蓝 “X” 徽标应用图标（涵盖高精自适应前台图标与单色 Monochrome 图标）。
+
+---
+
+## 🛠️ 本地构建与签名 (Build & Sign)
+
+在项目根目录下，直接运行一键构建脚本即可完成原生 C++ 核心编译、R8 Release 打包与本地自签名：
+
+```bash
+chmod +x build-rimesx.sh
+./build-rimesx.sh
+```
+
+构建成功后，已签名的发布包将输出至：
+```
+build-output/rimesx-release.apk
+```
+
+---
+
+## 📖 上游架构与生态说明 (Upstream RIMES)
 
 [![中文](.github/readme/labels/zh.svg)](README.md) [![English](.github/readme/labels/en.svg)](README.en.md) [![日本語](.github/readme/labels/ja.svg)](README.ja.md) [![한국어](.github/readme/labels/ko.svg)](README.ko.md) [![Español](.github/readme/labels/es.svg)](README.es.md)
 
@@ -7,7 +76,7 @@
 
 支持全拼、双拼、声笔、五笔、英文方案；支持速录行业的并击式键入方案、支持自定义导入。面向新手用户，本项目安装包**自包含** librime 与词库，开箱即用。
 
-> **RIMES** 是本项目的架构名称。对外产品名为 **灵犀输入法**（简体中文）、**靈犀輸入法**（繁体中文）和 **Lingxi IME**（英文）；iOS App Store 已采用这些产品名。
+> **RIMES** 是上游项目的架构名称。对外产品名为 **灵犀输入法**（简体中文）、**靈犀輸入法**（繁体中文）和 **Lingxi IME**（英文）。
 
 ## 联系与交流
 

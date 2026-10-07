@@ -1,4 +1,73 @@
-# RIMES
+# RIMES X
+
+[![Android](https://img.shields.io/badge/Platform-Android_8.0+-3DDC84.svg?logo=android&logoColor=white)](platforms/android/)
+[![Refresh Rate](https://img.shields.io/badge/Display-120Hz_Optimized-007AFF.svg)](platforms/android/)
+[![R8 Optimization](https://img.shields.io/badge/Compiler-R8_Optimized-orange.svg)](platforms/android/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![GitHub](https://img.shields.io/badge/Repo-Ysilicom%2Frimesx-black.svg?logo=github)](https://github.com/Ysilicom/rimesx)
+
+**RIMES X** is a high-performance, customized mobile input method distribution built upon the open-source [RIMES](https://github.com/scholay/rimes) and [RIME](https://rime.im/) architecture. It is re-engineered and fine-tuned for high-refresh-rate displays (120Hz), typing fluidity, and modern Chinese mobile input ergonomics.
+
+---
+
+## ✨ RIMES X Key Enhancements
+
+1. 🕊️ **Built-in Xiaohe Shuangpin (FlyPY)**
+   - Natively bundles `rimes_flypy.schema.yaml` schema definition and precompiled dictionary data;
+   - Out-of-the-box availability without manual external schema imports;
+   - Seamlessly switch between Pinyin, Shuangpin, and Wubi.
+
+2. ⚡ **Smart Combo Punctuation Key (Comma / Period)**
+   - Tailored fast punctuation for the 26-key QWERTY layout:
+     - **Single Tap**: Quickly inputs a comma `，` (or `,` in half-width ASCII mode);
+     - **Quick Double Tap (≤ 500ms) or Long Press**: Automatically inputs a period `。` (or `.` in half-width ASCII mode);
+   - Drastically minimizes hand travel and eliminates the need to switch to symbol keyboards.
+
+3. 🚀 **120Hz Ultra-Low Latency & High Frame Rate Pipeline Optimization**
+   - **Zero-Allocation Rendering**:
+     - Eliminates per-frame object allocations (`FontMetrics`, `StringBuilder`) in `onDraw()`;
+     - Precomputes 9-key candidate digit-to-letter mappings, removing 400+ runtime heap allocations per frame;
+     - Prevents Android garbage collection (GC) pauses to deliver consistent 120Hz fluid touch and key animations.
+   - **Low Latency Input & Dispatch**:
+     - Strips redundant stateless invalidation passes during keystroke handling;
+     - Caches JNI class and method references globally to minimize Java-to-C++ `librime` transit overhead;
+     - Elevates background engine thread priority for instantaneous candidate generation.
+   - **Fast Cold Boot**:
+     - Introduces `.verified` asset state tokens, bypassing redundant full-disk SHA-256 rehashing of large dictionaries on startup.
+
+4. 🛡️ **Full R8 Optimization & Safe Code Shrinking**
+   - Enables R8 aggressive optimizations (`proguard-android-optimize.txt`) for dead code elimination and inlining;
+   - Custom [proguard-rules.pro](platforms/android/app/proguard-rules.pro) keeps JNI and reflection entry points completely safe from stripping.
+
+5. 🔒 **Isolated Offline Local Self-Signing & In-Place Upgrades**
+   - Permanent local keystore (`~/.config/rimesx/rimesx-release.jks`), kept strictly private outside the Git repository and never uploaded;
+   - Signed with Android V2 + V3 signature schemes and 4-byte `zipalign`;
+   - Consistent certificate fingerprints allow seamless in-place updates (`adb install -r`) without losing user dictionaries;
+   - Fully offline: zero telemetry, zero analytics, zero network abuse.
+
+6. 🎨 **Distinctive RIMES X Brand & Visuals**
+   - Application renamed to **RIMES X**;
+   - Redesigned launcher icon with a modern tech-blue "X" badge (Adaptive foreground & monochrome vector assets).
+
+---
+
+## 🛠️ Local Build & Signing Guide
+
+Run the automated one-click build script from the repository root:
+
+```bash
+chmod +x build-rimesx.sh
+./build-rimesx.sh
+```
+
+Upon completion, the signed release APK will be located at:
+```
+build-output/rimesx-release.apk
+```
+
+---
+
+## 📖 Upstream Architecture & Ecosystem (Upstream RIMES)
 
 [![中文](.github/readme/labels/zh.svg)](README.md) [![English](.github/readme/labels/en.svg)](README.en.md) [![日本語](.github/readme/labels/ja.svg)](README.ja.md) [![한국어](.github/readme/labels/ko.svg)](README.ko.md) [![Español](.github/readme/labels/es.svg)](README.es.md)
 
@@ -7,7 +76,7 @@ RIMES is an input method for more than one operating system. Three original slot
 
 Schemes include full Pinyin, double Pinyin, Shengbi, Wubi, and English, plus the chorded input used in stenography and custom imports. For new users, the package **bundles** librime and the dictionaries and is ready to use.
 
-> **RIMES** is the name of the project’s architecture. The public product names are **Lingxi IME** in English, **灵犀输入法** in Simplified Chinese, and **靈犀輸入法** in Traditional Chinese. These names are already used for the iOS App Store listing.
+> **RIMES** is the name of the upstream project’s architecture. The public product names are **Lingxi IME** in English, **灵犀输入法** in Simplified Chinese, and **靈犀輸入法** in Traditional Chinese.
 
 ## Demo videos
 
