@@ -237,7 +237,7 @@ public final class SetupActivity extends Activity {
         row(start,KeyboardIcon.WRITE,t("输入体验","Try typing"),null,null,"settings.home.playground",() -> navigate("playground"));
         LinearLayout typing=group(t("你的输入方式","Your typing"));
         row(typing,null,t("默认方案","Default scheme"),null,schemeName(settings.getSchema()),"settings.home.schema",() -> navigate("schema"));
-        row(typing,KeyboardIcon.SPARKLE,t("模糊拼音设置","Fuzzy Pinyin settings"),null,null,"settings.home.fuzzy",() -> navigate("fuzzy"));
+        row(typing,KeyboardIcon.SLIDERS,t("模糊拼音设置","Fuzzy Pinyin settings"),null,null,"settings.home.fuzzy",() -> navigate("fuzzy"));
         row(typing,KeyboardIcon.SLIDERS,t("滑动并击与键位","Slide chords & mappings"),null,null,"settings.home.chords",() -> navigate("chords"));
         row(typing,KeyboardIcon.KEYBOARD,t("键盘布局与换肤","Keyboard layout & skins"),null,null,"settings.home.appearance",() -> navigate("appearance"));
         row(typing,KeyboardIcon.STACK_LAYERS,t("Rime 方案与词典","Rime schemes & dictionaries"),null,null,"settings.home.resources",() -> navigate("resources"));
@@ -303,7 +303,7 @@ public final class SetupActivity extends Activity {
     private void schemas() {
         LinearLayout choices=group(t("中文输入方案","Chinese input scheme")); String[] ids={"rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi"}; String[] samples={"nihao → 你好","nihk → 你好","nihc → 你好","wq → 你"};
         for(int i=0;i<ids.length;i++) { String id=ids[i]; choice(choices,schemeName(id),samples[i],"settings.schema."+id,settings.getSchema().equals(id),() -> { settings.setSchema(id); render(); }); }
-        row(choices,KeyboardIcon.SPARKLE,t("模糊拼音设置","Fuzzy Pinyin settings"),t("平翘舌互通、前后鼻音、鼻边音等细项开关","Configure granular phonetic interchange rules"),null,"settings.schema.fuzzy",() -> navigate("fuzzy"));
+        row(choices,KeyboardIcon.SLIDERS,t("模糊拼音设置","Fuzzy Pinyin settings"),t("平翘舌互通、前后鼻音、鼻边音等细项开关","Configure granular phonetic interchange rules"),null,"settings.schema.fuzzy",() -> navigate("fuzzy"));
         note(t("九键使用全拼；选择其他方案会切换到 QWERTY。并击使用自然码编码，选择普通中文方案会退出并击布局。","9-key uses Pinyin; another scheme switches to QWERTY. Chords use Natural Code; selecting a regular scheme leaves the chord layout."));
     }
     private void fuzzy() {

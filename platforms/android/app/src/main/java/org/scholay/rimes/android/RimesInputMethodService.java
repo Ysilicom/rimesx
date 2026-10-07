@@ -86,8 +86,9 @@ public final class RimesInputMethodService extends InputMethodService {
     private String layout="qwerty";
     private String heightScale=KeyboardSettings.DEFAULT_HEIGHT_SCALE;
     private float heightFactor=1.0f;
-    private boolean visiblePassword;
-    private boolean symbols,emoji,appearanceOpen,spellingOpen,punctuationOpen;
+    private boolean symbols,emoji,appearanceOpen,spellingOpen,punctuationOpen,clipboardOpen;
+    private ClipboardPanel clipboardPanel;
+    private final List<String> clipboardHistory=new ArrayList<>();
     private int spellingPage;
     private NineKeyPinyin spellings=new NineKeyPinyin(java.util.Collections.emptyList());
     private List<String> spellingChoices=java.util.Collections.emptyList();
@@ -158,7 +159,7 @@ public final class RimesInputMethodService extends InputMethodService {
                 && (info.inputType&InputType.TYPE_MASK_VARIATION)==InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD;
         directOnly=numeric || isPassword(info) || kind!=InputType.TYPE_CLASS_TEXT;
         privateField=!allowsBuffer(info) || visiblePassword;
-        uppercase=false; symbols=false; emoji=false; appearanceOpen=false; spellingOpen=false; punctuationOpen=false;
+        uppercase=false; symbols=false; emoji=false; appearanceOpen=false; spellingOpen=false; punctuationOpen=false; clipboardOpen=false;
         selection=info.initialSelEnd; selectionStart=info.initialSelStart;
         buffer.beginTarget(target!=null && allowsBuffer(info));
         resetEngine(); rebuildKeys(); render();
@@ -273,7 +274,7 @@ public final class RimesInputMethodService extends InputMethodService {
         cancelPlugin(); pluginSession.clear();
         // Clear the old composition before revoking its connection, never through the new target.
         if(target!=null && target==getCurrentInputConnection() && hostComposing) { target.setComposingText("",1); target.finishComposingText(); }
-        cancelChord(); appearanceOpen=false; pluginSettingsOpen=false; activePlugin=null; spellingOpen=false; punctuationOpen=false;
+        cancelChord(); appearanceOpen=false; pluginSettingsOpen=false; clipboardOpen=false; activePlugin=null; spellingOpen=false; punctuationOpen=false;
         hostPreedit=""; target=null; hostComposing=false; composingStart=-1; selection=-1; selectionStart=-1;
         epoch.revoke(); pending=0; expectedSelections.clear(); snapshot=RimeEngine.Snapshot.EMPTY; retained=""; retainedResults.clear();
         buffer.finishTarget(); if(metrics!=null) { metrics.setText(""); metrics.setContentDescription(null); } if(bufferRail!=null) bufferRail.clearProjection(); if(pluginOutput!=null) pluginOutput.clearProjection(); resetEngine(); render();
@@ -387,13 +388,21 @@ public final class RimesInputMethodService extends InputMethodService {
                 if(clip!=null && clip.getItemCount()>0) {
                     CharSequence text=clip.getItemAt(0).coerceToText(this);
                     if(text!=null && text.length()>0) {
-                        deliver(text.toString(),true);
-                        render();
-                        return;
+                        String str=text.toString();
+                        clipboardHistory.remove(str);
+                        clipboardHistory.add(0,str);
+                        while(clipboardHistory.size()>25) {
+                            clipboardHistory.remove(clipboardHistory.size()-1);
+                        }
                     }
                 }
             }
-            Toast.makeText(this,"剪贴板为空",Toast.LENGTH_SHORT).show();
+            clipboardOpen=!clipboardOpen;
+            if(clipboardOpen) {
+                appearanceOpen=false;
+                pluginSettingsOpen=false;
+            }
+            render();
         } catch(Throwable t) {
             android.util.Log.w("RIMES","pasteClipboard failed",t);
         }
@@ -478,7 +487,7 @@ public final class RimesInputMethodService extends InputMethodService {
         }
         else {
             EditorInfo info=getCurrentInputEditorInfo();
-            boolean isTerminal=info==null || info.inputType==android.text.InputType.TYPE_NULL;
+            boolean isTerminal=info==null || info.inputType==android.text.InputType.TYPE_NULL || visiblePassword;
             if(isTerminal) {
                 sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL);
                 return;
@@ -576,7 +585,7 @@ public final class RimesInputMethodService extends InputMethodService {
         if(surfaceContainer!=null) {
             float width=(keyboard.getWidth()>0?keyboard.getWidth():getResources().getDisplayMetrics().widthPixels)-keyboard.getPaddingLeft()-keyboard.getPaddingRight();
             float surfaceHeight=chordVisible()?ChordLayout.height(Math.max(1,width/getResources().getDisplayMetrics().density),"splitOrthogonal".equals(layout)):KeyboardLayout.height(landscape(),heightFactor);
-            if(chordVisible() && (appearanceOpen || pluginSettingsOpen)) surfaceHeight+=landscape()?35:41;
+            if(chordVisible() && (appearanceOpen || pluginSettingsOpen || clipboardOpen)) surfaceHeight+=landscape()?35:41;
             surfaceContainer.getLayoutParams().height=Math.round(surfaceHeight*getResources().getDisplayMetrics().density);
             surfaceContainer.requestLayout();
         }
@@ -617,7 +626,7 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private void toggleAppearance() {
         cancelChord();
-        pluginSettingsOpen=false; appearanceOpen=!appearanceOpen;
+        pluginSettingsOpen=false; clipboardOpen=false; appearanceOpen=!appearanceOpen;
         if(appearanceOpen) appearancePanel.scrollTo(0,0);
         render();
     }
@@ -827,6 +836,22 @@ public final class RimesInputMethodService extends InputMethodService {
             public void onClose() { pluginSettingsOpen=false; render(); }
             public void onDirection(String direction) { settings.setTranslationDirection(direction); if("translate".equals(activePlugin)) scheduleAutoPlugin(); render(); }
         }); surfaceContainer.addView(pluginPanel,new FrameLayout.LayoutParams(-1,-1));
+        clipboardPanel=new ClipboardPanel(this,new ClipboardPanel.Listener() {
+            public void onPasteItem(String text) {
+                clipboardOpen=false;
+                deliver(text,true);
+                render();
+            }
+            public void onClear() {
+                clipboardHistory.clear();
+                render();
+            }
+            public void onClose() {
+                clipboardOpen=false;
+                render();
+            }
+        });
+        surfaceContainer.addView(clipboardPanel,new FrameLayout.LayoutParams(-1,-1));
         pluginOutput=new BufferRail(this);
         pluginOutput.setOnClickListener(v -> {
             if(pluginSession.snapshot(buffer).status==PluginSession.Status.READY) insertPluginResult();
@@ -856,7 +881,7 @@ public final class RimesInputMethodService extends InputMethodService {
         if(!canSelectPlugin() || !officialPlugins.enabled(id)) return;
         cancelChord(); cancelPlugin(); if(!buffer.isEnabled()) buffer.setEnabled(true); activePlugin=id.equals(activePlugin)?null:id;
         pluginSession.select(activePlugin);
-        punctuationOpen=false; appearanceOpen=false; pluginSettingsOpen=false;
+        punctuationOpen=false; appearanceOpen=false; pluginSettingsOpen=false; clipboardOpen=false;
         if(activePlugin!=null && buffer.blockCount()>0) scheduleAutoPlugin();
         render();
     }
@@ -864,7 +889,7 @@ public final class RimesInputMethodService extends InputMethodService {
         if(!canSelectPlugin()) return;
         cancelChord(); if(!buffer.isEnabled()) buffer.setEnabled(true);
         if(!java.util.Objects.equals(activePlugin,id)) cancelPlugin(); activePlugin=id; pluginSession.select(id);
-        appearanceOpen=false; pluginSettingsOpen=true; render();
+        appearanceOpen=false; clipboardOpen=false; pluginSettingsOpen=true; render();
     }
     private final Runnable autoPluginTask=this::autoRunPlugin;
     private void scheduleAutoPlugin() {
@@ -1035,7 +1060,7 @@ public final class RimesInputMethodService extends InputMethodService {
         boolean chord=chordVisible();
         float width=(keyboard.getWidth()>0?keyboard.getWidth():getResources().getDisplayMetrics().widthPixels)-keyboard.getPaddingLeft()-keyboard.getPaddingRight();
         float surfaceHeight=chord?ChordLayout.height(Math.max(1,width/getResources().getDisplayMetrics().density),"splitOrthogonal".equals(layout)):KeyboardLayout.height(landscape(),heightFactor);
-        boolean panelOpen=appearanceOpen || pluginSettingsOpen;
+        boolean panelOpen=appearanceOpen || pluginSettingsOpen || clipboardOpen;
         if(chord && panelOpen) surfaceHeight+=landscape()?35:41;
         int desiredHeight=Math.round(surfaceHeight*getResources().getDisplayMetrics().density);
         if(surfaceContainer.getLayoutParams().height!=desiredHeight) {
@@ -1067,6 +1092,10 @@ public final class RimesInputMethodService extends InputMethodService {
         if(appearanceOpen) appearancePanel.render(layout,theme,heightScale);
         pluginPanel.setVisibility(pluginSettingsOpen?View.VISIBLE:View.GONE);
         if(pluginSettingsOpen) pluginPanel.render(theme,activePlugin,translationDirection);
+        if(clipboardPanel!=null) {
+            clipboardPanel.setVisibility(clipboardOpen?View.VISIBLE:View.GONE);
+            if(clipboardOpen) clipboardPanel.render(clipboardHistory,theme);
+        }
     }
     private static void setText(TextView view,String value) {
         if(!android.text.TextUtils.equals(view.getText(),value)) view.setText(value);

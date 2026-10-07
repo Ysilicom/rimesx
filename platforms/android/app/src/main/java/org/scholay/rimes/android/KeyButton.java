@@ -80,7 +80,10 @@ final class KeyButton extends Button {
                 new int[]{plain?palette.ink:(palette.ink&0xFFFFFF)|0x66000000,palette.pressedSelectedInk,
                     palette.accentInk,selectedInk,palette.ink}));
     }
-    void font(int size) { setAutoSizeTextTypeUniformWithConfiguration(10,size,1,android.util.TypedValue.COMPLEX_UNIT_SP); }
+    void font(int size) {
+        setAutoSizeTextTypeWithDefaults(AUTO_SIZE_TEXT_TYPE_NONE);
+        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,size);
+    }
     void fontStyle(boolean monospaced,int size) {
         fontStyle(monospaced,size,monospaced);
     }
@@ -186,7 +189,7 @@ final class KeyButton extends Button {
             float glyphSize=Math.max(1,Math.min(iconSize*density,Math.min(availableWidth,availableHeight-2*density)));
             float gap=iconWithText && !text.isEmpty()?3*density:0;
             if(iconWithText && !text.isEmpty()) {
-                float scale=Math.min(1,Math.min(Math.max(1,availableWidth-glyphSize-gap)/Math.max(1,textWidth),availableHeight/(fontMetrics.descent-fontMetrics.ascent)));
+                float scale=Math.min(1,Math.max(1,availableWidth-glyphSize-gap)/Math.max(1,textWidth));
                 if(scale<1) textPaint.setTextSize(originalSize*scale);
                 textWidth=textPaint.measureText(text); textPaint.getFontMetrics(fontMetrics);
                 float left=x+(width-glyphSize-gap-textWidth)/2;
@@ -198,7 +201,7 @@ final class KeyButton extends Button {
             }
             textPaint.setTextSize(originalSize); canvas.restoreToCount(saved); return;
         }
-        float scale=Math.min(1,Math.min(availableWidth/Math.max(1,textWidth),availableHeight/(fontMetrics.descent-fontMetrics.ascent)));
+        float scale=Math.min(1,availableWidth/Math.max(1,textWidth));
         if(scale<1) textPaint.setTextSize(originalSize*scale);
         textPaint.getFontMetrics(fontMetrics); textPaint.setColor(getCurrentTextColor());
         canvas.drawText(text,x+(width-textPaint.measureText(text))/2,centreY-(fontMetrics.ascent+fontMetrics.descent)/2,textPaint);

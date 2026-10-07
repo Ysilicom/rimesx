@@ -31,11 +31,11 @@ final class PluginShortcutBar extends HorizontalScrollView {
         row.setOrientation(LinearLayout.HORIZONTAL); row.setGravity(Gravity.CENTER);
         addView(row,new HorizontalScrollView.LayoutParams(LayoutParams.WRAP_CONTENT,dp(32)));
         pasteButton=new KeyButton(context);
-        pasteButton.setText("粘贴"); pasteButton.setContentDescription("读取剪贴板内容并上屏");
+        pasteButton.setText("剪贴板"); pasteButton.setContentDescription("打开剪贴板历史选择粘贴");
         pasteButton.fontStyle(false,13,true); pasteButton.appearance(true,true,true); pasteButton.shortcut(true);
         pasteButton.icon(KeyboardIcon.WRITE,12,true); pasteButton.theme(theme);
         pasteButton.setOnClickListener(view -> listener.onPasteTap());
-        LinearLayout.LayoutParams pasteCell=new LinearLayout.LayoutParams(dp(68),dp(30));
+        LinearLayout.LayoutParams pasteCell=new LinearLayout.LayoutParams(dp(72),dp(30));
         pasteCell.rightMargin=dp(6);
         row.addView(pasteButton,pasteCell);
 
