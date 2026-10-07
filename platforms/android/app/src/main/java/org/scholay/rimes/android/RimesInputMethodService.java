@@ -86,7 +86,6 @@ public final class RimesInputMethodService extends InputMethodService {
     private final List<KeyButton> chromeButtons=new ArrayList<>();
     private KeyboardTheme theme=KeyboardTheme.ALL[0];
     private String layout="qwerty";
-    private String heightScale=KeyboardSettings.DEFAULT_HEIGHT_SCALE;
     private float heightFactor=1.0f;
     private int heightPercent=100;
     private int bottomInset=0;
@@ -236,7 +235,7 @@ public final class RimesInputMethodService extends InputMethodService {
         KeyboardSettings.Snapshot saved=settings.snapshot();
         cometProfile=cometSettings.snapshot();
         schema=saved.schema; layout=saved.layout; theme=KeyboardTheme.named(saved.theme);
-        heightScale=saved.heightScale; heightFactor=saved.heightFactor;
+        heightFactor=saved.heightFactor;
         heightPercent=saved.heightPercent; bottomInset=saved.bottomInset;
         applyBottomInset();
         translationDirection=saved.translationDirection; aiMockEnabled=saved.aiMockEnabled; learningEnabled=saved.learning; mixedEnglish=saved.mixedEnglish;
@@ -276,8 +275,9 @@ public final class RimesInputMethodService extends InputMethodService {
             cometProfile=cometSettings.snapshot(); invalidatePlugin(); render(); return;
         }
         if(KeyboardSettings.KEY_THEME.equals(key)) { theme=KeyboardTheme.named(saved.theme); render(); return; }
-        if(KeyboardSettings.KEY_HEIGHT_SCALE.equals(key)) {
-            heightScale=saved.heightScale; heightFactor=saved.heightFactor; render(); return;
+        if(KeyboardSettings.KEY_HEIGHT_PERCENT.equals(key) || KeyboardSettings.KEY_HEIGHT_SCALE.equals(key)) {
+            if(heightPercent==saved.heightPercent && Math.abs(heightFactor-saved.heightFactor)<0.001f) return;
+            heightPercent=saved.heightPercent; heightFactor=saved.heightFactor; render(); return;
         }
         if(KeyboardSettings.KEY_SCHEMA.equals(key) || KeyboardSettings.KEY_LAYOUT.equals(key)) {
             // Both per-key notifications see the same atomic pair. Settle the old code only once.
@@ -830,12 +830,6 @@ public final class RimesInputMethodService extends InputMethodService {
         startActivity(intent);
         render();
     }
-    private void chooseHeightScale(String selected) {
-        settings.setHeightScale(selected);
-        heightScale=selected;
-        int percent="short".equals(selected)?90:"medium_tall".equals(selected)?110:"tall".equals(selected)?120:100;
-        chooseHeightPercent(percent);
-    }
     private void chooseHeightPercent(int percent) {
         settings.setHeightPercent(percent);
         heightPercent=percent;
@@ -1305,8 +1299,9 @@ public final class RimesInputMethodService extends InputMethodService {
     private String pluginStatus(PluginSession.Snapshot state) {
         if(cometProfile.remote(activePlugin)) {
             if(state.status==PluginSession.Status.ERROR) return state.message;
-            if(state.status==PluginSession.Status.READY) return "AI 实时翻译就绪 · 点此或回车上屏";
-            return state.status==PluginSession.Status.RUNNING?"AI 实时翻译中… · 点停止可取消":"AI 实时翻译 · "+cometProfile.model;
+            String action="translate".equals(activePlugin)?"实时翻译":pluginName(activePlugin);
+            if(state.status==PluginSession.Status.READY) return "AI "+action+"就绪 · 点此或回车上屏";
+            return state.status==PluginSession.Status.RUNNING?"AI "+action+"中… · 点停止可取消":"AI "+action+" · "+cometProfile.model;
         }
         if(state.status==PluginSession.Status.RUNNING) return activePlugin.equals("translate")?"实时查译中…":"Mock 生成中…";
         if(state.status==PluginSession.Status.READY) return activePlugin.equals("translate")?"实时翻译就绪 · 点此或回车上屏":"生成完成 · 点此或回车发送";

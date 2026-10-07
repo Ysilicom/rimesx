@@ -75,14 +75,7 @@ public final class KeyboardSettings {
     public static List<String> schemaValues() { return SCHEMA_VALUES; }
     public static List<String> layoutValues() { return LAYOUT_VALUES; }
     public static List<String> themeValues() { return THEME_VALUES; }
-    public static List<String> heightScaleValues() { return HEIGHT_SCALE_VALUES; }
     public static List<String> translationDirectionValues() { return DIRECTION_VALUES; }
-    public static float heightScaleFactor(String scale) {
-        if("short".equals(scale)) return 0.90f;
-        if("medium_tall".equals(scale)) return 1.10f;
-        if("tall".equals(scale)) return 1.20f;
-        return 1.00f;
-    }
     public static float heightScaleFactor(int percent) {
         int clamped=Math.max(MIN_HEIGHT_PERCENT,Math.min(MAX_HEIGHT_PERCENT,percent));
         return clamped/100.0f;
@@ -125,7 +118,6 @@ public final class KeyboardSettings {
     public String getSchema() { return snapshot().schema; }
     public String getLayout() { return snapshot().layout; }
     public String getTheme() { return snapshot().theme; }
-    public String getHeightScale() { return snapshot().heightScale; }
     public float getHeightFactor() { return snapshot().heightFactor; }
     public int getHeightPercent() { return snapshot().heightPercent; }
     public int getBottomInset() { return snapshot().bottomInset; }
@@ -153,11 +145,6 @@ public final class KeyboardSettings {
     }
     public void setTheme(String value) {
         preferences.edit().putString(KEY_THEME,normalized(value,THEME_VALUES,DEFAULT_THEME)).apply();
-    }
-    public void setHeightScale(String value) {
-        String normalized=normalized(value,HEIGHT_SCALE_VALUES,DEFAULT_HEIGHT_SCALE);
-        int percent="short".equals(normalized)?90:"medium_tall".equals(normalized)?110:"tall".equals(normalized)?120:100;
-        preferences.edit().putString(KEY_HEIGHT_SCALE,normalized).putInt(KEY_HEIGHT_PERCENT,percent).apply();
     }
     public void setHeightPercent(int percent) {
         int clamped=Math.max(MIN_HEIGHT_PERCENT,Math.min(MAX_HEIGHT_PERCENT,percent));

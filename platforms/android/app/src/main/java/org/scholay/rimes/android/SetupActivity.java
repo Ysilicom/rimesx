@@ -356,7 +356,6 @@ public final class SetupActivity extends Activity {
     private void schemas() {
         LinearLayout choices=group(t("中文输入方案","Chinese input scheme")); String[] ids={"rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi"}; String[] samples={"nihao → 你好","nihk → 你好","nihc → 你好","wq → 你"};
         for(int i=0;i<ids.length;i++) { String id=ids[i]; choice(choices,schemeName(id),samples[i],"settings.schema."+id,settings.getSchema().equals(id),() -> { settings.setSchema(id); render(); }); }
-        row(choices,KeyboardIcon.SLIDERS,t("输入纠错与模糊音","Typing correction & Fuzzy Pinyin"),t("26键邻近键触控纠错、平翘舌互通、前后鼻音细项","26-key spatial autocorrect, initial/final phonetic rules"),null,"settings.schema.fuzzy",() -> navigate("fuzzy"));
         LinearLayout mixed=group(t("中英文混输","Mixed Chinese and English"));
         toggle(mixed,t("中英文混输","Mixed Chinese and English"),"settings.mixed_english",settings.isMixedEnglishEnabled(),settings::setMixedEnglishEnabled);
         note(t("打开后，全拼、小鹤、自然码的候选里会有英文单词，以及「T恤」这类中英混合词。九键和五笔不变。个别短英文可能排在中文前面。","When on, full Pinyin, Xiaohe and Natural Code offer English words and mixed words such as T恤. Nine-key and Wubi stay unchanged. A short English word may rank ahead of Chinese."));
@@ -404,10 +403,6 @@ public final class SetupActivity extends Activity {
         note(t("标准键盘和并击共用配色，按下反馈也跟随主题。","Standard keys and chords share a palette, including press feedback."));
         LinearLayout standard=group(t("标准键盘","Standard keyboard"));
         segments(standard,new String[]{"qwerty","nineKey"},new String[]{t("QWERTY · 26 键","QWERTY · 26 keys"),t("九键全拼","9-key Pinyin")},settings.getLayout(),"settings.layout.",id -> { settings.setLayout(id); render(); });
-        LinearLayout heightGroup=group(t("键盘高度","Keyboard height"));
-        segments(heightGroup,new String[]{"short","normal","medium_tall","tall"},
-                new String[]{t("偏矮 · 90%","Short 90%"),t("适中 · 100%","Normal 100%"),t("偏高 · 110%","Medium 110%"),t("高 · 120%","Tall 120%")},
-                settings.getHeightScale(),"settings.height.",scale -> { settings.setHeightScale(scale); render(); });
         preview(standard);
         note(settings.getLayout().equals("nineKey")?t("九键仅用于全拼；英文和数字沿用标准键位。","9-key is for Pinyin; English and numbers use the standard keys."):t("当前布局：","Current layout: ")+layoutName(settings.getLayout()));
         LinearLayout themes=group(t("宠物与键盘配色","Pets & keyboard colors")); paragraph(themes,t("当前配色：","Current color: ")+KeyboardTheme.named(settings.getTheme()).title);
