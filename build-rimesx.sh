@@ -1,26 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
-
-echo "=== 1. Preparing native engine & dictionary resources ==="
-python3 "$ROOT/platforms/android/scripts/build-engine.py"
-
-echo "=== 2. Building Release APK with Gradle ==="
-export RIMES_ANDROID_KEYSTORE="$HOME/.config/rimesx/rimesx-release.jks"
-export RIMES_ANDROID_STORE_PASSWORD="rimesx2026"
-export RIMES_ANDROID_KEY_ALIAS="rimesx"
-export RIMES_ANDROID_KEY_PASSWORD="rimesx2026"
-
-cd "$ROOT/platforms/android"
-./gradlew assembleRelease
-
-mkdir -p "$ROOT/build-output"
-APK="$(find "$ROOT/platforms/android/app/build/outputs/apk/release" -name "*.apk" | head -n 1)"
-cp "$APK" "$ROOT/build-output/rimesx-release.apk"
-
-echo "=== 3. Verifying Signature with apksigner ==="
-bash "$ROOT/platforms/android/scripts/sign-rimesx.sh" "$ROOT/build-output/rimesx-release.apk"
-
-echo "=== Build Successful! Output located at: $ROOT/build-output/rimesx-release.apk ==="
+echo "=========================================================================="
+echo " [!] 注意：RIMES X 已全面启用 GitHub 云端编译，禁止在本机执行重度编译！"
+echo "=========================================================================="
+echo "原因：本机属于 ARM64 架构，无 native x86_64 加速，本地编译会导致高负载与耗时。"
+echo ""
+echo "请使用以下方式在 GitHub 云端进行极速编译与打包："
+echo "1. 推送代码至 main 分支自动触发云端编译；"
+echo "2. 访问 GitHub Actions 页面手动点击触发："
+echo "   https://github.com/Ysilicom/rimesx/actions"
+echo ""
+echo "编译完成后可在 GitHub Actions 的 Artifacts 区域直接下载已签名的 APK 成品。"
+echo "=========================================================================="
+exit 1

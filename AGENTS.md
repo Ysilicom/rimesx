@@ -1,11 +1,14 @@
-# Repository instructions for coding agents
+# RIMES X Agent Guidelines & Build Rules
 
-## Contribution attribution
+## ⚠️ STRICT RULE: NO LOCAL COMPILATION
 
-- Add a `Co-authored-by` trailer to a commit when an AI coding agent materially designed, implemented, tested, or reviewed that commit.
-- Use only a stable public identity that has been verified against the provider or its GitHub account. Do not invent names or email addresses.
-- For Codex, use `Co-authored-by: Codex <267193182+codex@users.noreply.github.com>`.
-- Credit temporary child or review agents through their parent agent unless the child has a persistent public identity of its own.
-- Do not credit an agent that did not participate in the commit.
-- Do not rewrite already-pushed history solely to add attribution unless a maintainer explicitly requests it.
-- Keep the public agent list and attribution policy in `CONTRIBUTORS.md` current when a new coding-agent family materially contributes.
+1. **NEVER compile native or Android binaries on the local machine**:
+   - DO NOT run `python3 platforms/android/scripts/build-engine.py` locally.
+   - DO NOT run `./gradlew assembleRelease` or `./gradlew assembleDebug` locally.
+   - DO NOT run `ninja`, `cmake`, or Clang compilations locally.
+   - Local device CPU/memory is strictly reserved for code editing, git operations, and lightweight tasks.
+
+2. **ALL BUILD & PACKAGING MUST USE GITHUB ACTIONS (CLOUD COMPILATION)**:
+   - Workflow file: `.github/workflows/build-rimesx.yml`
+   - All C++ compilation, R8 optimizations, self-signing, and APK artifacts are handled on GitHub Cloud Runners.
+   - Push code to `main` or trigger via GitHub Actions web interface (`workflow_dispatch`).
