@@ -12,13 +12,14 @@ final class PluginShortcutBar extends HorizontalScrollView {
         void onPluginTap(String id);
         void onPluginLongPress(String id);
         default void onPasteTap() {}
+        default void onEmojiTap() {}
     }
 
     private static final String[] IDS={"translate","ask","polish","poem","art"};
     private static final String[] LABELS={"翻译","快问","润色","作诗","画画"};
     private static final KeyboardIcon[] ICONS={KeyboardIcon.TRANSLATE,KeyboardIcon.CHAT_QUESTION,
             KeyboardIcon.MAGIC_WAND,KeyboardIcon.BOOK,KeyboardIcon.GRID_9};
-    private final KeyButton pasteButton;
+    private final KeyButton pasteButton,emojiButton;
     private final KeyButton[] buttons=new KeyButton[IDS.length];
 
     PluginShortcutBar(Context context,KeyboardTheme theme,Listener listener) {
@@ -37,6 +38,16 @@ final class PluginShortcutBar extends HorizontalScrollView {
         LinearLayout.LayoutParams pasteCell=new LinearLayout.LayoutParams(dp(68),dp(30));
         pasteCell.rightMargin=dp(6);
         row.addView(pasteButton,pasteCell);
+
+        emojiButton=new KeyButton(context);
+        emojiButton.setText("表情"); emojiButton.setContentDescription("打开表情面板");
+        emojiButton.fontStyle(false,13,true); emojiButton.appearance(true,true,true); emojiButton.shortcut(true);
+        emojiButton.icon(KeyboardIcon.SMILE,12,true); emojiButton.theme(theme);
+        emojiButton.setOnClickListener(view -> listener.onEmojiTap());
+        LinearLayout.LayoutParams emojiCell=new LinearLayout.LayoutParams(dp(68),dp(30));
+        emojiCell.rightMargin=dp(6);
+        row.addView(emojiButton,emojiCell);
+
         for(int i=0;i<buttons.length;i++) {
             final String id=IDS[i];
             KeyButton button=new KeyButton(context);
@@ -60,6 +71,7 @@ final class PluginShortcutBar extends HorizontalScrollView {
     }
     void render(KeyboardTheme theme,String selectedID,boolean available,java.util.function.Predicate<String> installed) {
         pasteButton.theme(theme);
+        emojiButton.theme(theme);
         for(int i=0;i<buttons.length;i++) {
             KeyButton button=buttons[i];
             boolean enabled=available && installed.test(IDS[i]);

@@ -57,8 +57,8 @@ public class KeyboardLayoutTest {
         KeyboardLayout.Key punct=find(qwerty,KeyboardLayout.Action.PUNCTUATION);
         KeyboardLayout.Key space=find(qwerty,KeyboardLayout.Action.SPACE);
         assertEquals(45.08,shift.visualWidth,0.01);
-        assertEquals(126.6,punct.visualX,0.01); assertEquals(43.44,punct.visualWidth,0.01);
-        assertEquals(176.04,space.visualX,0.01); assertEquals(130.32,space.visualWidth,0.01);
+        assertEquals(104.0,punct.visualX,0.01); assertEquals(46.0,punct.visualWidth,0.01);
+        assertEquals(156.0,space.visualX,0.01); assertEquals(156.4,space.visualWidth,0.01);
         assertEquals(162,space.visualY,0.01);
         List<KeyboardLayout.Key> nine=KeyboardLayout.keys(392,false,KeyboardLayout.Mode.NINE_KEY);
         KeyboardLayout.Key enter=find(nine,KeyboardLayout.Action.RETURN),nineSpace=find(nine,KeyboardLayout.Action.SPACE);

@@ -741,6 +741,7 @@ public final class RimesInputMethodService extends InputMethodService {
             public void onPluginTap(String id) { selectPlugin(id); }
             public void onPluginLongPress(String id) { openPluginSettings(id); }
             public void onPasteTap() { pasteClipboard(); }
+            public void onEmojiTap() { settleAndSwitch(() -> { emoji=!emoji; numeric=false; }); }
         }); center.addView(pluginShortcuts,new FrameLayout.LayoutParams(-1,-1)); chordReadout=new ChordPreview(this); center.addView(chordReadout,new FrameLayout.LayoutParams(-1,-1)); candidates.clear();
         for(int i=0;i<9;i++) {
             final int index=i; KeyButton candidate=button(strip,"",() -> candidateTapped(index),0);
