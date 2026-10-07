@@ -1,71 +1,37 @@
 # RIMES X
 
 [![Android](https://img.shields.io/badge/Platform-Android_8.0+-3DDC84.svg?logo=android&logoColor=white)](platforms/android/)
-[![Refresh Rate](https://img.shields.io/badge/Display-120Hz_Optimized-007AFF.svg)](platforms/android/)
-[![R8 Optimization](https://img.shields.io/badge/Compiler-R8_Optimized-orange.svg)](platforms/android/)
+[![librime](https://img.shields.io/badge/Engine-librime_1.17.0-007AFF.svg)](https://rime.im/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![GitHub](https://img.shields.io/badge/Repo-Ysilicom%2Frimesx-black.svg?logo=github)](https://github.com/Ysilicom/rimesx)
 
-**RIMES X** 是基于开源 [RIMES](https://github.com/scholay/rimes) / [RIME](https://rime.im/) 架构深度定制与性能强化的高性能移动输入法发行版。针对移动端高刷流畅度、打字节奏与现代中文输入体验进行了全方位深度优化与重构。
+**RIMES X** 是面向 Android 8.0 及以上的中文输入法，基于开源 [RIMES](https://github.com/scholay/rimes) 与 [RIME](https://rime.im/)（librime 1.17.0）。应用名是 **RIMES X**，包名 `org.scholay.rimes.android`。
 
----
+拼音、词库和离线翻译都在手机上完成。在线 AI 默认关闭。需要时在应用设置里填写自己的 HTTPS 接口、模型和密钥；密钥只保存在本机 Android Keystore，不会写入仓库。
 
-## ✨ RIMES X 核心特性与定制优化 (Key Enhancements)
+## 现在可以做什么
 
-1. 🕊️ **内置小鹤双拼方案（Xiaohe / FlyPY Built-in）**
-   - 官方原生集成 `rimes_flypy.schema.yaml` 方案定义与词库数据；
-   - 开箱即用，无需任何繁琐的外部配置导入；
-   - 支持与全拼、自然码、五笔等主流方案自由无缝切换。
+- **方案**：全拼、小鹤双拼、自然码、五笔，以及英文。26 键和九键都可以用，上次使用的中文方案会被记住。
+- **标点**：主键盘的逗号键，点一下是逗号，马上再点或长按是句号。中文是 `，。`，英文是 `,` `.`。符号页上看到的标点，就是实际输入的字符。
+- **Buffer**：确认后的文字可以先留在键盘里，再插入当前输入框。纸飞机送出下一块，全部插入一次送出整段草稿。
+- **剪贴板与快捷功能**：没有在组字时，候选栏有剪贴板、表情、翻译、快问、润色、作诗、画画。翻译查内置词典。快问、润色、作诗在配置 AI 后可用；画画目前写出文字提示词，不生成图片。密码框不显示这一排。
+- **齿轮**：打开键盘外观面板，可切换布局和配色，也可以全部插入、清空 Buffer、进入应用设置，或唤出系统键盘。
 
-2. ⚡ **逗号/句号智能二合一极速按键（Smart Combo Punctuation Key）**
-   - 专为 26 键 QWERTY 全键盘布局打造的快速断句体验：
-     - **单击（Tap）**：快速输入标点逗号 `，`（半角英文下自动适配为 `,`）；
-     - **快速双击（Double-Tap ≤ 500ms）或长按（Long-Press）**：自动输入标点句号 `。`（半角模式下适配为 `.`）；
-   - 大幅减少频繁切换标点符号界面的手指位移，提升移动端高速盲打与打字连贯性。
+## 安装
 
-3. 🚀 **Android 120Hz 极限流畅度与低延迟流水线优化**
-   - **消除渲染主线程 GC 抖动（Zero-Allocation Rendering）**：
-     - 深度重构 `onDraw()` 渲染路径，移除 `FontMetrics`、`StringBuilder` 等每帧高频瞬态对象分配；
-     - 预计算九宫格候选映射数据，消除 400+ 次高频堆内存开销；
-     - 杜绝因 Android GC 垃圾回收引发的微小卡顿与掉帧，确保 120Hz 高刷新率屏幕下按键动画与拖拽丝滑满帧。
-   - **按键与候选低延迟响应**：
-     - 彻底消除键盘派发过程中的冗余无状态重绘（Redundant Redraw）；
-     - 底层 JNI 全局引用常驻内存缓存，削减 Java 跨层调用 C++ `librime` 的微秒级开销；
-     - 调度线程优先级智能提升（Thread Priority），触控按键即触即显。
-   - **极速冷启动优化**：
-     - 引入 `.verified` 资源状态标记机制，消除冷启动时对大文件字典的重复 SHA-256 全盘哈希重算，秒开即用。
+Android 安装包在本仓库的 GitHub Actions 产物里，不在 Release 列表。
 
-4. 🛡️ **R8 全量优化编译与代码收敛（R8 Optimization & Shrinking）**
-   - 启用 R8 编译器优化（`proguard-android-optimize.txt`），执行深度死代码消除、无用方法内联与包体积压缩；
-   - 专门定制 [proguard-rules.pro](platforms/android/app/proguard-rules.pro) JNI 防混淆保留规则，保证极致精简的同时杜绝崩溃风险。
+1. 打开 [Build RIMES X Release APK](https://github.com/Ysilicom/rimesx/actions/workflows/build-rimesx.yml)。推送到 `main` 或打上 `v*` 标签会自动编译，也可以在该页点 **Run workflow**。
+2. 进入一次成功的运行，在页面底部下载 `rimesx-release-apk`。
+3. 安装后，到系统设置里启用 **RIMES X**。
 
-5. 🔒 **离线私密自签名与无缝升级体系（Isolated Offline Self-Signing）**
-   - 采用本地独立的永久 Keystore 体系（`~/.config/rimesx/rimesx-release.jks`），密钥绝对独立于代码仓库，不上传任何云端；
-   - 支持完整的 Android V2 + V3 签名方案与 4 字节内存对齐（`zipalign`）；
-   - 永久保持证书指纹一致，支持跨版本本地覆盖安装（`adb install -r`），无需卸载重装，用户个人词库永不丢失；
-   - 完全离线运行，零网络权限滥用，无任何隐私上传。
+云端默认使用当次构建生成的签名证书。若希望以后覆盖安装时沿用同一证书，把 `KEYSTORE_BASE64`、`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD` 配在仓库的 Settings → Secrets and variables → Actions。不要把密钥文件提交进仓库。
 
-6. 🎨 **全新 RIMES X 视觉品牌**
-   - 应用全局名称定制为 **RIMES X**；
-   - 全新设计的科技蓝 “X” 徽标应用图标（涵盖高精自适应前台图标与单色 Monochrome 图标）。
+源码：
 
----
-
-## ☁️ GitHub 云端编译 (GitHub Actions CI/CD)
-
-本项目支持完全在 **GitHub 云端服务器** 自动执行 C++ 核心编译、R8 全量优化与签名打包（与 Haven 云端构建体验一致），无需消耗本地设备任何 CPU/内存资源：
-
-1. **自动构建**：
-   - 每次向 `main` 分支推送代码或发布 `v*` 标签时，GitHub Actions 云端高速构建机（x86_64 16GB）会自动开始编译。
-2. **手动一键编译**：
-   - 访问 GitHub 仓库 -> 点击顶部 **Actions** 标签页；
-   - 在左侧选择 **Build RIMES X Release APK**；
-   - 点击右侧 **Run workflow** 按钮即可在云端即刻触发编译。
-3. **下载已签名 APK 成品**：
-   - 编译完成后，在 Actions 执行详情页底部的 **Artifacts** 区域，直接点击下载 `rimesx-release-apk` 即可安装到手机。
-4. **云端自签名密钥配置（可选）**：
-   - 若要在云端使用您固定的私钥签名，可在 GitHub 仓库的 `Settings` -> `Secrets and variables` -> `Actions` 中配置密钥（如 `KEYSTORE_BASE64`、`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD`）。
-   - 若未配置 Secret，云端构建系统会自动生成专用的 Release 证书完成自签名，保证任何情况下都能直接下载即用。
+```bash
+git clone https://github.com/Ysilicom/rimesx.git
+```
 
 ---
 
@@ -167,7 +133,9 @@
 | 打字测速 | `builtin.typing-speed` | 2.0 | 启用 |
 | 并击 | `builtin.fly-chord-learning` | 2.0 | 关闭 |
 
-## 安装
+## 上游各平台
+
+本仓库的 Android 安装包见上方「安装」，从 Actions 产物 `rimesx-release-apk` 下载。下面是上游 RIMES 各平台的发布说明，安装包链接指向 [scholay/rimes](https://github.com/scholay/rimes)。
 
 本轮版本为 **1.1.0**：[macOS 安装包](https://github.com/scholay/rimes/releases/tag/v1.1.0)、[Android APK](https://github.com/scholay/rimes/releases/tag/android-v1.1.0)、[Windows EXE](https://github.com/scholay/rimes/releases/tag/windows-v1.1.0)。macOS 包已签名和公证，Android 使用长期签名，Windows EXE 未签名。iOS 通过 [TestFlight 公开邀请](https://testflight.apple.com/join/Kdj9RB4q)提供已获批的测试版本，实际可安装构建以 TestFlight 为准。Linux 保留现有版本。各平台当前状态以对应发布页为准。
 

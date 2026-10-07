@@ -1,71 +1,37 @@
 # RIMES X
 
 [![Android](https://img.shields.io/badge/Platform-Android_8.0+-3DDC84.svg?logo=android&logoColor=white)](platforms/android/)
-[![Refresh Rate](https://img.shields.io/badge/Display-120Hz_Optimized-007AFF.svg)](platforms/android/)
-[![R8 Optimization](https://img.shields.io/badge/Compiler-R8_Optimized-orange.svg)](platforms/android/)
+[![librime](https://img.shields.io/badge/Engine-librime_1.17.0-007AFF.svg)](https://rime.im/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![GitHub](https://img.shields.io/badge/Repo-Ysilicom%2Frimesx-black.svg?logo=github)](https://github.com/Ysilicom/rimesx)
 
-**RIMES X** is a high-performance, customized mobile input method distribution built upon the open-source [RIMES](https://github.com/scholay/rimes) and [RIME](https://rime.im/) architecture. It is re-engineered and fine-tuned for high-refresh-rate displays (120Hz), typing fluidity, and modern Chinese mobile input ergonomics.
+**RIMES X** is a Chinese input method for Android 8.0 and later, built on open-source [RIMES](https://github.com/scholay/rimes) and [RIME](https://rime.im/) (librime 1.17.0). The app name is **RIMES X**. The package is `org.scholay.rimes.android`.
 
----
+Pinyin, dictionaries, and offline translation stay on the phone. Online AI is off until you add your own HTTPS endpoint, model, and key in app settings. The key is stored in the Android Keystore on the device and is not committed to this repository.
 
-## ✨ RIMES X Key Enhancements
+## What it does
 
-1. 🕊️ **Built-in Xiaohe Shuangpin (FlyPY)**
-   - Natively bundles `rimes_flypy.schema.yaml` schema definition and precompiled dictionary data;
-   - Out-of-the-box availability without manual external schema imports;
-   - Seamlessly switch between Pinyin, Shuangpin, and Wubi.
+- **Schemes**: full Pinyin, Xiaohe Shuangpin, Natural Code, Wubi, and English. Both the 26-key and nine-key layouts are available, and the last Chinese scheme is remembered.
+- **Punctuation**: on the main comma key, one tap inserts a comma and a quick second tap or a long-press inserts a period. Chinese uses `，。`; English uses `,` `.`. On the symbol page, the mark you see is the mark that is inserted.
+- **Buffer**: confirmed text can stay on the keyboard and then be inserted into the current field. The paper plane sends the next block. Insert all sends the whole draft.
+- **Clipboard and shortcuts**: while you are not composing, the candidate row offers clipboard, emoji, translation, ask, polish, poem, and draw. Translation uses the bundled dictionary. Ask, polish, and poem run after an AI service is configured. Draw writes a text prompt and does not generate an image. Password fields hide this row.
+- **Gear**: opens the keyboard appearance panel for layout and color, and also offers insert all, clear Buffer, app settings, and the system keyboard picker.
 
-2. ⚡ **Smart Combo Punctuation Key (Comma / Period)**
-   - Tailored fast punctuation for the 26-key QWERTY layout:
-     - **Single Tap**: Quickly inputs a comma `，` (or `,` in half-width ASCII mode);
-     - **Quick Double Tap (≤ 500ms) or Long Press**: Automatically inputs a period `。` (or `.` in half-width ASCII mode);
-   - Drastically minimizes hand travel and eliminates the need to switch to symbol keyboards.
+## Install
 
-3. 🚀 **120Hz Ultra-Low Latency & High Frame Rate Pipeline Optimization**
-   - **Zero-Allocation Rendering**:
-     - Eliminates per-frame object allocations (`FontMetrics`, `StringBuilder`) in `onDraw()`;
-     - Precomputes 9-key candidate digit-to-letter mappings, removing 400+ runtime heap allocations per frame;
-     - Prevents Android garbage collection (GC) pauses to deliver consistent 120Hz fluid touch and key animations.
-   - **Low Latency Input & Dispatch**:
-     - Strips redundant stateless invalidation passes during keystroke handling;
-     - Caches JNI class and method references globally to minimize Java-to-C++ `librime` transit overhead;
-     - Elevates background engine thread priority for instantaneous candidate generation.
-   - **Fast Cold Boot**:
-     - Introduces `.verified` asset state tokens, bypassing redundant full-disk SHA-256 rehashing of large dictionaries on startup.
+The Android package is a GitHub Actions artifact in this repository. It is not listed under Releases.
 
-4. 🛡️ **Full R8 Optimization & Safe Code Shrinking**
-   - Enables R8 aggressive optimizations (`proguard-android-optimize.txt`) for dead code elimination and inlining;
-   - Custom [proguard-rules.pro](platforms/android/app/proguard-rules.pro) keeps JNI and reflection entry points completely safe from stripping.
+1. Open [Build RIMES X Release APK](https://github.com/Ysilicom/rimesx/actions/workflows/build-rimesx.yml). A push to `main` or a `v*` tag starts a build. **Run workflow** on that page starts one too.
+2. Open a successful run and download `rimesx-release-apk` from the bottom of the page.
+3. After installing, enable **RIMES X** in system settings.
 
-5. 🔒 **Isolated Offline Local Self-Signing & In-Place Upgrades**
-   - Permanent local keystore (`~/.config/rimesx/rimesx-release.jks`), kept strictly private outside the Git repository and never uploaded;
-   - Signed with Android V2 + V3 signature schemes and 4-byte `zipalign`;
-   - Consistent certificate fingerprints allow seamless in-place updates (`adb install -r`) without losing user dictionaries;
-   - Fully offline: zero telemetry, zero analytics, zero network abuse.
+Cloud builds sign with a certificate created for that run. To keep the same certificate for later upgrades, set `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, and `KEY_PASSWORD` under Settings → Secrets and variables → Actions. Do not commit a keystore to the repository.
 
-6. 🎨 **Distinctive RIMES X Brand & Visuals**
-   - Application renamed to **RIMES X**;
-   - Redesigned launcher icon with a modern tech-blue "X" badge (Adaptive foreground & monochrome vector assets).
+Source:
 
----
-
-## ☁️ GitHub Actions Cloud Compilation (CI/CD)
-
-RIMES X fully supports automated cloud builds, R8 optimization, and signing on **GitHub Cloud Runners** (identical to the Haven cloud workflow), consuming zero local CPU/memory resources:
-
-1. **Automated Cloud Builds**:
-   - Pushing commits to `main` or creating `v*` release tags automatically triggers compilation on GitHub's high-speed x86_64 cloud runners.
-2. **One-Click Manual Trigger**:
-   - Navigate to the GitHub repository -> Click the **Actions** tab;
-   - Select **Build RIMES X Release APK** from the left sidebar;
-   - Click **Run workflow** to immediately trigger a cloud build on GitHub servers.
-3. **Download Signed Release APK**:
-   - Once the cloud build completes, scroll down to the **Artifacts** section on the Actions run summary page to download `rimesx-release-apk`.
-4. **Custom Keystore Secrets (Optional)**:
-   - To sign with your own permanent keystore in the cloud, configure your repository secrets under `Settings` -> `Secrets and variables` -> `Actions` (`KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`).
-   - If secrets are not set, the cloud builder automatically creates a dedicated self-signed release certificate, ensuring every build produces a ready-to-install APK.
+```bash
+git clone https://github.com/Ysilicom/rimesx.git
+```
 
 ---
 
@@ -161,7 +127,9 @@ Bundled plug-ins use the defaults above. Optional plug-ins require installation 
 | Typing Speed | `builtin.typing-speed` | 2.0 | Enabled |
 | Chording | `builtin.fly-chord-learning` | 2.0 | Disabled |
 
-## Install
+## Upstream releases
+
+The Android package for this repository is the Actions artifact `rimesx-release-apk` in [Install](#install) above. The links below are upstream RIMES releases on [scholay/rimes](https://github.com/scholay/rimes).
 
 This release targets **1.1.0**: [macOS installer](https://github.com/scholay/rimes/releases/tag/v1.1.0), [Android APK](https://github.com/scholay/rimes/releases/tag/android-v1.1.0), and [Windows EXE](https://github.com/scholay/rimes/releases/tag/windows-v1.1.0). The macOS package is signed and notarized; Android uses the long-term signing key; the Windows EXE is unsigned. iOS offers approved test builds through the [public TestFlight invitation](https://testflight.apple.com/join/Kdj9RB4q); TestFlight shows the builds currently available to install. Linux stays on its existing version. Refer to each release page for current availability.
 
