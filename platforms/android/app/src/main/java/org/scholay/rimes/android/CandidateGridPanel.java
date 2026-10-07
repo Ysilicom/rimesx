@@ -79,6 +79,10 @@ final class CandidateGridPanel extends ScrollView {
     }
 
     void render(List<String> candidates, List<String> comments, KeyboardTheme theme, boolean canPrev, boolean canNext) {
+        render(candidates, comments, theme, canPrev, canNext, "");
+    }
+
+    void render(List<String> candidates, List<String> comments, KeyboardTheme theme, boolean canPrev, boolean canNext, String preedit) {
         KeyboardTheme.Palette palette = theme.palette(getContext());
         setBackgroundColor(palette.background);
         title.setTextColor(palette.ink);
@@ -103,7 +107,7 @@ final class CandidateGridPanel extends ScrollView {
         }
 
         int count = candidates.size();
-        title.setText("候选字词 (" + count + ")");
+        title.setText(preedit != null && !preedit.isEmpty() ? "候选 · " + preedit + " (" + count + ")" : "候选字词 (" + count + ")");
         int cols = 4;
         LinearLayout currentRow = null;
         for (int i = 0; i < count; i++) {
