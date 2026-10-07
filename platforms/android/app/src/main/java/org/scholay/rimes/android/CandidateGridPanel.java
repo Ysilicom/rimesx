@@ -4,12 +4,14 @@ import android.content.Context;
 import android.graphics.Typeface;
 import android.text.TextUtils;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import java.util.ArrayList;
 import java.util.List;
 
-/** Expandable candidate grid panel for multi-row browsing of homophones and rare characters. */
+/** Candidate grid. Cells stay allocated and only their labels change between refreshes. */
 final class CandidateGridPanel extends ScrollView {
     interface Listener {
         void onSelectCandidate(int index);
@@ -18,10 +20,16 @@ final class CandidateGridPanel extends ScrollView {
         void onNextPage();
     }
 
+    private static final int COLUMNS=4;
     private final TextView title;
+    private final TextView empty;
     private final KeyButton prevButton, nextButton, closeButton;
     private final LinearLayout gridContainer;
+    private final ArrayList<LinearLayout> rows=new ArrayList<>();
+    private final ArrayList<KeyButton> cells=new ArrayList<>();
     private final Listener listener;
+    /** Null until the first refresh. A new preedit scrolls back to the top. */
+    private String shownPreedit;
 
     CandidateGridPanel(Context context, Listener listener) {
         super(context);
@@ -76,6 +84,14 @@ final class CandidateGridPanel extends ScrollView {
         gridContainer.setOrientation(LinearLayout.VERTICAL);
         gridContainer.setPadding(0, dp(4), 0, dp(4));
         column.addView(gridContainer, new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+
+        empty = new TextView(context);
+        empty.setText("暂无候选");
+        empty.setTextSize(14);
+        empty.setGravity(Gravity.CENTER);
+        empty.setPadding(0, dp(24), 0, dp(24));
+        empty.setVisibility(GONE);
+        gridContainer.addView(empty, new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
     }
 
     void render(List<String> candidates, List<String> comments, KeyboardTheme theme, boolean canPrev, boolean canNext) {
@@ -88,68 +104,99 @@ final class CandidateGridPanel extends ScrollView {
         title.setTextColor(palette.ink);
         prevButton.theme(theme);
         prevButton.setEnabled(canPrev);
-        prevButton.setVisibility(canPrev?VISIBLE:GONE);
+        show(prevButton, canPrev ? VISIBLE : GONE);
         nextButton.theme(theme);
         nextButton.setEnabled(canNext);
-        nextButton.setVisibility(canNext?VISIBLE:GONE);
+        show(nextButton, canNext ? VISIBLE : GONE);
         closeButton.theme(theme);
 
-        gridContainer.removeAllViews();
+        String preeditKey = preedit == null ? "" : preedit;
         if (candidates == null || candidates.isEmpty()) {
-            TextView empty = new TextView(getContext());
-            empty.setText("暂无候选");
-            empty.setTextSize(14);
+            hideRows();
             empty.setTextColor(palette.ink & 0x88FFFFFF);
-            empty.setGravity(Gravity.CENTER);
-            empty.setPadding(0, dp(24), 0, dp(24));
-            gridContainer.addView(empty, new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+            show(empty, VISIBLE);
+            rememberPreedit(preeditKey);
             return;
         }
 
+        show(empty, GONE);
         int count = candidates.size();
-        title.setText(preedit != null && !preedit.isEmpty() ? "候选 · " + preedit + " (" + count + ")" : "候选字词 (" + count + ")");
-        int cols = 4;
-        LinearLayout currentRow = null;
-        for (int i = 0; i < count; i++) {
-            if (i % cols == 0) {
-                currentRow = new LinearLayout(getContext());
-                currentRow.setOrientation(LinearLayout.HORIZONTAL);
+        String heading = preeditKey.isEmpty() ? "候选字词 (" + count + ")" : "候选 · " + preeditKey + " (" + count + ")";
+        if (!TextUtils.equals(title.getText(), heading)) title.setText(heading);
+        ensureCells(count);
+        boolean landscape = getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        int font = KeyboardTypography.candidateSp(landscape);
+        int usedRows = (count + COLUMNS - 1) / COLUMNS;
+        for (int i = 0; i < cells.size(); i++) {
+            KeyButton button = cells.get(i);
+            int row = i / COLUMNS;
+            if (row >= usedRows) break;
+            if (i < count) {
+                String display = displayText(candidates, comments, i);
+                if (!TextUtils.equals(button.getText(), display)) {
+                    button.setText(display);
+                    button.setContentDescription("候选 " + (i + 1) + " " + display);
+                }
+                button.fontStyle(false, font, true);
+                button.theme(theme);
+                show(button, VISIBLE);
+                if (button.getImportantForAccessibility() != IMPORTANT_FOR_ACCESSIBILITY_YES) {
+                    button.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
+                }
+            } else {
+                // Keep the last row's empty slots so the remaining words stay one quarter wide.
+                show(button, INVISIBLE);
+                if (button.getImportantForAccessibility() != IMPORTANT_FOR_ACCESSIBILITY_NO) {
+                    button.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+                }
+            }
+        }
+        for (int row = 0; row < rows.size(); row++) show(rows.get(row), row < usedRows ? VISIBLE : GONE);
+        rememberPreedit(preeditKey);
+    }
+
+    private void rememberPreedit(String preeditKey) {
+        if (shownPreedit != null && shownPreedit.equals(preeditKey)) return;
+        shownPreedit = preeditKey;
+        scrollTo(0, 0);
+    }
+
+    private void hideRows() {
+        for (LinearLayout row : rows) show(row, GONE);
+    }
+
+    private void ensureCells(int count) {
+        while (cells.size() < count) {
+            int index = cells.size();
+            if (index % COLUMNS == 0) {
+                LinearLayout row = new LinearLayout(getContext());
+                row.setOrientation(LinearLayout.HORIZONTAL);
                 LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(44));
                 rowParams.bottomMargin = dp(4);
-                gridContainer.addView(currentRow, rowParams);
+                gridContainer.addView(row, rowParams);
+                rows.add(row);
             }
-
-            final int index = i;
-            String text = candidates.get(i);
-            String comment = (comments != null && i < comments.size()) ? comments.get(i) : null;
-            String displayText = text + (comment != null && !comment.isEmpty() ? " " + comment : "");
-
-            KeyButton btn = new KeyButton(getContext());
-            btn.setText(displayText);
-            boolean landscape=getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE;
-            btn.fontStyle(false,KeyboardTypography.candidateSp(landscape),true);
-            btn.plain(true);
-            btn.setSingleLine(true);
-            btn.setEllipsize(TextUtils.TruncateAt.END);
-            btn.setContentDescription("候选 " + (index + 1) + " " + displayText);
-            btn.theme(theme);
-            btn.setOnClickListener(v -> listener.onSelectCandidate(index));
-
-            LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1.0f);
-            if (i % cols > 0) itemParams.leftMargin = dp(4);
-            currentRow.addView(btn, itemParams);
+            KeyButton button = new KeyButton(getContext());
+            button.plain(true);
+            button.setSingleLine(true);
+            button.setEllipsize(TextUtils.TruncateAt.END);
+            int slot = index;
+            button.setOnClickListener(v -> listener.onSelectCandidate(slot));
+            LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f);
+            if (index % COLUMNS > 0) itemParams.leftMargin = dp(4);
+            rows.get(index / COLUMNS).addView(button, itemParams);
+            cells.add(button);
         }
+    }
 
-        // Fill remaining spaces in last row
-        int remaining = count % cols;
-        if (remaining > 0 && currentRow != null) {
-            for (int j = remaining; j < cols; j++) {
-                TextView spacer = new TextView(getContext());
-                LinearLayout.LayoutParams spacerParams = new LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1.0f);
-                spacerParams.leftMargin = dp(4);
-                currentRow.addView(spacer, spacerParams);
-            }
-        }
+    private static String displayText(List<String> candidates, List<String> comments, int index) {
+        String text = candidates.get(index);
+        String comment = comments != null && index < comments.size() ? comments.get(index) : null;
+        return comment == null || comment.isEmpty() ? text : text + " " + comment;
+    }
+
+    private static void show(View view, int visibility) {
+        if (view.getVisibility() != visibility) view.setVisibility(visibility);
     }
 
     private int dp(int value) {

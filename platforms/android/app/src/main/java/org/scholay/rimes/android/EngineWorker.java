@@ -7,7 +7,8 @@ import java.util.concurrent.Executors;
 final class EngineWorker {
     static final ExecutorService QUEUE=Executors.newSingleThreadExecutor(r -> {
         Thread thread=new Thread(() -> {
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT);
+            // Foreground keeps a key ahead of ordinary background work. Urgent-display would compete with the press highlight.
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_FOREGROUND);
             r.run();
         },"RIMES-engine");
         thread.setPriority(Thread.NORM_PRIORITY);
