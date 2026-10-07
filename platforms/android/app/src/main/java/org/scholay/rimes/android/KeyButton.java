@@ -142,7 +142,7 @@ final class KeyButton extends Button {
         float x=frameX*density,y=frameY*density;
         float width=frameWidth<0?getWidth():frameWidth*density,height=frameHeight<0?getHeight():frameHeight*density;
         boolean pressed=isPressed(),selected=isSelected(); int alpha=isEnabled()?255:102;
-        float radius=(palette!=null && palette.isGboard?7.5f:systemCaps()?5:compact?3:6)*density;
+        float radius=(palette!=null && palette.isGboard?8.5f:systemCaps()?6f:compact?3.5f:7f)*density;
         if(shortcut) {
             cap.set(x,y,x+width,y+height);
             paint.setColor(pressed || selected?palette.accent:(palette.ink&0xffffff)|(palette.dark?0x1a000000:0x10000000));

@@ -407,6 +407,29 @@ public final class RimesInputMethodService extends InputMethodService {
             android.util.Log.w("RIMES","captureClipboard failed",t);
         }
     }
+    private void clearSystemClipboard() {
+        try {
+            ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
+            if(cm!=null) {
+                if(cm.hasPrimaryClip()) {
+                    ClipData clip=cm.getPrimaryClip();
+                    if(clip!=null && clip.getItemCount()>0) {
+                        CharSequence text=clip.getItemAt(0).coerceToText(this);
+                        if(text!=null && clipboardStore!=null) {
+                            clipboardStore.setLastClearedText(text.toString());
+                        }
+                    }
+                }
+                if(android.os.Build.VERSION.SDK_INT>=android.os.Build.VERSION_CODES.P) {
+                    cm.clearPrimaryClip();
+                } else {
+                    cm.setPrimaryClip(ClipData.newPlainText("",""));
+                }
+            }
+        } catch(Throwable t) {
+            android.util.Log.w("RIMES","clearSystemClipboard failed",t);
+        }
+    }
     private void pasteClipboard() {
         captureClipboard();
         clipboardOpen=!clipboardOpen;
@@ -912,8 +935,14 @@ public final class RimesInputMethodService extends InputMethodService {
                 if(clipboardStore!=null) clipboardStore.togglePin(text);
                 render();
             }
-            public void onClear() {
-                if(clipboardStore!=null) clipboardStore.clearUnpinned();
+            public void onClear(boolean all) {
+                clearSystemClipboard();
+                if(clipboardStore!=null) {
+                    if(all) clipboardStore.clearAll();
+                    else clipboardStore.clearUnpinned();
+                }
+                android.widget.Toast.makeText(RimesInputMethodService.this,
+                    all?"剪贴板已全部清空":"已清空未固定剪贴板",android.widget.Toast.LENGTH_SHORT).show();
                 render();
             }
             public void onClose() {

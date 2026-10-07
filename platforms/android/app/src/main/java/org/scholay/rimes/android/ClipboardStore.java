@@ -24,6 +24,7 @@ final class ClipboardStore {
 
     private final SharedPreferences prefs;
     private final List<Entry> entries=new ArrayList<>();
+    private String lastClearedText=null;
 
     ClipboardStore(Context context) {
         prefs=context.getSharedPreferences(PREFS_NAME,Context.MODE_PRIVATE);
@@ -34,8 +35,18 @@ final class ClipboardStore {
         return new ArrayList<>(entries);
     }
 
+    synchronized void setLastClearedText(String text) {
+        this.lastClearedText=text;
+    }
+
+    synchronized boolean isRecentlyCleared(String text) {
+        return text!=null && text.equals(lastClearedText);
+    }
+
     synchronized void add(String text) {
         if(text==null || text.trim().isEmpty()) return;
+        if(text.equals(lastClearedText)) return;
+        lastClearedText=null;
         Entry existing=null;
         for(Entry e:entries) {
             if(e.text.equals(text)) { existing=e; break; }
@@ -67,6 +78,11 @@ final class ClipboardStore {
 
     synchronized void clearUnpinned() {
         entries.removeIf(e -> !e.pinned);
+        save();
+    }
+
+    synchronized void clearAll() {
+        entries.clear();
         save();
     }
 

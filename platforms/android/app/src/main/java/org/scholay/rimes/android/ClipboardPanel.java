@@ -17,7 +17,7 @@ final class ClipboardPanel extends ScrollView {
     interface Listener {
         void onPasteItem(String text);
         void onTogglePin(String text);
-        void onClear();
+        void onClear(boolean all);
         void onClose();
     }
 
@@ -50,11 +50,15 @@ final class ClipboardPanel extends ScrollView {
         header.addView(title, new LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1));
 
         clearButton = new KeyButton(context);
-        clearButton.setText("清空未固");
+        clearButton.setText("清空");
         clearButton.font(12);
         clearButton.appearance(true, true, false);
         clearButton.icon(KeyboardIcon.CLEAR, 13, true);
-        clearButton.setOnClickListener(v -> listener.onClear());
+        clearButton.setOnClickListener(v -> listener.onClear(false));
+        clearButton.setOnLongClickListener(v -> {
+            listener.onClear(true);
+            return true;
+        });
         LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(dp(84), dp(32));
         clearParams.rightMargin = dp(6);
         header.addView(clearButton, clearParams);
@@ -89,8 +93,18 @@ final class ClipboardPanel extends ScrollView {
             empty.setGravity(Gravity.CENTER);
             empty.setPadding(0, dp(32), 0, dp(32));
             listContainer.addView(empty, new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+            clearButton.setText("清空");
             clearButton.setEnabled(false);
             return;
+        }
+        int pinnedCount = 0;
+        for (ClipboardStore.Entry e : items) if (e.pinned) pinnedCount++;
+        if (pinnedCount > 0) {
+            clearButton.setText("清空未固");
+            clearButton.setContentDescription("点击清空未固定内容，长按清空全部");
+        } else {
+            clearButton.setText("清空");
+            clearButton.setContentDescription("点击清空剪贴板历史");
         }
         clearButton.setEnabled(true);
 
