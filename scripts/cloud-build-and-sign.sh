@@ -70,19 +70,11 @@ if [ -z "$RUN_ID" ]; then
 
     echo "⏳ 正在等待 GitHub Actions 注册并启动工作流..."
     for i in {1..25}; do
-        RUNS_JSON=$(curl -s "${CURL_AUTH[@]}" "https://api.github.com/repos/$REPO/actions/runs?head_sha=$TARGET_SHA" 2>/dev/null || true)
+        RUNS_JSON=$(curl -s -A "curl/7.88" "${CURL_AUTH[@]}" "https://api.github.com/repos/$REPO/actions/runs?head_sha=$TARGET_SHA" 2>/dev/null || true)
         RUN_ID=$(echo "$RUNS_JSON" | jq -r '.workflow_runs[]? | select(.name=="'"$WORKFLOW_NAME"'") | .id' 2>/dev/null | head -n 1 || true)
         if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
             RUN_URL="https://github.com/$REPO/actions/runs/$RUN_ID"
             echo "✓ 成功检测到工作流 Run ID: $RUN_ID"
-            echo "  网页监控地址: $RUN_URL"
-            break
-        fi
-        HTML_RUN_ID=$(curl -sL "https://github.com/$REPO/actions" 2>/dev/null | grep -E "actions/runs/[0-9]+" | head -n 1 | grep -oE "runs/[0-9]+" | cut -d'/' -f2 || true)
-        if [ -n "$HTML_RUN_ID" ] && [ "$HTML_RUN_ID" != "null" ]; then
-            RUN_ID="$HTML_RUN_ID"
-            RUN_URL="https://github.com/$REPO/actions/runs/$RUN_ID"
-            echo "✓ 成功检测到最新工作流 Run ID: $RUN_ID"
             echo "  网页监控地址: $RUN_URL"
             break
         fi
