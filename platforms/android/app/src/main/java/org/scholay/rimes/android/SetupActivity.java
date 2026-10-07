@@ -55,6 +55,26 @@ public final class SetupActivity extends Activity {
             page=state.getString("settings.page","home"); license=state.getString("settings.license");
             java.util.ArrayList<String> saved=state.getStringArrayList("settings.navigation"); if(saved!=null) navigation.addAll(saved);
         }
+        getWindow().setFlags(android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
+        if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.M) {
+            android.view.Display display=null;
+            if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.R) {
+                try { display=getDisplay(); } catch(Throwable ignored) {}
+            }
+            if(display==null) display=getWindowManager().getDefaultDisplay();
+            if(display!=null) {
+                android.view.Display.Mode[] modes=display.getSupportedModes();
+                android.view.Display.Mode bestMode=null;
+                for(android.view.Display.Mode m:modes) {
+                    if(bestMode==null || m.getRefreshRate()>bestMode.getRefreshRate()) bestMode=m;
+                }
+                if(bestMode!=null) {
+                    android.view.WindowManager.LayoutParams params=getWindow().getAttributes();
+                    params.preferredDisplayModeId=bestMode.getModeId();
+                    getWindow().setAttributes(params);
+                }
+            }
+        }
         getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         if(Build.VERSION.SDK_INT>=33) getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,this::goBack);
@@ -137,6 +157,10 @@ public final class SetupActivity extends Activity {
             default:page="home";render();return;
         }
         ScrollView scroll=new ScrollView(this); currentScroll=scroll; scroll.setFillViewport(true); scroll.setVerticalScrollBarEnabled(false);
+        scroll.setSmoothScrollingEnabled(true);
+        scroll.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+        scroll.setNestedScrollingEnabled(false);
+        scroll.setClipToPadding(false);
         scroll.addView(content,new ScrollView.LayoutParams(-1,-2));
         FrameLayout frame=new FrameLayout(this); frame.setBackgroundColor(background); frame.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
         frame.setOnApplyWindowInsetsListener((view,insets) -> {
@@ -167,7 +191,7 @@ public final class SetupActivity extends Activity {
     }
     private LinearLayout group(String heading) {
         TextView label=text(heading,13,secondary,false); label.setPadding(dp(16),dp(24),dp(16),dp(8)); content.addView(label);
-        LinearLayout group=column(); group.setBackground(shape(card,24)); group.setClipToOutline(true);
+        LinearLayout group=column(); group.setBackground(shape(card,24));
         content.addView(group,new LinearLayout.LayoutParams(-1,-2)); return group;
     }
     private void divider(LinearLayout group) {
@@ -176,15 +200,16 @@ public final class SetupActivity extends Activity {
         LinearLayout.LayoutParams frame=new LinearLayout.LayoutParams(-1,Math.max(1,dp(0.5f)));
         frame.setMarginStart(dp(56)); frame.setMarginEnd(dp(16)); group.addView(line,frame);
     }
+    private static final View.AccessibilityDelegate BUTTON_DELEGATE=new View.AccessibilityDelegate() {
+        @Override public void onInitializeAccessibilityNodeInfo(View host,android.view.accessibility.AccessibilityNodeInfo info) {
+            super.onInitializeAccessibilityNodeInfo(host,info); info.setClassName(android.widget.Button.class.getName());
+        }
+    };
     private void clickable(View view,Runnable action) {
         view.setFocusable(true); view.setClickable(true);
-        view.setForeground(new RippleDrawable(ColorStateList.valueOf(0x22888888),null,shape(0xFFFFFFFF,0)));
+        view.setForeground(new RippleDrawable(ColorStateList.valueOf(0x22888888),null,null));
         view.setOnClickListener(v -> action.run());
-        view.setAccessibilityDelegate(new View.AccessibilityDelegate() {
-            @Override public void onInitializeAccessibilityNodeInfo(View host,android.view.accessibility.AccessibilityNodeInfo info) {
-                super.onInitializeAccessibilityNodeInfo(host,info); info.setClassName(android.widget.Button.class.getName());
-            }
-        });
+        view.setAccessibilityDelegate(BUTTON_DELEGATE);
     }
     private ImageView icon(KeyboardIcon value,int tint,int size) {
         ImageView view=new ImageView(this); view.setImageDrawable(value.drawable(this)); view.setImageTintList(ColorStateList.valueOf(tint));
@@ -229,7 +254,7 @@ public final class SetupActivity extends Activity {
         String[] lines={t("世界对智者太过挑剔","The world is too hard on the wise."),t("好奇的人需要朋友","Curious minds need friends.")};
         for(int i=0;i<lines.length;i++) {
             TextView line=text(lines[i],13,secondary,false); line.setSingleLine(true);
-            line.setAutoSizeTextTypeUniformWithConfiguration(10,13,1,android.util.TypedValue.COMPLEX_UNIT_SP);
+            line.setEllipsize(android.text.TextUtils.TruncateAt.END);
             line.setPadding(0,dp(i==0?6:4),0,0); identity.addView(line,new LinearLayout.LayoutParams(-1,-2));
         }
         hero.addView(identity,new LinearLayout.LayoutParams(0,-2,1)); content.addView(hero);
