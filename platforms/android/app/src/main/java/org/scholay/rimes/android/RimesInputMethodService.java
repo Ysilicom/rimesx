@@ -133,6 +133,11 @@ public final class RimesInputMethodService extends InputMethodService {
         preferences=getSharedPreferences(KeyboardSettings.PREFERENCES_NAME,MODE_PRIVATE);
         settings=new KeyboardSettings(preferences);
         clipboardStore=new ClipboardStore(this);
+        // The application context is tied to the default device clipboard.
+        // The IME window context can report another device id, and then
+        // getPrimaryClip() comes back null even though the system clip is set.
+        clipboardManager=(ClipboardManager)getApplicationContext().getSystemService(Context.CLIPBOARD_SERVICE);
+        if(clipboardManager!=null) clipboardManager.addPrimaryClipChangedListener(clipboardListener);
         cometSettings=new OpenAiSettings(this);
         preferences.registerOnSharedPreferenceChangeListener(preferenceListener);
         restoreSettings();
@@ -182,6 +187,14 @@ public final class RimesInputMethodService extends InputMethodService {
         captureClipboard();
         render();
     }
+    @Override public void onWindowShown() {
+        super.onWindowShown();
+        // onStartInputView runs before this window is the active IME. A read
+        // there is often empty; read again once the window is on screen.
+        android.view.Window window=getWindow()==null?null:getWindow().getWindow();
+        if(window!=null) window.getDecorView().post(this::captureClipboard);
+        else main.post(this::captureClipboard);
+    }
     private String effectiveSchema() { return (chordLayout()?"rimes_ziranma":nineKeyEngine()?"rimes_pinyin9":schema)+(privateField || !learningEnabled ? "_private" : ""); }
     private void resetEngine() {
         if(!ready) return;
@@ -201,6 +214,7 @@ public final class RimesInputMethodService extends InputMethodService {
     @Override public void onFinishInput() { endTarget(); super.onFinishInput(); }
     @Override public void onUnbindInput() { endTarget(); super.onUnbindInput(); }
     @Override public void onDestroy() {
+        if(clipboardManager!=null) clipboardManager.removePrimaryClipChangedListener(clipboardListener);
         preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener);
         officialPluginPreferences.unregisterOnSharedPreferenceChangeListener(officialPluginListener);
         endTarget(); destroyed=true; pluginExecutor.close(); super.onDestroy();
@@ -491,40 +505,65 @@ public final class RimesInputMethodService extends InputMethodService {
         if(accepted) { hostComposing=false; composingStart=-1; }
         return accepted;
     }
+    private ClipboardManager clipboardManager;
+    private long suppressedClipTimestamp=-1L;
+    private final ClipboardManager.OnPrimaryClipChangedListener clipboardListener=() -> main.post(this::captureClipboard);
     private void captureClipboard() {
+        if(destroyed || clipboardStore==null) return;
         try {
-            ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
-            if(cm!=null && cm.hasPrimaryClip()) {
-                ClipData clip=cm.getPrimaryClip();
-                if(clip!=null && clip.getItemCount()>0) {
-                    CharSequence text=clip.getItemAt(0).coerceToText(this);
-                    if(text!=null && text.length()>0 && clipboardStore!=null) {
-                        clipboardStore.add(text.toString());
-                    }
-                }
-            }
+            ClipData clip=primaryClip();
+            String text=clipText(clip);
+            if(text==null) return;
+            long stamp=clip==null || clip.getDescription()==null?0L:clip.getDescription().getTimestamp();
+            if(stamp!=0L && stamp==suppressedClipTimestamp) return;
+            if(stamp==0L && clipboardStore.isRecentlyCleared(text)) return;
+            clipboardStore.add(text);
+            if(clipboardOpen && keyboard!=null) render();
         } catch(Throwable t) {
             android.util.Log.w("RIMES","captureClipboard failed",t);
         }
     }
+    private ClipData primaryClip() {
+        ClipData fromApp=readClip(clipboardManager);
+        if(clipText(fromApp)!=null) return fromApp;
+        ClipData fromService=readClip((ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE));
+        if(clipText(fromService)!=null) return fromService;
+        return fromApp!=null?fromApp:fromService;
+    }
+    private static ClipData readClip(ClipboardManager manager) {
+        if(manager==null) return null;
+        try { return manager.getPrimaryClip(); }
+        catch(Throwable ignored) { return null; }
+    }
+    private String clipText(ClipData clip) {
+        if(clip==null) return null;
+        for(int i=0;i<clip.getItemCount();i++) {
+            ClipData.Item item=clip.getItemAt(i);
+            if(item==null) continue;
+            CharSequence plain=item.getText();
+            if(plain!=null && plain.toString().trim().length()>0) return plain.toString();
+            String html=item.getHtmlText();
+            if(html!=null && !html.isEmpty()) {
+                String stripped=android.text.Html.fromHtml(html,android.text.Html.FROM_HTML_MODE_COMPACT).toString();
+                if(!stripped.trim().isEmpty()) return stripped;
+            }
+            try {
+                CharSequence coerced=item.coerceToText(this);
+                if(coerced!=null && coerced.toString().trim().length()>0) return coerced.toString();
+            } catch(Throwable ignored) {}
+        }
+        return null;
+    }
     private void clearSystemClipboard() {
         try {
-            ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
+            ClipData clip=primaryClip();
+            String text=clipText(clip);
+            if(text!=null && clipboardStore!=null) clipboardStore.setLastClearedText(text);
+            if(clip!=null && clip.getDescription()!=null) suppressedClipTimestamp=clip.getDescription().getTimestamp();
+            ClipboardManager cm=clipboardManager!=null?clipboardManager:(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
             if(cm!=null) {
-                if(cm.hasPrimaryClip()) {
-                    ClipData clip=cm.getPrimaryClip();
-                    if(clip!=null && clip.getItemCount()>0) {
-                        CharSequence text=clip.getItemAt(0).coerceToText(this);
-                        if(text!=null && clipboardStore!=null) {
-                            clipboardStore.setLastClearedText(text.toString());
-                        }
-                    }
-                }
-                if(android.os.Build.VERSION.SDK_INT>=android.os.Build.VERSION_CODES.P) {
-                    cm.clearPrimaryClip();
-                } else {
-                    cm.setPrimaryClip(ClipData.newPlainText("",""));
-                }
+                if(android.os.Build.VERSION.SDK_INT>=android.os.Build.VERSION_CODES.P) cm.clearPrimaryClip();
+                else cm.setPrimaryClip(ClipData.newPlainText("",""));
             }
         } catch(Throwable t) {
             android.util.Log.w("RIMES","clearSystemClipboard failed",t);
@@ -539,6 +578,16 @@ public final class RimesInputMethodService extends InputMethodService {
             candidateGridOpen=false;
         }
         render();
+    }
+    private void commitSystemClipboard() {
+        captureClipboard();
+        String text=clipText(primaryClip());
+        if(text!=null && !text.trim().isEmpty()) { deliver(text,false); render(); return; }
+        if(ownsTarget()) {
+            if(hostComposing) { target.finishComposingText(); hostComposing=false; composingStart=-1; }
+            if(target.performContextMenuAction(android.R.id.paste)) return;
+        }
+        Toast.makeText(this,"剪贴板为空",Toast.LENGTH_SHORT).show();
     }
     private void updateComposition() {
         if(!ownsTarget() || buffer.isEnabled() || directOnly) return;
@@ -1072,7 +1121,7 @@ public final class RimesInputMethodService extends InputMethodService {
         appearancePanel=new KeyboardAppearancePanel(this,this::chooseLayout,settings::setTheme,this::chooseHeightPercent,this::chooseBottomInset);
         appearancePanel.schemes(schema,this::chooseSchema);
         appearancePanel.action("全部插入",getString(R.string.insert_all),() -> insert(true));
-        appearancePanel.action("粘贴剪贴板","读取剪贴板内容并上屏",this::pasteClipboard);
+        appearancePanel.action("粘贴剪贴板","读取剪贴板内容并上屏",this::commitSystemClipboard);
         appearancePanel.action("清空 Buffer",getString(R.string.clear),() -> { if(pending==0 && !snapshot.composing()) { invalidatePlugin(); buffer.clear(); retryRetained(); render(); } });
         appearancePanel.action("模糊音设置","配置平翘舌与前后鼻音",this::openFuzzySettings);
         appearancePanel.action("系统键盘",getString(R.string.switch_keyboard),() -> { endTarget(); getSystemService(InputMethodManager.class).showInputMethodPicker(); });

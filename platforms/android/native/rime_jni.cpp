@@ -89,17 +89,25 @@ extern "C" JNIEXPORT jobject JNICALL JNI(snapshotNative)(JNIEnv* env, jclass, jl
         }
         api()->free_context(&context);
     }
-    RimeCandidateListIterator iter;
+    // librime 1.17 leaves the iterator at index -1. candidate_list_next is what
+    // yields item 0. Reading before next inserts a blank slot, so the word drawn
+    // at position i is select_candidate(i + 1).
+    RimeCandidateListIterator iter = {};
     if (api()->candidate_list_begin && api()->candidate_list_begin(session, &iter)) {
-        candidates.clear();
-        comments.clear();
-        while (candidates.size() < 60) {
-            candidates.emplace_back(iter.candidate.text ? iter.candidate.text : "");
-            comments.emplace_back(iter.candidate.comment ? iter.candidate.comment : "");
-            if (!api()->candidate_list_next(&iter)) break;
+        std::vector<std::string> listed, listedComments;
+        while (listed.size() < 60 && api()->candidate_list_next(&iter)) {
+            listed.emplace_back(iter.candidate.text ? iter.candidate.text : "");
+            listedComments.emplace_back(iter.candidate.comment ? iter.candidate.comment : "");
         }
         api()->candidate_list_end(&iter);
-        last = candidates.size() < 60;
+        if (!listed.empty()) {
+            candidates.swap(listed);
+            comments.swap(listedComments);
+            // This walk is the whole menu from absolute index 0, not the current
+            // page. pageStart must stay 0 or a tap commits pageStart + index.
+            start = 0;
+            last = candidates.size() < 60;
+        }
     }
     ensure_classes(env);
     auto texts=env->NewObjectArray(candidates.size(),g_string_class,nullptr);

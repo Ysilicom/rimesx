@@ -88,12 +88,15 @@ final class KeyButton extends Button {
     }
     private void updateTextColors() {
         if(palette==null) return;
-        int normalInk=candidateHighlight?palette.accentText:(plain?palette.ink:(palette.ink&0xFFFFFF)|0x66000000);
+        // Enabled labels stay opaque. 0x66 is only the disabled state; using it
+        // for the normal state washes every key letter out to gray.
+        int enabledInk=candidateHighlight?palette.accentText:palette.ink;
+        int disabledInk=(enabledInk&0x00FFFFFF)|0x66000000;
         setTextColor(new ColorStateList(new int[][]{new int[]{-android.R.attr.state_enabled},
                 new int[]{android.R.attr.state_pressed,android.R.attr.state_selected},new int[]{android.R.attr.state_pressed},
                 new int[]{android.R.attr.state_selected},new int[]{}},
-                new int[]{normalInk,palette.pressedSelectedInk,
-                    palette.accentInk,palette.accentInk,normalInk}));
+                new int[]{disabledInk,palette.pressedSelectedInk,
+                    palette.accentInk,palette.accentInk,enabledInk}));
     }
     void font(int size) {
         setAutoSizeTextTypeWithDefaults(AUTO_SIZE_TEXT_TYPE_NONE);

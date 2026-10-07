@@ -45,7 +45,8 @@ final class ClipboardStore {
 
     synchronized void add(String text) {
         if(text==null || text.trim().isEmpty()) return;
-        if(text.equals(lastClearedText)) return;
+        // The service decides whether a just-cleared clip should be ignored.
+        // A later copy of the same text must still be stored.
         lastClearedText=null;
         Entry existing=null;
         for(Entry e:entries) {
