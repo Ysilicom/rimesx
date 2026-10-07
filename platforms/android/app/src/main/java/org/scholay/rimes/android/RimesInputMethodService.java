@@ -1,5 +1,8 @@
 package org.scholay.rimes.android;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.inputmethodservice.InputMethodService;
@@ -376,6 +379,25 @@ public final class RimesInputMethodService extends InputMethodService {
         if(accepted) { hostComposing=false; composingStart=-1; }
         return accepted;
     }
+    private void pasteClipboard() {
+        try {
+            ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
+            if(cm!=null && cm.hasPrimaryClip()) {
+                ClipData clip=cm.getPrimaryClip();
+                if(clip!=null && clip.getItemCount()>0) {
+                    CharSequence text=clip.getItemAt(0).coerceToText(this);
+                    if(text!=null && text.length()>0) {
+                        deliver(text.toString(),true);
+                        render();
+                        return;
+                    }
+                }
+            }
+            Toast.makeText(this,"剪贴板为空",Toast.LENGTH_SHORT).show();
+        } catch(Throwable t) {
+            android.util.Log.w("RIMES","pasteClipboard failed",t);
+        }
+    }
     private void updateComposition() {
         if(!ownsTarget() || buffer.isEnabled() || directOnly) return;
         if(visiblePassword) {
@@ -718,6 +740,7 @@ public final class RimesInputMethodService extends InputMethodService {
         pluginShortcuts=new PluginShortcutBar(this,theme,new PluginShortcutBar.Listener() {
             public void onPluginTap(String id) { selectPlugin(id); }
             public void onPluginLongPress(String id) { openPluginSettings(id); }
+            public void onPasteTap() { pasteClipboard(); }
         }); center.addView(pluginShortcuts,new FrameLayout.LayoutParams(-1,-1)); chordReadout=new ChordPreview(this); center.addView(chordReadout,new FrameLayout.LayoutParams(-1,-1)); candidates.clear();
         for(int i=0;i<9;i++) {
             final int index=i; KeyButton candidate=button(strip,"",() -> candidateTapped(index),0);
@@ -747,6 +770,7 @@ public final class RimesInputMethodService extends InputMethodService {
         appearancePanel=new KeyboardAppearancePanel(this,this::chooseLayout,settings::setTheme,this::chooseHeightScale);
         appearancePanel.schemes(schema,this::chooseSchema);
         appearancePanel.action("全部插入",getString(R.string.insert_all),() -> insert(true));
+        appearancePanel.action("粘贴剪贴板","读取剪贴板内容并上屏",this::pasteClipboard);
         appearancePanel.action("清空 Buffer",getString(R.string.clear),() -> { if(pending==0 && !snapshot.composing()) { invalidatePlugin(); buffer.clear(); retryRetained(); render(); } });
         appearancePanel.action("系统键盘",getString(R.string.switch_keyboard),() -> { endTarget(); getSystemService(InputMethodManager.class).showInputMethodPicker(); });
         surfaceContainer.addView(appearancePanel,new FrameLayout.LayoutParams(-1,-1));

@@ -91,7 +91,13 @@ jobs:
           RIMES_ANDROID_KEY_PASSWORD: ${{ steps.keystore.outputs.key_pass }}
         run: |
           cd platforms/android
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Report failure details
+        if: failure()
+        run: |
+          echo "=== Build Failure Diagnostics ==="
+          find platforms/android -name "*.log" -exec cat {} + 2>/dev/null || true
 
       - name: Align & Verify APK Signature
         run: |

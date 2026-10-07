@@ -72,8 +72,12 @@ if [ -z "$RUN_ID" ]; then
     for i in {1..20}; do
         RUNS_JSON=$(curl -s "${CURL_AUTH[@]}" "https://api.github.com/repos/$REPO/actions/runs?head_sha=$TARGET_SHA")
         RUN_ID=$(echo "$RUNS_JSON" | jq -r '.workflow_runs[]? | select(.name=="'"$WORKFLOW_NAME"'") | .id' | head -n 1)
+        if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            # Web HTML fallback in case unauthenticated API hits rate limit
+            RUN_ID=$(curl -sL "https://github.com/$REPO/actions/workflows/build-rimesx.yml" | grep -oE "/$REPO/actions/runs/[0-9]+" | sed 's|.*/||' | head -n 1 || true)
+        fi
         if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
-            RUN_URL=$(echo "$RUNS_JSON" | jq -r '.workflow_runs[]? | select(.id=='"$RUN_ID"') | .html_url')
+            RUN_URL="https://github.com/$REPO/actions/runs/$RUN_ID"
             echo "✓ 成功检测到工作流 Run ID: $RUN_ID"
             echo "  网页监控地址: $RUN_URL"
             break

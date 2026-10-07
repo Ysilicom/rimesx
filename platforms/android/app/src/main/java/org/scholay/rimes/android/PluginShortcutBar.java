@@ -11,12 +11,14 @@ final class PluginShortcutBar extends HorizontalScrollView {
     interface Listener {
         void onPluginTap(String id);
         void onPluginLongPress(String id);
+        default void onPasteTap() {}
     }
 
     private static final String[] IDS={"translate","ask","polish","poem","art"};
     private static final String[] LABELS={"翻译","快问","润色","作诗","画画"};
     private static final KeyboardIcon[] ICONS={KeyboardIcon.TRANSLATE,KeyboardIcon.CHAT_QUESTION,
             KeyboardIcon.MAGIC_WAND,KeyboardIcon.BOOK,KeyboardIcon.GRID_9};
+    private final KeyButton pasteButton;
     private final KeyButton[] buttons=new KeyButton[IDS.length];
 
     PluginShortcutBar(Context context,KeyboardTheme theme,Listener listener) {
@@ -27,6 +29,14 @@ final class PluginShortcutBar extends HorizontalScrollView {
         LinearLayout row=new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL); row.setGravity(Gravity.CENTER);
         addView(row,new HorizontalScrollView.LayoutParams(LayoutParams.WRAP_CONTENT,dp(32)));
+        pasteButton=new KeyButton(context);
+        pasteButton.setText("粘贴"); pasteButton.setContentDescription("读取剪贴板内容并上屏");
+        pasteButton.fontStyle(false,13,true); pasteButton.appearance(true,true,true); pasteButton.shortcut(true);
+        pasteButton.icon(KeyboardIcon.WRITE,12,true); pasteButton.theme(theme);
+        pasteButton.setOnClickListener(view -> listener.onPasteTap());
+        LinearLayout.LayoutParams pasteCell=new LinearLayout.LayoutParams(dp(68),dp(30));
+        pasteCell.rightMargin=dp(6);
+        row.addView(pasteButton,pasteCell);
         for(int i=0;i<buttons.length;i++) {
             final String id=IDS[i];
             KeyButton button=new KeyButton(context);
@@ -49,6 +59,7 @@ final class PluginShortcutBar extends HorizontalScrollView {
         render(theme,selectedID,enabled,id -> true);
     }
     void render(KeyboardTheme theme,String selectedID,boolean available,java.util.function.Predicate<String> installed) {
+        pasteButton.theme(theme);
         for(int i=0;i<buttons.length;i++) {
             KeyButton button=buttons[i];
             boolean enabled=available && installed.test(IDS[i]);

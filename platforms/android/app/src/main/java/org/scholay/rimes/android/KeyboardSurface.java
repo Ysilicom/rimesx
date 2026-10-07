@@ -51,6 +51,7 @@ final class KeyboardSurface extends ViewGroup {
             button.setEnabled(handler.enabled(key));
             button.setSelected(handler.selected(key)); button.theme(theme);
         }
+    }
     private float heightFactor=1.0f;
     void setHeightFactor(float factor) {
         if(Math.abs(this.heightFactor-factor)>0.001f) {
