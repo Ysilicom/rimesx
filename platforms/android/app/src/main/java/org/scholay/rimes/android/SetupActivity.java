@@ -102,7 +102,8 @@ public final class SetupActivity extends Activity {
         GradientDrawable value=new GradientDrawable(); value.setColor(color); value.setCornerRadius(dp(radius)); return value;
     }
     private TextView text(String value,float size,int color,boolean bold) {
-        TextView view=new TextView(this); view.setText(value); view.setTextSize(size); view.setTextColor(color);
+        TextView view=new TextView(this); view.setText(value); view.setTextSize(size);
+        view.setTextColor(android.content.res.ColorStateList.valueOf(color));
         if(bold) view.setTypeface(Typeface.create("sans-serif",Typeface.BOLD)); return view;
     }
     private void render() {
@@ -296,7 +297,7 @@ public final class SetupActivity extends Activity {
         note(getString(R.string.privacy));
     }
     private void choice(LinearLayout group,String label,String detail,String tag,boolean selected,Runnable action) {
-        LinearLayout row=row(group,null,label,detail,null,tag,null); clickable(row,action); row.setSelected(selected);
+        LinearLayout row=row(group,null,label,detail,null,tag,null); clickable(row,action);
         row.setContentDescription(label+(selected?t("，已选择",", selected"):"")+(detail==null?"":", "+detail));
         if(selected) row.addView(icon(KeyboardIcon.CHECK,accent,20));
     }
@@ -328,7 +329,7 @@ public final class SetupActivity extends Activity {
         for(int i=0;i<ids.length;i++) {
             String id=ids[i]; boolean active=id.equals(selected); TextView button=text(labels[i],14,active?ink:secondary,active);
             button.setTag(prefix+id); button.setGravity(Gravity.CENTER); button.setMinHeight(dp(44)); button.setPadding(dp(4),dp(4),dp(4),dp(4));
-            button.setBackground(shape(active?card:android.graphics.Color.TRANSPARENT,7)); button.setSelected(active);
+            button.setBackground(shape(active?card:android.graphics.Color.TRANSPARENT,7));
             button.setContentDescription(labels[i]+(active?t("，已选择",", selected"):"")); clickable(button,() -> action.accept(id));
             bar.addView(button,new LinearLayout.LayoutParams(0,-2,1));
         }

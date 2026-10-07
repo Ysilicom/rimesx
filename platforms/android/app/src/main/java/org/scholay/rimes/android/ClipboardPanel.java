@@ -12,10 +12,11 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import java.util.List;
 
-/** Scrollable clipboard history panel allowing user to select and paste specific clips. */
+/** Scrollable clipboard history panel allowing user to select, paste, and pin clips. */
 final class ClipboardPanel extends ScrollView {
     interface Listener {
         void onPasteItem(String text);
+        void onTogglePin(String text);
         void onClear();
         void onClose();
     }
@@ -43,28 +44,28 @@ final class ClipboardPanel extends ScrollView {
         column.addView(header, new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(36)));
 
         title = new TextView(context);
-        title.setText("剪贴板 · 点击选择粘贴");
-        title.setTextSize(14);
+        title.setText("剪贴板 · 点击粘贴 / 长按固定");
+        title.setTextSize(13);
         title.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
         header.addView(title, new LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1));
 
         clearButton = new KeyButton(context);
-        clearButton.setText("清空");
-        clearButton.font(13);
+        clearButton.setText("清空未固");
+        clearButton.font(12);
         clearButton.appearance(true, true, false);
-        clearButton.icon(KeyboardIcon.CLEAR, 14, true);
+        clearButton.icon(KeyboardIcon.CLEAR, 13, true);
         clearButton.setOnClickListener(v -> listener.onClear());
-        LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(dp(72), dp(32));
+        LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(dp(84), dp(32));
         clearParams.rightMargin = dp(6);
         header.addView(clearButton, clearParams);
 
         closeButton = new KeyButton(context);
         closeButton.setText("返回");
-        closeButton.font(13);
+        closeButton.font(12);
         closeButton.appearance(true, true, false);
-        closeButton.icon(KeyboardIcon.CHEVRON_LEFT, 14, true);
+        closeButton.icon(KeyboardIcon.CHEVRON_LEFT, 13, true);
         closeButton.setOnClickListener(v -> listener.onClose());
-        header.addView(closeButton, new LinearLayout.LayoutParams(dp(72), dp(32)));
+        header.addView(closeButton, new LinearLayout.LayoutParams(dp(68), dp(32)));
 
         listContainer = new LinearLayout(context);
         listContainer.setOrientation(LinearLayout.VERTICAL);
@@ -72,7 +73,7 @@ final class ClipboardPanel extends ScrollView {
         column.addView(listContainer, new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
     }
 
-    void render(List<String> items, KeyboardTheme theme) {
+    void render(List<ClipboardStore.Entry> items, KeyboardTheme theme) {
         KeyboardTheme.Palette palette = theme.palette(getContext());
         setBackgroundColor(palette.background);
         title.setTextColor(palette.ink);
@@ -82,7 +83,7 @@ final class ClipboardPanel extends ScrollView {
         listContainer.removeAllViews();
         if (items == null || items.isEmpty()) {
             TextView empty = new TextView(getContext());
-            empty.setText("剪贴板历史为空，复制的内容将显示在这里");
+            empty.setText("剪贴板历史为空，复制的内容将自动保存在这里");
             empty.setTextSize(13);
             empty.setTextColor(palette.ink & 0x88FFFFFF);
             empty.setGravity(Gravity.CENTER);
@@ -95,29 +96,58 @@ final class ClipboardPanel extends ScrollView {
 
         float density = getResources().getDisplayMetrics().density;
         ColorStateList textColors = makeCardTextColor(palette);
+
         for (int i = 0; i < items.size(); i++) {
-            final String text = items.get(i);
-            TextView itemCard = new TextView(getContext());
-            itemCard.setText(text);
-            itemCard.setTextSize(14);
-            itemCard.setTextColor(textColors);
-            itemCard.setMaxLines(3);
-            itemCard.setEllipsize(TextUtils.TruncateAt.END);
-            itemCard.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-            itemCard.setPadding(dp(12), dp(9), dp(12), dp(9));
-            itemCard.setBackground(makeCardBackground(palette, density));
-            itemCard.setClickable(true);
-            itemCard.setFocusable(true);
-            itemCard.setContentDescription("剪贴板条目：" + (text.length() > 20 ? text.substring(0, 20) + "…" : text));
-            itemCard.setOnClickListener(v -> listener.onPasteItem(text));
+            final ClipboardStore.Entry entry = items.get(i);
+            final String text = entry.text;
+            final boolean isPinned = entry.pinned;
+
+            LinearLayout card = new LinearLayout(getContext());
+            card.setOrientation(LinearLayout.HORIZONTAL);
+            card.setGravity(Gravity.CENTER_VERTICAL);
+            card.setPadding(dp(10), dp(8), dp(10), dp(8));
+            card.setBackground(makeCardBackground(palette, density, isPinned));
+            card.setClickable(true);
+            card.setFocusable(true);
+            card.setContentDescription((isPinned ? "已固定：" : "") + (text.length() > 20 ? text.substring(0, 20) + "…" : text));
+            card.setOnClickListener(v -> listener.onPasteItem(text));
+            card.setOnLongClickListener(v -> {
+                listener.onTogglePin(text);
+                return true;
+            });
+
+            if (isPinned) {
+                TextView pinBadge = new TextView(getContext());
+                pinBadge.setText("📌");
+                pinBadge.setTextSize(13);
+                pinBadge.setPadding(0, 0, dp(6), 0);
+                card.addView(pinBadge, new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
+            }
+
+            TextView itemText = new TextView(getContext());
+            itemText.setText(text);
+            itemText.setTextSize(14);
+            itemText.setTextColor(textColors);
+            itemText.setMaxLines(3);
+            itemText.setEllipsize(TextUtils.TruncateAt.END);
+            itemText.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            card.addView(itemText, new LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1.0f));
+
+            TextView pinToggle = new TextView(getContext());
+            pinToggle.setText(isPinned ? "取消固定" : "固定");
+            pinToggle.setTextSize(11);
+            pinToggle.setTextColor(palette.accent);
+            pinToggle.setPadding(dp(6), dp(4), dp(4), dp(4));
+            pinToggle.setOnClickListener(v -> listener.onTogglePin(text));
+            card.addView(pinToggle, new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
 
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
             params.bottomMargin = dp(6);
-            listContainer.addView(itemCard, params);
+            listContainer.addView(card, params);
         }
     }
 
-    private static Drawable makeCardBackground(KeyboardTheme.Palette palette, float density) {
+    private static Drawable makeCardBackground(KeyboardTheme.Palette palette, float density, boolean pinned) {
         StateListDrawable states = new StateListDrawable();
         GradientDrawable pressed = new GradientDrawable();
         pressed.setCornerRadius(8 * density);
@@ -126,7 +156,9 @@ final class ClipboardPanel extends ScrollView {
         GradientDrawable normal = new GradientDrawable();
         normal.setCornerRadius(8 * density);
         normal.setColor(palette.key);
-        normal.setStroke(Math.max(1, Math.round(0.75f * density)), palette.dark ? 0x26FFFFFF : 0x1A000000);
+        int strokeColor = pinned ? palette.accent : (palette.dark ? 0x26FFFFFF : 0x1A000000);
+        int strokeWidth = pinned ? Math.max(1, Math.round(1.5f * density)) : Math.max(1, Math.round(0.75f * density));
+        normal.setStroke(strokeWidth, strokeColor);
 
         states.addState(new int[]{android.R.attr.state_pressed}, pressed);
         states.addState(new int[]{}, normal);

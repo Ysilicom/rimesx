@@ -2,9 +2,13 @@ package org.scholay.rimes.android;
 
 import android.content.Context;
 import android.content.res.Configuration;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import java.util.List;
+import java.util.function.Consumer;
 import org.scholay.rimes.core.KeyboardLayout;
 
 /** Measured geometry owns every key width. Candidate refreshes never rebuild the touch surface. */
@@ -16,6 +20,7 @@ final class KeyboardSurface extends ViewGroup {
         boolean selected(KeyboardLayout.Key key);
         void press(KeyboardLayout.Key key);
         default boolean longPress(KeyboardLayout.Key key) { return false; }
+        default void slideCursor(int steps) {}
     }
     private KeyboardLayout.Mode mode;
     private List<KeyboardLayout.Key> frames;
@@ -31,6 +36,11 @@ final class KeyboardSurface extends ViewGroup {
                 KeyButton button=new KeyButton(getContext());
                 button.setOnClickListener(v -> handler.press(key));
                 button.setOnLongClickListener(v -> handler.longPress(key));
+                if(key.action==KeyboardLayout.Action.DELETE) {
+                    setupDeleteRepeat(button,() -> handler.press(key));
+                } else if(key.action==KeyboardLayout.Action.SPACE) {
+                    setupSpaceCursorSlide(button,steps -> handler.slideCursor(steps));
+                }
                 addView(button);
             }
             requestLayout();
@@ -48,9 +58,90 @@ final class KeyboardSurface extends ViewGroup {
             String label=handler.label(key); if(!android.text.TextUtils.equals(button.getText(),label)) button.setText(label);
             String description=handler.description(key);
             if(!android.text.TextUtils.equals(button.getContentDescription(),description)) button.setContentDescription(description);
+            String hint=mode==KeyboardLayout.Mode.QWERTY && letter?hintForLetter(key.text):null;
+            button.hint(hint);
             button.setEnabled(handler.enabled(key));
             button.setSelected(handler.selected(key)); button.theme(theme);
         }
+    }
+    static String hintForLetter(String letter) {
+        if(letter==null || letter.length()!=1) return null;
+        switch(Character.toLowerCase(letter.charAt(0))) {
+            case 'q': return "1"; case 'w': return "2"; case 'e': return "3"; case 'r': return "4"; case 't': return "5";
+            case 'y': return "6"; case 'u': return "7"; case 'i': return "8"; case 'o': return "9"; case 'p': return "0";
+            default: return null;
+        }
+    }
+    private void setupDeleteRepeat(KeyButton button,Runnable onDelete) {
+        final android.os.Handler mainHandler=new android.os.Handler(Looper.getMainLooper());
+        button.setOnTouchListener(new OnTouchListener() {
+            private boolean repeating=false;
+            private int repeatCount=0;
+            private final Runnable repeatTask=new Runnable() {
+                @Override public void run() {
+                    repeating=true;
+                    repeatCount++;
+                    onDelete.run();
+                    long nextDelay=repeatCount>15?32:50;
+                    mainHandler.postDelayed(this,nextDelay);
+                }
+            };
+            @Override public boolean onTouch(View v,MotionEvent event) {
+                switch(event.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        repeating=false; repeatCount=0;
+                        mainHandler.removeCallbacks(repeatTask);
+                        mainHandler.postDelayed(repeatTask,300);
+                        return false;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        mainHandler.removeCallbacks(repeatTask);
+                        if(repeating) {
+                            v.setPressed(false);
+                            return true;
+                        }
+                        return false;
+                }
+                return false;
+            }
+        });
+    }
+    private void setupSpaceCursorSlide(KeyButton button,Consumer<Integer> onSlide) {
+        final float stepPx=12f*getResources().getDisplayMetrics().density;
+        button.setOnTouchListener(new OnTouchListener() {
+            private float downX,downY,lastStepX;
+            private boolean sliding=false;
+            @Override public boolean onTouch(View v,MotionEvent event) {
+                switch(event.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        downX=event.getRawX(); downY=event.getRawY(); lastStepX=downX; sliding=false;
+                        return false;
+                    case MotionEvent.ACTION_MOVE:
+                        float dx=event.getRawX()-downX,dy=event.getRawY()-downY;
+                        if(!sliding && Math.abs(dx)>stepPx && Math.abs(dx)>Math.abs(dy)*1.2f) {
+                            sliding=true; v.setPressed(false);
+                        }
+                        if(sliding) {
+                            float delta=event.getRawX()-lastStepX;
+                            if(Math.abs(delta)>=stepPx) {
+                                int steps=(int)(delta/stepPx);
+                                lastStepX+=steps*stepPx;
+                                onSlide.accept(steps);
+                            }
+                            return true;
+                        }
+                        return false;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        if(sliding) {
+                            sliding=false; v.setPressed(false);
+                            return true;
+                        }
+                        return false;
+                }
+                return false;
+            }
+        });
     }
     private float heightFactor=1.0f;
     void setHeightFactor(float factor) {

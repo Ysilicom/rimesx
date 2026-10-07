@@ -28,6 +28,12 @@ public final class KeyboardSettings {
     public static final String KEY_FUZZY_AN_ANG="fuzzy_an_ang";
     public static final String KEY_FUZZY_EN_ENG="fuzzy_en_eng";
     public static final String KEY_FUZZY_IN_ING="fuzzy_in_ing";
+    public static final String KEY_HEIGHT_PERCENT="height_percent";
+    public static final int DEFAULT_HEIGHT_PERCENT=100;
+    public static final int MIN_HEIGHT_PERCENT=70;
+    public static final int MAX_HEIGHT_PERCENT=140;
+    public static final String KEY_BOTTOM_INSET="bottom_inset";
+    public static final int DEFAULT_BOTTOM_INSET=0;
     public static final String DEFAULT_SCHEMA="rimes_pinyin";
     public static final String DEFAULT_LAYOUT="qwerty";
     public static final String DEFAULT_THEME="gboard";
@@ -73,6 +79,10 @@ public final class KeyboardSettings {
         if("tall".equals(scale)) return 1.20f;
         return 1.00f;
     }
+    public static float heightScaleFactor(int percent) {
+        int clamped=Math.max(MIN_HEIGHT_PERCENT,Math.min(MAX_HEIGHT_PERCENT,percent));
+        return clamped/100.0f;
+    }
     private static String normalized(String value,List<String> values,String fallback) {
         return values.contains(value)?value:fallback;
     }
@@ -96,8 +106,14 @@ public final class KeyboardSettings {
         // Repair a legacy/inconsistent pair in the projection, preserving a valid selected schema.
         if("nineKey".equals(layout) && !DEFAULT_SCHEMA.equals(schema)) layout=DEFAULT_LAYOUT;
         String heightScale=text(stored,KEY_HEIGHT_SCALE,HEIGHT_SCALE_VALUES,DEFAULT_HEIGHT_SCALE);
+        int heightPercent=stored.containsKey(KEY_HEIGHT_PERCENT) && stored.get(KEY_HEIGHT_PERCENT) instanceof Integer
+                ? (Integer)stored.get(KEY_HEIGHT_PERCENT)
+                : "short".equals(heightScale)?90:"medium_tall".equals(heightScale)?110:"tall".equals(heightScale)?120:DEFAULT_HEIGHT_PERCENT;
+        float heightFactor=heightScaleFactor(heightPercent);
+        int bottomInset=stored.containsKey(KEY_BOTTOM_INSET) && stored.get(KEY_BOTTOM_INSET) instanceof Integer
+                ? (Integer)stored.get(KEY_BOTTOM_INSET) : DEFAULT_BOTTOM_INSET;
         return new Snapshot(schema,layout,text(stored,KEY_THEME,THEME_VALUES,DEFAULT_THEME),
-                heightScale,heightScaleFactor(heightScale),
+                heightScale,heightFactor,heightPercent,bottomInset,
                 text(stored,KEY_TRANSLATION_DIRECTION,DIRECTION_VALUES,DEFAULT_TRANSLATION_DIRECTION),
                 flag(stored,KEY_LEARNING,DEFAULT_LEARNING),flag(stored,KEY_AI_MOCK_ENABLED,DEFAULT_AI_MOCK_ENABLED));
     }
@@ -106,6 +122,8 @@ public final class KeyboardSettings {
     public String getTheme() { return snapshot().theme; }
     public String getHeightScale() { return snapshot().heightScale; }
     public float getHeightFactor() { return snapshot().heightFactor; }
+    public int getHeightPercent() { return snapshot().heightPercent; }
+    public int getBottomInset() { return snapshot().bottomInset; }
     public String getTranslationDirection() { return snapshot().translationDirection; }
     public boolean isLearningEnabled() { return snapshot().learning; }
     public boolean isAiMockEnabled() { return snapshot().aiMockEnabled; }
@@ -131,7 +149,16 @@ public final class KeyboardSettings {
         preferences.edit().putString(KEY_THEME,normalized(value,THEME_VALUES,DEFAULT_THEME)).apply();
     }
     public void setHeightScale(String value) {
-        preferences.edit().putString(KEY_HEIGHT_SCALE,normalized(value,HEIGHT_SCALE_VALUES,DEFAULT_HEIGHT_SCALE)).apply();
+        String normalized=normalized(value,HEIGHT_SCALE_VALUES,DEFAULT_HEIGHT_SCALE);
+        int percent="short".equals(normalized)?90:"medium_tall".equals(normalized)?110:"tall".equals(normalized)?120:100;
+        preferences.edit().putString(KEY_HEIGHT_SCALE,normalized).putInt(KEY_HEIGHT_PERCENT,percent).apply();
+    }
+    public void setHeightPercent(int percent) {
+        int clamped=Math.max(MIN_HEIGHT_PERCENT,Math.min(MAX_HEIGHT_PERCENT,percent));
+        preferences.edit().putInt(KEY_HEIGHT_PERCENT,clamped).apply();
+    }
+    public void setBottomInset(int dp) {
+        preferences.edit().putInt(KEY_BOTTOM_INSET,Math.max(0,Math.min(32,dp))).apply();
     }
     public void setTranslationDirection(String value) {
         preferences.edit().putString(KEY_TRANSLATION_DIRECTION,normalized(value,DIRECTION_VALUES,DEFAULT_TRANSLATION_DIRECTION)).apply();
@@ -144,9 +171,11 @@ public final class KeyboardSettings {
     public static final class Snapshot {
         public final String schema,layout,theme,heightScale,translationDirection;
         public final float heightFactor;
+        public final int heightPercent,bottomInset;
         public final boolean learning,aiMockEnabled;
-        private Snapshot(String schema,String layout,String theme,String heightScale,float heightFactor,String direction,boolean learning,boolean aiMockEnabled) {
-            this.schema=schema; this.layout=layout; this.theme=theme; this.heightScale=heightScale; this.heightFactor=heightFactor; this.translationDirection=direction;
+        private Snapshot(String schema,String layout,String theme,String heightScale,float heightFactor,int heightPercent,int bottomInset,String direction,boolean learning,boolean aiMockEnabled) {
+            this.schema=schema; this.layout=layout; this.theme=theme; this.heightScale=heightScale; this.heightFactor=heightFactor;
+            this.heightPercent=heightPercent; this.bottomInset=bottomInset; this.translationDirection=direction;
             this.learning=learning; this.aiMockEnabled=aiMockEnabled;
         }
     }

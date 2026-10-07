@@ -29,6 +29,13 @@ final class KeyButton extends Button {
     private float frameX,frameY,frameWidth=-1,frameHeight=-1;
     private boolean nativeTouchActive;
     private long nativeDownTime=-1;
+    private String hint;
+    void hint(String value) {
+        if(!java.util.Objects.equals(hint,value)) {
+            hint=value;
+            invalidate();
+        }
+    }
     KeyButton(Context context) {
         super(context);
         setAllCaps(false); setMinWidth(0); setMinimumWidth(0); setMinHeight(0); setMinimumHeight(0);
@@ -205,6 +212,14 @@ final class KeyButton extends Button {
         if(scale<1) textPaint.setTextSize(originalSize*scale);
         textPaint.getFontMetrics(fontMetrics); textPaint.setColor(getCurrentTextColor());
         canvas.drawText(text,x+(width-textPaint.measureText(text))/2,centreY-(fontMetrics.ascent+fontMetrics.descent)/2,textPaint);
+        if(hint!=null && !hint.isEmpty()) {
+            float hintSize=Math.max(8.5f*density,originalSize*0.48f);
+            textPaint.setTextSize(hintSize);
+            textPaint.setColor((palette!=null?palette.ink:getCurrentTextColor())&0x00FFFFFF|0x75000000);
+            float hintX=x+width-textPaint.measureText(hint)-dx-3*density;
+            float hintY=y+dy+hintSize+0.5f*density;
+            canvas.drawText(hint,hintX,hintY,textPaint);
+        }
         textPaint.setTextSize(originalSize); canvas.restoreToCount(saved);
     }
     private void drawIcon(Canvas canvas,float left,float top,float size) {
