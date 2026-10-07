@@ -11,6 +11,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.text.InputType;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.inputmethod.EditorInfo;
@@ -86,6 +87,7 @@ public final class RimesInputMethodService extends InputMethodService {
     private String layout="qwerty";
     private String heightScale=KeyboardSettings.DEFAULT_HEIGHT_SCALE;
     private float heightFactor=1.0f;
+    private boolean visiblePassword;
     private boolean symbols,emoji,appearanceOpen,spellingOpen,punctuationOpen,clipboardOpen;
     private ClipboardPanel clipboardPanel;
     private final List<String> clipboardHistory=new ArrayList<>();
