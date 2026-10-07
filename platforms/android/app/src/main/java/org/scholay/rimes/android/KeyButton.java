@@ -119,10 +119,18 @@ final class KeyButton extends Button {
         super.onCancelPendingInputEvents();
         nativeTouchActive=false; nativeDownTime=-1; setPressed(false);
     }
+    private float touchBiasX=0f,touchBiasY=0f;
+    float getTouchBiasX() { return touchBiasX; }
+    float getTouchBiasY() { return touchBiasY; }
     @Override public boolean onTouchEvent(MotionEvent event) {
         int action=event.getActionMasked();
         if(action==MotionEvent.ACTION_DOWN) {
             nativeTouchActive=true; nativeDownTime=event.getDownTime();
+            float w=getWidth(),h=getHeight();
+            if(w>0 && h>0) {
+                touchBiasX=(event.getX()-w/2f)/(w/2f);
+                touchBiasY=(event.getY()-h/2f)/(h/2f);
+            }
         } else if(!nativeTouchActive || event.getDownTime()!=nativeDownTime) return true;
         try { return super.onTouchEvent(event); }
         finally {

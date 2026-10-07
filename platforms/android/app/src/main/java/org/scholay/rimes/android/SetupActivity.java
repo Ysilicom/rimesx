@@ -155,7 +155,7 @@ public final class SetupActivity extends Activity {
     private String titleFor(String destination) {
         switch(destination) {
             case "setup":return t("启用 RIMES 键盘","Enable RIMES");case "playground":return t("输入体验","Try typing");
-            case "schema":return t("默认方案","Default scheme");case "fuzzy":return t("模糊拼音设置","Fuzzy Pinyin");case "chords":return t("滑动并击与键位","Slide chords & mappings");
+            case "schema":return t("默认方案","Default scheme");case "fuzzy":return t("输入纠错与模糊音","Typing correction & Fuzzy Pinyin");case "chords":return t("滑动并击与键位","Slide chords & mappings");
             case "plugins":return t("官方插件","Official plugins");
             case "mappings":return t("内置并击映射","Built-in chord mappings");
             case "appearance":return t("键盘布局与换肤","Keyboard layout & skins");case "resources":return t("Rime 方案与词典","Rime schemes & dictionaries");
@@ -238,7 +238,7 @@ public final class SetupActivity extends Activity {
         row(start,KeyboardIcon.WRITE,t("输入体验","Try typing"),null,null,"settings.home.playground",() -> navigate("playground"));
         LinearLayout typing=group(t("你的输入方式","Your typing"));
         row(typing,null,t("默认方案","Default scheme"),null,schemeName(settings.getSchema()),"settings.home.schema",() -> navigate("schema"));
-        row(typing,KeyboardIcon.SLIDERS,t("模糊拼音设置","Fuzzy Pinyin settings"),null,null,"settings.home.fuzzy",() -> navigate("fuzzy"));
+        row(typing,KeyboardIcon.SLIDERS,t("输入纠错与模糊音","Typing correction & Fuzzy Pinyin"),null,null,"settings.home.fuzzy",() -> navigate("fuzzy"));
         row(typing,KeyboardIcon.SLIDERS,t("滑动并击与键位","Slide chords & mappings"),null,null,"settings.home.chords",() -> navigate("chords"));
         row(typing,KeyboardIcon.KEYBOARD,t("键盘布局与换肤","Keyboard layout & skins"),null,null,"settings.home.appearance",() -> navigate("appearance"));
         row(typing,KeyboardIcon.STACK_LAYERS,t("Rime 方案与词典","Rime schemes & dictionaries"),null,null,"settings.home.resources",() -> navigate("resources"));
@@ -304,12 +304,17 @@ public final class SetupActivity extends Activity {
     private void schemas() {
         LinearLayout choices=group(t("中文输入方案","Chinese input scheme")); String[] ids={"rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi"}; String[] samples={"nihao → 你好","nihk → 你好","nihc → 你好","wq → 你"};
         for(int i=0;i<ids.length;i++) { String id=ids[i]; choice(choices,schemeName(id),samples[i],"settings.schema."+id,settings.getSchema().equals(id),() -> { settings.setSchema(id); render(); }); }
-        row(choices,KeyboardIcon.SLIDERS,t("模糊拼音设置","Fuzzy Pinyin settings"),t("平翘舌互通、前后鼻音、鼻边音等细项开关","Configure granular phonetic interchange rules"),null,"settings.schema.fuzzy",() -> navigate("fuzzy"));
+        row(choices,KeyboardIcon.SLIDERS,t("输入纠错与模糊音","Typing correction & Fuzzy Pinyin"),t("26键邻近键触控纠错、平翘舌互通、前后鼻音细项","26-key spatial autocorrect, initial/final phonetic rules"),null,"settings.schema.fuzzy",() -> navigate("fuzzy"));
         note(t("九键使用全拼；选择其他方案会切换到 QWERTY。并击使用自然码编码，选择普通中文方案会退出并击布局。","9-key uses Pinyin; another scheme switches to QWERTY. Chords use Natural Code; selecting a regular scheme leaves the chord layout."));
     }
     private void fuzzy() {
-        content.addView(text(t("模糊拼音设置","Fuzzy Pinyin settings"),20,ink,true));
-        note(t("根据个人发音习惯，独立勾选或取消各个音节互通规则。","Configure individual phonetic interchange rules according to your pronunciation habit."));
+        content.addView(text(t("输入纠错与模糊音","Typing correction & Fuzzy Pinyin"),20,ink,true));
+        note(t("支持 26 键空间按键容错与个性化拼音模糊音规则，修改后即时保存并生效。","Supports 26-key spatial touch error correction and personalized fuzzy phonetic rules."));
+
+        LinearLayout correctionGroup=group(t("智能按键纠错 (Gboard 级)","Spatial Autocorrect"));
+        toggle(correctionGroup,t("26键邻近键触控纠错","26-key spatial neighbor correction"),"settings.correction",settings.isCorrectionEnabled(),v -> { settings.setCorrectionEnabled(v); render(); });
+        note(t("根据手指触碰按键的物理偏向与前后音节关联，在按错键无候选词时自动测试相邻按键进行容错挽救（支持全拼与小鹤双拼）。","Automatically evaluates neighboring keys using touch coordinates and syllable context when a typo leaves no candidates, seamlessly rescuing candidate results for both Pinyin and Shuangpin."));
+
         LinearLayout group=group(t("声母模糊音","Initials"));
         toggle(group,t("平翘舌互通 (z ↔ zh)","z ↔ zh"),"settings.fuzzy.z_zh",settings.isFuzzy(KeyboardSettings.KEY_FUZZY_ZH_Z),v -> { settings.setFuzzy(KeyboardSettings.KEY_FUZZY_ZH_Z,v); render(); });
         toggle(group,t("平翘舌互通 (c ↔ ch)","c ↔ ch"),"settings.fuzzy.c_ch",settings.isFuzzy(KeyboardSettings.KEY_FUZZY_CH_C),v -> { settings.setFuzzy(KeyboardSettings.KEY_FUZZY_CH_C,v); render(); });

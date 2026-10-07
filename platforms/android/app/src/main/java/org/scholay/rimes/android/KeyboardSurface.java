@@ -19,6 +19,7 @@ final class KeyboardSurface extends ViewGroup {
         boolean enabled(KeyboardLayout.Key key);
         boolean selected(KeyboardLayout.Key key);
         void press(KeyboardLayout.Key key);
+        default void press(KeyboardLayout.Key key, float biasX, float biasY) { press(key); }
         default boolean longPress(KeyboardLayout.Key key) { return false; }
         default void slideCursor(int steps) {}
     }
@@ -34,7 +35,7 @@ final class KeyboardSurface extends ViewGroup {
             frames=KeyboardLayout.keys(400,landscape(),mode);
             for(KeyboardLayout.Key key:frames) {
                 KeyButton button=new KeyButton(getContext());
-                button.setOnClickListener(v -> handler.press(key));
+                button.setOnClickListener(v -> handler.press(key, button.getTouchBiasX(), button.getTouchBiasY()));
                 button.setOnLongClickListener(v -> handler.longPress(key));
                 if(key.action==KeyboardLayout.Action.DELETE) {
                     setupDeleteRepeat(button,() -> handler.press(key));

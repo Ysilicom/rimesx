@@ -28,6 +28,8 @@ public final class KeyboardSettings {
     public static final String KEY_FUZZY_AN_ANG="fuzzy_an_ang";
     public static final String KEY_FUZZY_EN_ENG="fuzzy_en_eng";
     public static final String KEY_FUZZY_IN_ING="fuzzy_in_ing";
+    public static final String KEY_CORRECTION_ENABLED="correction_enabled";
+    public static final boolean DEFAULT_CORRECTION_ENABLED=true;
     public static final String KEY_HEIGHT_PERCENT="height_percent";
     public static final int DEFAULT_HEIGHT_PERCENT=100;
     public static final int MIN_HEIGHT_PERCENT=70;
@@ -167,6 +169,8 @@ public final class KeyboardSettings {
     public void setAiMockEnabled(boolean enabled) { preferences.edit().putBoolean(KEY_AI_MOCK_ENABLED,enabled).apply(); }
     public boolean isFuzzy(String key) { return preferences.getBoolean(key,true); }
     public void setFuzzy(String key,boolean value) { preferences.edit().putBoolean(key,value).apply(); }
+    public boolean isCorrectionEnabled() { return preferences.getBoolean(KEY_CORRECTION_ENABLED,DEFAULT_CORRECTION_ENABLED); }
+    public void setCorrectionEnabled(boolean enabled) { preferences.edit().putBoolean(KEY_CORRECTION_ENABLED,enabled).apply(); }
 
     public static final class Snapshot {
         public final String schema,layout,theme,heightScale,translationDirection;

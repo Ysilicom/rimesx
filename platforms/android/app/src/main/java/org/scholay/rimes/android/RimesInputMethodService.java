@@ -36,6 +36,7 @@ import org.scholay.rimes.core.KeyboardLayout;
 import org.scholay.rimes.core.NineKeyPinyin;
 import org.scholay.rimes.core.ChordGesture;
 import org.scholay.rimes.core.ChordLayout;
+import org.scholay.rimes.core.SmartCorrector;
 
 /** All host mutations use the exact live InputConnection; engine results carry an editor lease. */
 public final class RimesInputMethodService extends InputMethodService {
@@ -118,6 +119,8 @@ public final class RimesInputMethodService extends InputMethodService {
     // Worker-owned state. Access only inside EngineWorker.QUEUE.
     private RimeEngine engine;
     private long session;
+    private int lastTypedChar;
+    private float lastBiasX, lastBiasY;
     private static final String[] SCHEMAS={"rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi"};
     private static final String[] NAMES={"拼音","自然码","小鹤","五笔"};
 
@@ -185,6 +188,7 @@ public final class RimesInputMethodService extends InputMethodService {
         final boolean active=target!=null;
         final InputEpoch.Ticket ticket=epoch.issue();
         EngineWorker.QUEUE.execute(() -> {
+            lastTypedChar=0;
             if(session!=0) engine.destroySession(session);
             session=active ? engine.createSession() : 0;
             if(active && (session==0 || !engine.selectSchema(session,selected))) main.post(() -> { if(epoch.current(ticket)) engineFailure(); });
@@ -349,11 +353,15 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private RimeEngine.Snapshot state() { return session==0 ? RimeEngine.Snapshot.EMPTY : engine.snapshot(session); }
     private Result literal(String text) {
+        lastTypedChar=0;
         RimeEngine.Snapshot before=state();
         if(before.composing()) engine.clearComposition(session);
         return new Result(RimeEngine.Snapshot.EMPTY,before.raw+text,false,0);
     }
     private void type(String text) {
+        type(text,0f,0f);
+    }
+    private void type(String text,float biasX,float biasY) {
         if(!ownsTarget()) return;
         invalidatePlugin();
         if(!ready) {
@@ -367,10 +375,83 @@ public final class RimesInputMethodService extends InputMethodService {
             if(!chinese || session==0 || text.codePointAt(0)>127 || Character.isUpperCase(text.codePointAt(0))) return literal(text);
             RimeEngine.Snapshot before=state();
             if(before.raw.length()>=128 && !" ".equals(text)) return Result.state(before);
-            if(" ".equals(text) && before.composing() && !before.candidates.isEmpty())
+            if(" ".equals(text) && before.composing() && !before.candidates.isEmpty()) {
+                lastTypedChar=0;
                 return Result.state(engine.selectCandidate(session,before.pageStart));
-            RimeEngine.Snapshot after=engine.processKey(session,text.codePointAt(0));
-            if(!after.handled && after.commit.isEmpty()) return new Result(after,text,false,0);
+            }
+            int codePoint=text.codePointAt(0);
+            RimeEngine.Snapshot after=engine.processKey(session,codePoint);
+            if(!after.handled && after.commit.isEmpty()) {
+                lastTypedChar=0;
+                return new Result(after,text,false,0);
+            }
+
+            // Gboard-level Spatial Touch Error Correction
+            if(settings.isCorrectionEnabled() && !nineKeyVisible() && text.length()==1 && SmartCorrector.isSupportedLetter((char)codePoint)) {
+                if((!before.composing() || !before.candidates.isEmpty()) && after.composing() && after.candidates.isEmpty()) {
+                    char ch=(char)codePoint;
+                    List<Character> neighbors=SmartCorrector.getPrioritizedNeighbors(ch,biasX,biasY);
+                    boolean rescued=false;
+                    RimeEngine.Snapshot bestSnapshot=null;
+
+                    // Level 1: Rescue current key Kn by evaluating spatial neighbors ordered by touch bias
+                    if(!neighbors.isEmpty()) {
+                        engine.processKey(session,0xff08); // undo Kn
+                        for(char neighbor:neighbors) {
+                            RimeEngine.Snapshot trySnapshot=engine.processKey(session,(int)neighbor);
+                            if(trySnapshot.composing() && !trySnapshot.candidates.isEmpty()) {
+                                rescued=true;
+                                bestSnapshot=trySnapshot;
+                                lastTypedChar=neighbor;
+                                lastBiasX=0f;
+                                lastBiasY=0f;
+                                break;
+                            }
+                            engine.processKey(session,0xff08); // undo neighbor attempt
+                        }
+                    }
+
+                    // Level 2: If current key neighbors failed, check if previous key K(n-1) in this syllable was mistyped
+                    // (Crucial for Double Pinyin / Flypy / Ziranma where K(n-1) is initial and Kn is final, e.g. "fc" -> "hc")
+                    if(!rescued && lastTypedChar>0 && SmartCorrector.isSupportedLetter((char)lastTypedChar) && before.raw.length()>=1) {
+                        List<Character> prevNeighbors=SmartCorrector.getPrioritizedNeighbors((char)lastTypedChar,lastBiasX,lastBiasY);
+                        engine.processKey(session,0xff08); // undo K(n-1)
+                        for(char prevNeighbor:prevNeighbors) {
+                            engine.processKey(session,(int)prevNeighbor);
+                            RimeEngine.Snapshot trySnapshot=engine.processKey(session,codePoint);
+                            if(trySnapshot.composing() && !trySnapshot.candidates.isEmpty()) {
+                                rescued=true;
+                                bestSnapshot=trySnapshot;
+                                lastTypedChar=codePoint;
+                                lastBiasX=biasX;
+                                lastBiasY=biasY;
+                                break;
+                            }
+                            engine.processKey(session,0xff08);
+                            engine.processKey(session,0xff08);
+                        }
+                        if(!rescued) {
+                            engine.processKey(session,lastTypedChar); // restore K(n-1)
+                        }
+                    }
+
+                    if(rescued && bestSnapshot!=null) {
+                        return Result.state(bestSnapshot);
+                    }
+
+                    // Level 3: Restore original Kn if no neighbor rescued the candidate list
+                    after=engine.processKey(session,codePoint);
+                }
+            }
+
+            if(after.composing()) {
+                lastTypedChar=codePoint;
+                lastBiasX=biasX;
+                lastBiasY=biasY;
+            } else {
+                lastTypedChar=0;
+            }
+
             return Result.state(after);
         });
     }
@@ -506,8 +587,11 @@ public final class RimesInputMethodService extends InputMethodService {
         if(!retained.isEmpty()) { if(buffer.isEnabled()) { buffer.deleteLastBlock(); retryRetained(); } return; }
         if(!ready) { deleteHostOrBuffer(); render(); return; }
         final boolean nine=nineKeyVisible();
-        dispatch(() -> state().composing() ? (nine?replaceNineKey(NineKeyPinyin.backspace(state().raw)):Result.state(engine.processKey(session,0xff08)))
-                : new Result(RimeEngine.Snapshot.EMPTY,"",false,1));
+        dispatch(() -> {
+            lastTypedChar=0;
+            return state().composing() ? (nine?replaceNineKey(NineKeyPinyin.backspace(state().raw)):Result.state(engine.processKey(session,0xff08)))
+                    : new Result(RimeEngine.Snapshot.EMPTY,"",false,1);
+        });
     }
     private void deleteHostOrBuffer() {
         if(!ownsTarget()) return;
@@ -551,7 +635,10 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private void enter() {
         if(!ready) { returnHostOrBuffer(); return; }
-        dispatch(() -> state().composing() ? literal("") : new Result(RimeEngine.Snapshot.EMPTY,"",false,2));
+        dispatch(() -> {
+            lastTypedChar=0;
+            return state().composing() ? literal("") : new Result(RimeEngine.Snapshot.EMPTY,"",false,2);
+        });
     }
     private void returnHostOrBuffer() {
         if(!ownsTarget()) return;
@@ -574,7 +661,10 @@ public final class RimesInputMethodService extends InputMethodService {
         if(!ready || index>=snapshot.candidates.size()) return;
         candidateGridOpen=false;
         final int absolute=snapshot.pageStart+index;
-        dispatch(() -> Result.state(engine.selectCandidate(session,absolute)));
+        dispatch(() -> {
+            lastTypedChar=0;
+            return Result.state(engine.selectCandidate(session,absolute));
+        });
     }
     private void page(boolean forward) {
         if(snapshot.composing()) dispatch(() -> Result.state(engine.processKey(session,forward?0xff56:0xff55)));
@@ -582,6 +672,7 @@ public final class RimesInputMethodService extends InputMethodService {
     private void notice(int message) { Toast.makeText(this,message,Toast.LENGTH_SHORT).show(); }
 
     private Result replaceNineKey(String raw) {
+        lastTypedChar=0;
         engine.clearComposition(session);
         RimeEngine.Snapshot after=RimeEngine.Snapshot.EMPTY;
         for(int key:raw.codePoints().toArray()) after=engine.processKey(session,key);
@@ -787,13 +878,16 @@ public final class RimesInputMethodService extends InputMethodService {
             moveCursor(steps);
         }
         @Override public void press(KeyboardLayout.Key key) {
+            press(key,0f,0f);
+        }
+        @Override public void press(KeyboardLayout.Key key,float biasX,float biasY) {
             if(key.action!=KeyboardLayout.Action.PUNCTUATION) lastPunctuationTime=0;
             if(key.action!=KeyboardLayout.Action.SPACE) lastSpaceTime=0;
             switch(key.action) {
                 case TEXT:
                     String text=uppercase && !numeric && !emoji?key.text.toUpperCase(Locale.ROOT):key.text;
                     if(numeric && !english && !directOnly) for(int i=0;i<MARKS.length;i++) if(text.equals(MARKS[i])) { text=MARK_LABELS[i]; break; }
-                    type(text); break;
+                    type(text,biasX,biasY); break;
                 case SHIFT: settleAndSwitch(() -> uppercase=!uppercase); break;
                 case DELETE: delete(); break;
                 case RETURN: enter(); break;
