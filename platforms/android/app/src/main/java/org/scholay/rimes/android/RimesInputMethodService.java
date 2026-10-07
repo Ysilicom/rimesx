@@ -360,7 +360,7 @@ public final class RimesInputMethodService extends InputMethodService {
         return new Result(RimeEngine.Snapshot.EMPTY,before.raw+text,false,0);
     }
     private RimeEngine.Snapshot expandSnapshot(RimeEngine.Snapshot snapshot) {
-        if(session==0 || snapshot==null || !snapshot.composing() || snapshot.candidates.isEmpty() || snapshot.lastPage) return snapshot;
+        if(session==0 || snapshot==null || !snapshot.composing() || snapshot.candidates.isEmpty() || snapshot.candidates.size()>=18 || snapshot.lastPage) return snapshot;
         java.util.ArrayList<String> allCandidates=new java.util.ArrayList<>(snapshot.candidates);
         java.util.ArrayList<String> allComments=new java.util.ArrayList<>(snapshot.comments);
         int pages=0;
@@ -404,8 +404,9 @@ public final class RimesInputMethodService extends InputMethodService {
                 return new Result(after,text,false,0);
             }
 
-            // Gboard-level Spatial Touch Error Correction
-            if(settings.isCorrectionEnabled() && !nineKeyVisible() && text.length()==1 && SmartCorrector.isSupportedLetter((char)codePoint)) {
+            // Gboard-level Spatial Touch Error Correction (strictly disabled for Shuangpin / Wubi)
+            boolean allowCorrection=settings.isCorrectionEnabled() && "rimes_pinyin".equals(schema) && !nineKeyVisible();
+            if(allowCorrection && text.length()==1 && SmartCorrector.isSupportedLetter((char)codePoint)) {
                 if((!before.composing() || !before.candidates.isEmpty()) && after.composing() && after.candidates.isEmpty()) {
                     char ch=(char)codePoint;
                     List<Character> neighbors=SmartCorrector.getPrioritizedNeighbors(ch,biasX,biasY);
@@ -846,13 +847,15 @@ public final class RimesInputMethodService extends InputMethodService {
             switch(key.action) {
                 case TEXT:
                     if(nineKeyVisible()) return new String[]{"ABC","DEF","GHI","JKL","MNO","PQRS","TUV","WXYZ"}[Integer.parseInt(key.text)-2];
-                    return !numeric && !emoji?(uppercase?key.text.toUpperCase(Locale.ROOT):key.text.toLowerCase(Locale.ROOT)):key.text;
+                    return !numeric && !emoji?key.text.toUpperCase(Locale.ROOT):key.text;
                 case SHIFT: return uppercase?"⇪":"⇧";
                 case DELETE: return "⌫";
                 case RETURN: return returnLabel();
                 case NUMBERS: return numeric || emoji?(nineKeyEngine() && !english && !directOnly?"拼音":"ABC"):"123";
                 case SYMBOLS: return numeric && symbols?"123":"#+=";
-                case LANGUAGE: return english || directOnly?"英":"中";
+                case LANGUAGE:
+                    if(english || directOnly) return "英";
+                    return (schema.equals("rimes_flypy") || schema.equals("rimes_ziranma"))?"双":"中";
                 case EMOJI: return emoji?"ABC":"☺";
                 case SPACE: return english || directOnly?"space":"空格";
                 case SPELLING: return "选拼音";
@@ -931,7 +934,39 @@ public final class RimesInputMethodService extends InputMethodService {
                 default: throw new IllegalStateException();
             }
         }
+        @Override public String hint(KeyboardLayout.Key key) {
+            if(key.action!=KeyboardLayout.Action.TEXT) return null;
+            if(!english && !directOnly && !numeric && !emoji) {
+                if("rimes_flypy".equals(schema)) return flypyHint(key.text);
+                if("rimes_ziranma".equals(schema)) return ziranmaHint(key.text);
+            }
+            return KeyboardSurface.hintForLetter(key.text);
+        }
     };
+    static String flypyHint(String letter) {
+        if(letter==null || letter.length()!=1) return null;
+        switch(Character.toLowerCase(letter.charAt(0))) {
+            case 'q': return "iu"; case 'w': return "ei"; case 'r': return "uan"; case 't': return "ue";
+            case 'y': return "un"; case 'u': return "sh"; case 'i': return "ch"; case 'o': return "uo";
+            case 'p': return "ie"; case 's': return "ong"; case 'd': return "ai"; case 'f': return "en";
+            case 'g': return "eng"; case 'h': return "ang"; case 'j': return "an"; case 'k': return "ing";
+            case 'l': return "iang"; case 'z': return "ou"; case 'x': return "ia"; case 'c': return "ao";
+            case 'v': return "zh"; case 'b': return "in"; case 'n': return "iao"; case 'm': return "ian";
+            default: return null;
+        }
+    }
+    static String ziranmaHint(String letter) {
+        if(letter==null || letter.length()!=1) return null;
+        switch(Character.toLowerCase(letter.charAt(0))) {
+            case 'q': return "iu"; case 'w': return "ia"; case 'r': return "uan"; case 't': return "ue";
+            case 'y': return "ing"; case 'u': return "sh"; case 'i': return "ch"; case 'o': return "uo";
+            case 'p': return "un"; case 's': return "ong"; case 'd': return "ai"; case 'f': return "en";
+            case 'g': return "eng"; case 'h': return "ang"; case 'j': return "an"; case 'k': return "ao";
+            case 'l': return "ai"; case 'z': return "ou"; case 'x': return "ua"; case 'c': return "ao";
+            case 'v': return "zh"; case 'b': return "in"; case 'n': return "iao"; case 'm': return "ian";
+            default: return null;
+        }
+    }
     private boolean returnSelected() {
         if(snapshot.composing() || pending!=0) return false;
         if(buffer.isEnabled()) return activePlugin==null?buffer.blockCount()>0:pluginSession.snapshot(buffer).status==PluginSession.Status.READY;
@@ -989,7 +1024,7 @@ public final class RimesInputMethodService extends InputMethodService {
         metrics.setTypeface(android.graphics.Typeface.create("sans-serif-medium",android.graphics.Typeface.NORMAL)); details.addView(metrics,new LinearLayout.LayoutParams(0,-1,1));
         pluginRunButton=button(details,"执行",this::runOrCancelPlugin,0); fixedWidth(pluginRunButton,32); gapLeft(pluginRunButton,4); pluginRunButton.icon(KeyboardIcon.PLAY);
         pluginButton=button(details,"插件",() -> openPluginSettings(activePlugin),0); fixedWidth(pluginButton,32); gapLeft(pluginButton,4); pluginButton.icon(KeyboardIcon.GRID_9); pluginButton.setContentDescription("Buffer 插件设置");
-        candidateRow=row(keyboard,landscape()?38:44);
+        candidateRow=row(keyboard,landscape()?50:64);
         layoutButton=button(candidateRow,"⚙",this::toggleAppearance,0); fixedWidth(layoutButton,32); gapRight(layoutButton,4); layoutButton.setContentDescription("键位布局"); layoutButton.icon(KeyboardIcon.SETTINGS);
         previous=button(candidateRow,"‹",() -> candidatePage(false),0); fixedWidth(previous,32); ((KeyButton)previous).plain(true); previous.setContentDescription("上一页候选"); ((KeyButton)previous).icon(KeyboardIcon.CHEVRON_LEFT,16);
         previous.setVisibility(View.GONE);
@@ -998,10 +1033,10 @@ public final class RimesInputMethodService extends InputMethodService {
         candidateBox.setOrientation(LinearLayout.VERTICAL);
         center.addView(candidateBox,new FrameLayout.LayoutParams(-1,-1));
         preedit=new TextView(this); preedit.setSingleLine(true); preedit.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        preedit.setTextSize(landscape()?10:12); preedit.setGravity(Gravity.CENTER_VERTICAL);
-        preedit.setPadding(dp(8),0,dp(8),0); preedit.setTypeface(android.graphics.Typeface.create("sans-serif-medium",android.graphics.Typeface.NORMAL));
+        preedit.setTextSize(landscape()?13:15); preedit.setGravity(Gravity.CENTER_VERTICAL);
+        preedit.setPadding(dp(12),dp(2),dp(12),dp(2)); preedit.setTypeface(android.graphics.Typeface.create("sans-serif-medium",android.graphics.Typeface.NORMAL));
         preedit.setOnClickListener(v -> { if(snapshot.composing()) enter(); });
-        candidateBox.addView(preedit,new LinearLayout.LayoutParams(-1,dp(landscape()?12:14)));
+        candidateBox.addView(preedit,new LinearLayout.LayoutParams(-1,dp(landscape()?16:22)));
         candidateScroll=new HorizontalScrollView(this); candidateScroll.setFillViewport(false); candidateScroll.setHorizontalScrollBarEnabled(false);
         candidateScroll.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
         LinearLayout strip=new LinearLayout(this); candidateStrip=strip; candidateScroll.addView(strip,new HorizontalScrollView.LayoutParams(-2,-1));
@@ -1242,15 +1277,15 @@ public final class RimesInputMethodService extends InputMethodService {
         bufferButton.setContentDescription(getString(buffer.isEnabled()?R.string.buffer_on:R.string.buffer_off)); bufferButton.setSelected(buffer.isEnabled());
         bufferButton.setEnabled(buffer.isPermitted() && pending==0 && !snapshot.composing() && retained.isEmpty() && !chords.isChordActive());
 
-        int desiredRowHeight=dp(landscape()?38:44);
+        int desiredRowHeight=dp(landscape()?50:64);
         if(candidateRow.getLayoutParams().height!=desiredRowHeight) {
             candidateRow.getLayoutParams().height=desiredRowHeight;
             candidateRow.requestLayout();
         }
-        int desiredPreeditHeight=dp(landscape()?12:14);
+        int desiredPreeditHeight=dp(landscape()?16:22);
         if(preedit.getLayoutParams().height!=desiredPreeditHeight) {
             preedit.getLayoutParams().height=desiredPreeditHeight;
-            preedit.setTextSize(landscape()?10:12);
+            preedit.setTextSize(landscape()?13:15);
             preedit.requestLayout();
         }
 
@@ -1261,7 +1296,7 @@ public final class RimesInputMethodService extends InputMethodService {
         } else if(status.isEmpty() && punctuationOpen) {
             status="中文标点";
         }
-        setText(preedit,status); preedit.setTextColor(palette.accentText);
+        setText(preedit,status); preedit.setTextColor(palette.ink);
         preedit.setVisibility(!directOnly && !status.isEmpty()?View.VISIBLE:View.INVISIBLE);
         spellingChoices=nineKeyVisible()?spellings.choices(snapshot.raw):java.util.Collections.emptyList();
         if(spellingChoices.isEmpty()) spellingOpen=false;
@@ -1284,6 +1319,9 @@ public final class RimesInputMethodService extends InputMethodService {
                 String value=!chordPreview.isEmpty()?chordPreview:marks?(english || numeric || emoji?MARKS[i]:MARK_LABELS[i]):snapshot.candidates.get(i);
                 setText(item,value);
                 item.setContentDescription(marks?MARKS[i]:"候选"+(i+1)+" "+value);
+                item.candidateHighlight(i==0 && !marks && chordPreview.isEmpty());
+            } else {
+                item.candidateHighlight(false);
             }
             item.setEnabled(exists && chordPreview.isEmpty());
         }

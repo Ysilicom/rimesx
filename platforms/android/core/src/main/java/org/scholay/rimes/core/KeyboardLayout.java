@@ -64,15 +64,15 @@ public final class KeyboardLayout {
                         width-sideWidth,2*(capHeight+rowGap),sideWidth,capHeight);
             }
             Action[] footer=mode==Mode.EMOJI
-                    ?new Action[]{Action.NUMBERS,Action.EMOJI,Action.LANGUAGE,Action.SPACE,Action.DELETE}
+                    ?new Action[]{Action.NUMBERS,Action.EMOJI,Action.SPACE,Action.LANGUAGE,Action.DELETE}
                     :mode==Mode.QWERTY
-                    ?new Action[]{Action.NUMBERS,Action.LANGUAGE,Action.PUNCTUATION,Action.SPACE,Action.RETURN}
-                    :new Action[]{Action.NUMBERS,Action.LANGUAGE,Action.SPACE,Action.RETURN};
+                    ?new Action[]{Action.NUMBERS,Action.PUNCTUATION,Action.SPACE,Action.LANGUAGE,Action.RETURN}
+                    :new Action[]{Action.NUMBERS,Action.SPACE,Action.LANGUAGE,Action.RETURN};
             float[] weights=mode==Mode.QWERTY
-                    ?new float[]{1.25f,1.25f,1.25f,4.25f,2.0f}
+                    ?new float[]{1.4f,1.2f,4.0f,1.4f,2.0f}
                     :mode==Mode.EMOJI
-                    ?new float[]{1.5f,1.5f,1.5f,4.0f,1.5f}
-                    :new float[]{1.5f,1.5f,5.0f,2.0f};
+                    ?new float[]{1.5f,1.5f,4.0f,1.5f,1.5f}
+                    :new float[]{1.5f,5.0f,1.5f,2.0f};
             float x=0,footerUnit=(width-(footer.length-1)*gap)/10f;
             for(int i=0;i<footer.length;i++) {
                 float w=footerUnit*weights[i];

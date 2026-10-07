@@ -29,11 +29,11 @@ public final class KeyboardSettings {
     public static final String KEY_FUZZY_EN_ENG="fuzzy_en_eng";
     public static final String KEY_FUZZY_IN_ING="fuzzy_in_ing";
     public static final String KEY_CORRECTION_ENABLED="correction_enabled";
-    public static final boolean DEFAULT_CORRECTION_ENABLED=true;
+    public static final boolean DEFAULT_CORRECTION_ENABLED=false;
     public static final String KEY_HEIGHT_PERCENT="height_percent";
     public static final int DEFAULT_HEIGHT_PERCENT=100;
     public static final int MIN_HEIGHT_PERCENT=70;
-    public static final int MAX_HEIGHT_PERCENT=140;
+    public static final int MAX_HEIGHT_PERCENT=160;
     public static final String KEY_BOTTOM_INSET="bottom_inset";
     public static final int DEFAULT_BOTTOM_INSET=0;
     public static final String DEFAULT_SCHEMA="rimes_pinyin";

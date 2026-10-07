@@ -22,6 +22,7 @@ final class KeyboardSurface extends ViewGroup {
         default void press(KeyboardLayout.Key key, float biasX, float biasY) { press(key); }
         default boolean longPress(KeyboardLayout.Key key) { return false; }
         default void slideCursor(int steps) {}
+        default String hint(KeyboardLayout.Key key) { return hintForLetter(key.text); }
     }
     private KeyboardLayout.Mode mode;
     private List<KeyboardLayout.Key> frames;
@@ -60,7 +61,7 @@ final class KeyboardSurface extends ViewGroup {
             String label=handler.label(key); if(!android.text.TextUtils.equals(button.getText(),label)) button.setText(label);
             String description=handler.description(key);
             if(!android.text.TextUtils.equals(button.getContentDescription(),description)) button.setContentDescription(description);
-            String hint=mode==KeyboardLayout.Mode.QWERTY && letter?hintForLetter(key.text):null;
+            String hint=mode==KeyboardLayout.Mode.QWERTY && letter?handler.hint(key):null;
             button.hint(hint);
             button.setEnabled(handler.enabled(key));
             button.setSelected(handler.selected(key)); button.theme(theme);

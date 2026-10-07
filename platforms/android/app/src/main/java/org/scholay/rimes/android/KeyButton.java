@@ -59,6 +59,14 @@ final class KeyButton extends Button {
     }
     /** Candidates are plain text with transient press feedback, without a persistent cap. */
     void plain(boolean value) { if(plain!=value) { plain=value; updateTextColors(); invalidate(); } }
+    private boolean candidateHighlight;
+    void candidateHighlight(boolean value) {
+        if(candidateHighlight!=value) {
+            candidateHighlight=value;
+            updateTextColors();
+            invalidate();
+        }
+    }
     /** Flat plugin entry: rounded system fill, with neither a keycap shadow nor a border. */
     void shortcut(boolean value) { if(shortcut!=value) { shortcut=value; updateTextColors(); invalidate(); } }
     void icon(KeyboardIcon value) { icon(value,20,false); }
@@ -80,12 +88,12 @@ final class KeyButton extends Button {
     }
     private void updateTextColors() {
         if(palette==null) return;
-        int selectedInk=palette.accentInk;
+        int normalInk=candidateHighlight?palette.accentText:(plain?palette.ink:(palette.ink&0xFFFFFF)|0x66000000);
         setTextColor(new ColorStateList(new int[][]{new int[]{-android.R.attr.state_enabled},
                 new int[]{android.R.attr.state_pressed,android.R.attr.state_selected},new int[]{android.R.attr.state_pressed},
                 new int[]{android.R.attr.state_selected},new int[]{}},
-                new int[]{plain?palette.ink:(palette.ink&0xFFFFFF)|0x66000000,palette.pressedSelectedInk,
-                    palette.accentInk,selectedInk,palette.ink}));
+                new int[]{normalInk,palette.pressedSelectedInk,
+                    palette.accentInk,palette.accentInk,normalInk}));
     }
     void font(int size) {
         setAutoSizeTextTypeWithDefaults(AUTO_SIZE_TEXT_TYPE_NONE);
@@ -157,7 +165,14 @@ final class KeyButton extends Button {
             if(!isEnabled()) paint.setAlpha(Math.round(paint.getAlpha()*0.4f));
             canvas.drawRoundRect(cap,7*density,7*density,paint);
         } else if(plain) {
-            if(pressed) {
+            if(candidateHighlight) {
+                float padX=3*density,padY=2.5f*density;
+                cap.set(x+padX,y+padY,x+width-padX,y+height-padY);
+                int bgFill=pressed?palette.accent:(palette.dark?palette.functional:palette.key);
+                paint.setColor(bgFill);
+                paint.setAlpha(alpha);
+                canvas.drawRoundRect(cap,6*density,6*density,paint);
+            } else if(pressed) {
                 cap.set(x,y,x+width,y+height); paint.setColor(palette.accent); paint.setAlpha(alpha);
                 canvas.drawRoundRect(cap,4*density,4*density,paint);
             }
@@ -221,10 +236,11 @@ final class KeyButton extends Button {
         textPaint.getFontMetrics(fontMetrics); textPaint.setColor(getCurrentTextColor());
         canvas.drawText(text,x+(width-textPaint.measureText(text))/2,centreY-(fontMetrics.ascent+fontMetrics.descent)/2,textPaint);
         if(hint!=null && !hint.isEmpty()) {
-            float hintSize=Math.max(8.5f*density,originalSize*0.48f);
+            float hintSize=Math.max(7.5f*density,hint.length()>2?originalSize*0.36f:originalSize*0.44f);
             textPaint.setTextSize(hintSize);
-            textPaint.setColor((palette!=null?palette.ink:getCurrentTextColor())&0x00FFFFFF|0x75000000);
-            float hintX=x+width-textPaint.measureText(hint)-dx-3*density;
+            int hintAlpha=palette!=null && palette.dark?0x66000000:0x50000000;
+            textPaint.setColor((palette!=null?palette.ink:getCurrentTextColor())&0x00FFFFFF|hintAlpha);
+            float hintX=x+width-textPaint.measureText(hint)-dx-2.5f*density;
             float hintY=y+dy+hintSize+0.5f*density;
             canvas.drawText(hint,hintX,hintY,textPaint);
         }

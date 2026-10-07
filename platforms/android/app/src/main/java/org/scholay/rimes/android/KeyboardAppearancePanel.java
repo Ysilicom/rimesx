@@ -62,7 +62,7 @@ final class KeyboardAppearancePanel extends ScrollView {
         sliderRow.addView(btnMinus,new LinearLayout.LayoutParams(dp(40),dp(36)));
 
         heightSeekBar=new SeekBar(context);
-        heightSeekBar.setMax(70); // 70% to 140%
+        heightSeekBar.setMax(90); // 70% to 160%
         heightSeekBar.setProgress(30); // 100%
         heightSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar seekBar,int progress,boolean fromUser) {
@@ -82,12 +82,12 @@ final class KeyboardAppearancePanel extends ScrollView {
 
         btnPlus=new KeyButton(context); btnPlus.setText("＋"); btnPlus.font(16); btnPlus.appearance(true,true,false);
         btnPlus.setContentDescription("增加键盘高度");
-        btnPlus.setOnClickListener(v -> setHeight(Math.min(140,currentPercent+5)));
+        btnPlus.setOnClickListener(v -> setHeight(Math.min(160,currentPercent+5)));
         sliderRow.addView(btnPlus,new LinearLayout.LayoutParams(dp(40),dp(36)));
         column.addView(sliderRow,new LinearLayout.LayoutParams(-1,dp(44)));
 
         LinearLayout presetsRow=row(column,36);
-        int[] presets={85,90,100,110,120,130};
+        int[] presets={85,100,115,130,145,160};
         for(int preset:presets) {
             KeyButton presetBtn=button(presetsRow,preset+"%",() -> setHeight(preset));
             presetBtn.font(12);
@@ -113,7 +113,7 @@ final class KeyboardAppearancePanel extends ScrollView {
     }
 
     private void setHeight(int percent) {
-        currentPercent=Math.max(70,Math.min(140,percent));
+        currentPercent=Math.max(70,Math.min(160,percent));
         heightTitle.setText("键盘高度 · "+currentPercent+"%");
         updatingProgress=true;
         heightSeekBar.setProgress(currentPercent-70);

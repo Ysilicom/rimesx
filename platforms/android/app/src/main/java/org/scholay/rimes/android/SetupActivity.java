@@ -338,7 +338,7 @@ public final class SetupActivity extends Activity {
 
         LinearLayout correctionGroup=group(t("智能按键纠错 (Gboard 级)","Spatial Autocorrect"));
         toggle(correctionGroup,t("26键邻近键触控纠错","26-key spatial neighbor correction"),"settings.correction",settings.isCorrectionEnabled(),v -> { settings.setCorrectionEnabled(v); render(); });
-        note(t("根据手指触碰按键的物理偏向与前后音节关联，在按错键无候选词时自动测试相邻按键进行容错挽救（支持全拼与小鹤双拼）。","Automatically evaluates neighboring keys using touch coordinates and syllable context when a typo leaves no candidates, seamlessly rescuing candidate results for both Pinyin and Shuangpin."));
+        note(t("默认关闭。开启后仅在全拼方案下按错键无候选词时尝试测试相邻按键；双拼（小鹤/自然码）与五笔方案下自动隔离关闭，确保编码精准。","Disabled by default. Evaluates neighboring keys only in full Pinyin when no candidate exists; automatically isolated and disabled in Double Pinyin and Wubi to ensure exact encoding."));
 
         LinearLayout group=group(t("声母模糊音","Initials"));
         toggle(group,t("平翘舌互通 (z ↔ zh)","z ↔ zh"),"settings.fuzzy.z_zh",settings.isFuzzy(KeyboardSettings.KEY_FUZZY_ZH_Z),v -> { settings.setFuzzy(KeyboardSettings.KEY_FUZZY_ZH_Z,v); render(); });

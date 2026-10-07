@@ -89,6 +89,18 @@ extern "C" JNIEXPORT jobject JNICALL JNI(snapshotNative)(JNIEnv* env, jclass, jl
         }
         api()->free_context(&context);
     }
+    RimeCandidateListIterator iter;
+    if (api()->candidate_list_begin && api()->candidate_list_begin(session, &iter)) {
+        candidates.clear();
+        comments.clear();
+        while (candidates.size() < 60) {
+            candidates.emplace_back(iter.candidate.text ? iter.candidate.text : "");
+            comments.emplace_back(iter.candidate.comment ? iter.candidate.comment : "");
+            if (!api()->candidate_list_next(&iter)) break;
+        }
+        api()->candidate_list_end(&iter);
+        last = candidates.size() < 60;
+    }
     ensure_classes(env);
     auto texts=env->NewObjectArray(candidates.size(),g_string_class,nullptr);
     auto notes=env->NewObjectArray(comments.size(),g_string_class,nullptr);
