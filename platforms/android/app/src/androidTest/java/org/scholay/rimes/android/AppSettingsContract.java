@@ -260,7 +260,10 @@ final class AppSettingsContract {
         check(count==1,"one selected option in "+prefix);
     }
     private void schemaAndLayout() {
-        open("schema"); tap("settings.schema.rimes_wubi"); preference("schema","rimes_wubi"); preference("layout","qwerty");
+        open("schema");
+        flag("settings.mixed_english","mixed_english",false);
+        flag("settings.mixed_english","mixed_english",true);
+        tap("settings.schema.rimes_wubi"); preference("schema","rimes_wubi"); preference("layout","qwerty");
         selected("settings.schema.",KeyboardSettings.schemaValues(),"rimes_wubi"); home();
         open("appearance"); tap("settings.layout.nineKey"); preference("layout","nineKey"); preference("schema","rimes_pinyin");
         selected("settings.layout.",KeyboardSettings.layoutValues(),"nineKey"); home();
@@ -297,13 +300,14 @@ final class AppSettingsContract {
         open("ai"); flag("settings.ai_mock_enabled","ai_mock_enabled",false); home();
         check(preferences.edit().commit(),"queued UI preference writes flush to disk");
         Map<String,String> disk=diskPreferences();
-        check("false".equals(disk.get("learning")) && "false".equals(disk.get("ai_mock_enabled")),"both toggles exist in actual preference file");
+        check("false".equals(disk.get("learning")) && "false".equals(disk.get("ai_mock_enabled")) && "true".equals(disk.get("mixed_english")),"toggles exist in actual preference file");
         check("en-zh".equals(disk.get("translation_direction")),"chosen translation direction exists on disk");
         reopen();
         open("data"); check(!checked("settings.learning"),"learning survives reopening"); home();
         open("ai"); check(!checked("settings.ai_mock_enabled"),"AI mock gate survives reopening"); home();
         open("translation"); selected("settings.translation.",KeyboardSettings.translationDirectionValues(),"en-zh"); home();
-        open("schema"); selected("settings.schema.",KeyboardSettings.schemaValues(),"rimes_wubi"); home();
+        open("schema"); selected("settings.schema.",KeyboardSettings.schemaValues(),"rimes_wubi");
+        check(checked("settings.mixed_english"),"mixed English survives reopening"); home();
         open("appearance"); selected("settings.layout.",KeyboardSettings.layoutValues(),"qwerty");
         selected("settings.theme.",KeyboardSettings.themeValues(),KeyboardTheme.ALL[1].id); home();
         open("data"); flag("settings.learning","learning",true); home();

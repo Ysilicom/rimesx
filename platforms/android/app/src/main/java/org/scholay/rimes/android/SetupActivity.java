@@ -357,6 +357,9 @@ public final class SetupActivity extends Activity {
         LinearLayout choices=group(t("中文输入方案","Chinese input scheme")); String[] ids={"rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi"}; String[] samples={"nihao → 你好","nihk → 你好","nihc → 你好","wq → 你"};
         for(int i=0;i<ids.length;i++) { String id=ids[i]; choice(choices,schemeName(id),samples[i],"settings.schema."+id,settings.getSchema().equals(id),() -> { settings.setSchema(id); render(); }); }
         row(choices,KeyboardIcon.SLIDERS,t("输入纠错与模糊音","Typing correction & Fuzzy Pinyin"),t("26键邻近键触控纠错、平翘舌互通、前后鼻音细项","26-key spatial autocorrect, initial/final phonetic rules"),null,"settings.schema.fuzzy",() -> navigate("fuzzy"));
+        LinearLayout mixed=group(t("中英文混输","Mixed Chinese and English"));
+        toggle(mixed,t("中英文混输","Mixed Chinese and English"),"settings.mixed_english",settings.isMixedEnglishEnabled(),settings::setMixedEnglishEnabled);
+        note(t("打开后，全拼、小鹤、自然码的候选里会有英文单词，以及「T恤」这类中英混合词。九键和五笔不变。个别短英文可能排在中文前面。","When on, full Pinyin, Xiaohe and Natural Code offer English words and mixed words such as T恤. Nine-key and Wubi stay unchanged. A short English word may rank ahead of Chinese."));
         note(t("九键使用全拼；选择其他方案会切换到 QWERTY。并击使用自然码编码，选择普通中文方案会退出并击布局。","9-key uses Pinyin; another scheme switches to QWERTY. Chords use Natural Code; selecting a regular scheme leaves the chord layout."));
     }
     private void fuzzy() {

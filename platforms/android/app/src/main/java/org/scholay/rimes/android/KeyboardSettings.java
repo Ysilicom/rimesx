@@ -43,6 +43,8 @@ public final class KeyboardSettings {
     public static final String DEFAULT_TRANSLATION_DIRECTION="auto";
     public static final boolean DEFAULT_LEARNING=true;
     public static final boolean DEFAULT_AI_MOCK_ENABLED=true;
+    public static final String KEY_MIXED_ENGLISH="mixed_english";
+    public static final boolean DEFAULT_MIXED_ENGLISH=true;
 
     private static final List<String> SCHEMA_VALUES=values("rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi");
     private static final List<String> LAYOUT_VALUES=values("qwerty","nineKey","orthogonal","splitOrthogonal");
@@ -117,7 +119,8 @@ public final class KeyboardSettings {
         return new Snapshot(schema,layout,text(stored,KEY_THEME,THEME_VALUES,DEFAULT_THEME),
                 heightScale,heightFactor,heightPercent,bottomInset,
                 text(stored,KEY_TRANSLATION_DIRECTION,DIRECTION_VALUES,DEFAULT_TRANSLATION_DIRECTION),
-                flag(stored,KEY_LEARNING,DEFAULT_LEARNING),flag(stored,KEY_AI_MOCK_ENABLED,DEFAULT_AI_MOCK_ENABLED));
+                flag(stored,KEY_LEARNING,DEFAULT_LEARNING),flag(stored,KEY_AI_MOCK_ENABLED,DEFAULT_AI_MOCK_ENABLED),
+                flag(stored,KEY_MIXED_ENGLISH,DEFAULT_MIXED_ENGLISH));
     }
     public String getSchema() { return snapshot().schema; }
     public String getLayout() { return snapshot().layout; }
@@ -129,6 +132,7 @@ public final class KeyboardSettings {
     public String getTranslationDirection() { return snapshot().translationDirection; }
     public boolean isLearningEnabled() { return snapshot().learning; }
     public boolean isAiMockEnabled() { return snapshot().aiMockEnabled; }
+    public boolean isMixedEnglishEnabled() { return snapshot().mixedEnglish; }
 
     /** Selecting any schema leaves chord mode; non-Pinyin schemas also leave nine-key mode. */
     public void setSchema(String value) {
@@ -167,6 +171,7 @@ public final class KeyboardSettings {
     }
     public void setLearningEnabled(boolean enabled) { preferences.edit().putBoolean(KEY_LEARNING,enabled).apply(); }
     public void setAiMockEnabled(boolean enabled) { preferences.edit().putBoolean(KEY_AI_MOCK_ENABLED,enabled).apply(); }
+    public void setMixedEnglishEnabled(boolean enabled) { preferences.edit().putBoolean(KEY_MIXED_ENGLISH,enabled).apply(); }
     public boolean isFuzzy(String key) { return preferences.getBoolean(key,true); }
     public void setFuzzy(String key,boolean value) { preferences.edit().putBoolean(key,value).apply(); }
     public boolean isCorrectionEnabled() { return preferences.getBoolean(KEY_CORRECTION_ENABLED,DEFAULT_CORRECTION_ENABLED); }
@@ -176,11 +181,11 @@ public final class KeyboardSettings {
         public final String schema,layout,theme,heightScale,translationDirection;
         public final float heightFactor;
         public final int heightPercent,bottomInset;
-        public final boolean learning,aiMockEnabled;
-        private Snapshot(String schema,String layout,String theme,String heightScale,float heightFactor,int heightPercent,int bottomInset,String direction,boolean learning,boolean aiMockEnabled) {
+        public final boolean learning,aiMockEnabled,mixedEnglish;
+        private Snapshot(String schema,String layout,String theme,String heightScale,float heightFactor,int heightPercent,int bottomInset,String direction,boolean learning,boolean aiMockEnabled,boolean mixedEnglish) {
             this.schema=schema; this.layout=layout; this.theme=theme; this.heightScale=heightScale; this.heightFactor=heightFactor;
             this.heightPercent=heightPercent; this.bottomInset=bottomInset; this.translationDirection=direction;
-            this.learning=learning; this.aiMockEnabled=aiMockEnabled;
+            this.learning=learning; this.aiMockEnabled=aiMockEnabled; this.mixedEnglish=mixedEnglish;
         }
     }
 }

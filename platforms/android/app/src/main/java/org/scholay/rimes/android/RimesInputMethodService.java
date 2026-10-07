@@ -50,7 +50,7 @@ public final class RimesInputMethodService extends InputMethodService {
     private OpenAiSettings cometSettings;
     private OpenAiSettings.Snapshot cometProfile=OpenAiSettings.disabled();
     private String translationDirection="auto";
-    private boolean aiMockEnabled=true,learningEnabled=true,changingSettingsPair;
+    private boolean aiMockEnabled=true,learningEnabled=true,mixedEnglish=true,changingSettingsPair;
     private KeyboardSettings.Snapshot deferredSettingsPair;
     private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener=this::preferenceChanged;
     private KeyboardRoot keyboard;
@@ -203,7 +203,12 @@ public final class RimesInputMethodService extends InputMethodService {
         if(window!=null) window.getDecorView().post(this::captureClipboard);
         else main.post(this::captureClipboard);
     }
-    private String effectiveSchema() { return (chordLayout()?"rimes_ziranma":nineKeyEngine()?"rimes_pinyin9":schema)+(privateField || !learningEnabled ? "_private" : ""); }
+    private String effectiveSchema() {
+        String base=chordLayout()?"rimes_ziranma":nineKeyEngine()?"rimes_pinyin9":schema;
+        if(mixedEnglish && ("rimes_pinyin".equals(base) || "rimes_ziranma".equals(base) || "rimes_flypy".equals(base))) base+="_mix";
+        if(privateField || !learningEnabled) base+="_private";
+        return base;
+    }
     private void resetEngine() {
         if(!ready) return;
         final String selected=effectiveSchema();
@@ -234,7 +239,7 @@ public final class RimesInputMethodService extends InputMethodService {
         heightScale=saved.heightScale; heightFactor=saved.heightFactor;
         heightPercent=saved.heightPercent; bottomInset=saved.bottomInset;
         applyBottomInset();
-        translationDirection=saved.translationDirection; aiMockEnabled=saved.aiMockEnabled; learningEnabled=saved.learning;
+        translationDirection=saved.translationDirection; aiMockEnabled=saved.aiMockEnabled; learningEnabled=saved.learning; mixedEnglish=saved.mixedEnglish;
     }
     private void changeSettingsPair(Runnable write) {
         changingSettingsPair=true;
@@ -295,15 +300,25 @@ public final class RimesInputMethodService extends InputMethodService {
             }
             return;
         }
-        if(!KeyboardSettings.KEY_LEARNING.equals(key) || saved.learning==learningEnabled) return;
-        learningEnabled=saved.learning;
-        if(!ready || !ownsTarget() || privateField) return;
+        if(KeyboardSettings.KEY_LEARNING.equals(key)) {
+            if(saved.learning==learningEnabled) return;
+            learningEnabled=saved.learning;
+            // A private field already uses the private schema, so this switch does not change it.
+            if(!ready || !ownsTarget() || privateField) return;
+            switchInputSchema();
+            return;
+        }
+        if(!KeyboardSettings.KEY_MIXED_ENGLISH.equals(key) || saved.mixedEnglish==mixedEnglish) return;
+        mixedEnglish=saved.mixedEnglish;
+        if(!ready || !ownsTarget()) return;
+        switchInputSchema();
+    }
+    /** Settle unfinished code, then select the schema for the current learning and mixed-English policy. */
+    private void switchInputSchema() {
         final String selected=effectiveSchema();
-        // Serialize policy changes before subsequent keys. Existing confirmed blocks stay intact;
-        // unfinished code settles exactly like a schema switch, without selecting/learning a word.
         dispatch(() -> {
             Result settled=literal("");
-            if(session!=0 && !engine.selectSchema(session,selected)) throw new IllegalStateException("Cannot change learning mode");
+            if(session!=0 && !engine.selectSchema(session,selected)) throw new IllegalStateException("Cannot change input schema");
             return settled;
         },true);
     }

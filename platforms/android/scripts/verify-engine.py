@@ -22,6 +22,13 @@ for schema in ('rimes_pinyin','rimes_pinyin9','rimes_ziranma','rimes_flypy','rim
         text=(data/'build'/(schema+suffix+'.schema.yaml')).read_text()
         assert 'page_size: 9' in text
         assert ('enable_user_dict: false' if suffix else 'enable_user_dict: true') in text
+for schema, dictionary in (('rimes_pinyin','cn_en'),('rimes_flypy','cn_en_flypy'),('rimes_ziranma','cn_en_ziranma')):
+    for suffix in ('_mix','_mix_private'):
+        text=(data/'build'/(schema+suffix+'.schema.yaml')).read_text()
+        assert 'page_size: 9' in text and 'melt_eng' in text and dictionary in text
+        assert ('enable_user_dict: false' if suffix.endswith('_private') else 'enable_user_dict: true') in text
+    assert (data/'build'/(dictionary+'.table.bin')).is_file(), dictionary
+assert (data/'build'/'melt_eng.table.bin').is_file()
 syllables=json.loads((data/'nine-key-syllables.json').read_text())
 assert len(syllables)>400 and 'ni' in syllables and 'hao' in syllables
 nine_source=(ROOT/'resources/rimes_pinyin9.schema.yaml').read_text()
@@ -42,6 +49,8 @@ for license in ('librime-BSD.txt','Boost-1.0.txt','leveldb-LICENSE.txt','marisa-
     assert (assets/'licenses'/license).read_bytes()==(ROOT.parent/'ios/Licenses'/license).read_bytes(),license
 assert (assets/'licenses/RIMES-Apache-2.0.txt').read_bytes()==(ROOT.parents[1]/'LICENSE').read_bytes(), 'RIMES Apache license'
 for source,name in [('NOTICE','RIMES-NOTICE.txt'),('OfficialPlugins/NOTICE','RIMES-Plugins-NOTICE.txt')]:
+    assert (assets/'licenses'/name).read_bytes()==(ROOT.parents[1]/source).read_bytes(),name
+for source,name in [('rime-data/licenses/GPL-3.0.txt','rime-ice-GPL-3.0.txt'),('rime-data/licenses/rime-ice-SOURCE.md','rime-ice-SOURCE.md')]:
     assert (assets/'licenses'/name).read_bytes()==(ROOT.parents[1]/source).read_bytes(),name
 for abi in ('arm64-v8a','x86_64'):
     lib=ROOT/'app/build/generated/rime/jniLibs'/abi/'librimes_jni.so'

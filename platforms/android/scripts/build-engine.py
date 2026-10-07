@@ -8,9 +8,90 @@ LOCK = json.loads((ROOT / 'platforms/ios/dependencies.lock.json').read_text())
 NDK = '29.0.14206865'
 CMAKE = '3.22.1'
 SCHEMAS = ('rimes_pinyin', 'rimes_pinyin9', 'rimes_ziranma', 'rimes_flypy', 'rimes_wubi')
+# Full pinyin, Xiaohe, and Natural Code. The value is the mixed-word table for that scheme.
+MIXED = (('rimes_pinyin', 'cn_en'), ('rimes_flypy', 'cn_en_flypy'), ('rimes_ziranma', 'cn_en_ziranma'))
+TABLES = (('melt_eng', 'melt_eng'), ('cn_en', 'cn_en'), ('cn_en_flypy', 'cn_en_flypy'), ('cn_en_ziranma', 'cn_en_ziranma'))
+ENGLISH_SOURCES = (
+    ROOT/'rime-data/melt_eng.dict.yaml',
+    ROOT/'rime-data/en_dicts/en.dict.yaml',
+    ROOT/'rime-data/en_dicts/en_ext.dict.yaml',
+    ROOT/'rime-data/en_dicts/cn_en.txt',
+    ROOT/'rime-data/en_dicts/cn_en_flypy.txt',
+    ROOT/'rime-data/en_dicts/cn_en_double_pinyin.txt',
+    ROOT/'rime-data/licenses/GPL-3.0.txt',
+    ROOT/'rime-data/licenses/rime-ice-SOURCE.md',
+)
 def schema_source(name):
     root = ANDROID/'resources' if name in ('rimes_pinyin', 'rimes_pinyin9', 'rimes_flypy') else ROOT/'platforms/ios/Resources/EngineData'
     return root/(name+'.schema.yaml')
+def mixed_schema(text, schema, dictionary):
+    translators = '  translators: [punct_translator, script_translator]\n'
+    if text.count(translators) != 1 or text.count('  enable_user_dict: true\n') != 1 or text.count('  prism: '+schema+'\n') != 1:
+        raise RuntimeError('Cannot derive a mixed schema from '+schema)
+    text = text.replace(translators, '  translators: [punct_translator, script_translator, table_translator@melt_eng, table_translator@cn_en]\n', 1)
+    text = text.replace('schema_id: '+schema, 'schema_id: '+schema+'_mix', 1)
+    text = text.replace('  prism: '+schema+'\n', '  prism: '+schema+'_mix\n', 1)
+    text = text.replace('  enable_user_dict: true\n', '  initial_quality: 1.2\n  enable_user_dict: true\n', 1)
+    text = '# English tables mounted below are GPL-3.0-only Rime Ice data.\n'+text
+    text += (
+        '\n# English words and mixed tokens. Short-word demotion is desktop Lua and is not applied here.\n'
+        'melt_eng:\n'
+        '  dictionary: melt_eng\n'
+        '  enable_sentence: false\n'
+        '  enable_user_dict: false\n'
+        '  enable_completion: true\n'
+        '  initial_quality: 1.1\n'
+        '  comment_format:\n'
+        '    - "xform/.*//"\n'
+        'cn_en:\n'
+        '  dictionary: '+dictionary+'\n'
+        '  enable_sentence: false\n'
+        '  enable_user_dict: false\n'
+        '  enable_completion: true\n'
+        '  initial_quality: 0.5\n'
+        '  comment_format:\n'
+        '    - "xform/^.+$//"\n'
+    )
+    return text
+def table_schema(dictionary):
+    return (
+        '# Build-only table. Not a selectable input scheme.\n'
+        'schema:\n'
+        '  schema_id: '+dictionary+'\n'
+        '  name: '+dictionary+'\n'
+        '  version: "1"\n'
+        'engine:\n'
+        '  processors: [speller]\n'
+        '  segmentors: [abc_segmentor]\n'
+        '  translators: [table_translator]\n'
+        'speller:\n'
+        '  alphabet: zyxwvutsrqponmlkjihgfedcbaZYXWVUTSRQPONMLKJIHGFEDCBA\n'
+        "  delimiter: \" '\"\n"
+        'translator:\n'
+        '  dictionary: '+dictionary+'\n'
+    )
+def write_mixed_table(source, dest, name):
+    rows = []
+    for line in source.read_text(encoding='utf-8').splitlines():
+        if not line.strip() or line.startswith('#'): continue
+        text, code = line.split('\t', 1)
+        if text and code: rows.append(text+'\t'+code)
+    if not rows: raise RuntimeError('Empty mixed-word table '+str(source))
+    dest.write_text(
+        '# Rime dictionary\n# encoding: utf-8\n# GPL-3.0-only. Generated from '+source.name+'.\n'
+        '---\nname: '+name+'\nversion: "1"\nsort: original\ncolumns:\n  - text\n  - code\n...\n'
+        +'\n'.join(rows)+'\n', encoding='utf-8')
+def stage_mixed_tables(stage):
+    english = stage/'en_dicts'
+    english.mkdir()
+    shutil.copy2(ROOT/'rime-data/melt_eng.dict.yaml', stage/'melt_eng.dict.yaml')
+    shutil.copy2(ROOT/'rime-data/en_dicts/en.dict.yaml', english/'en.dict.yaml')
+    shutil.copy2(ROOT/'rime-data/en_dicts/en_ext.dict.yaml', english/'en_ext.dict.yaml')
+    write_mixed_table(ROOT/'rime-data/en_dicts/cn_en.txt', stage/'cn_en.dict.yaml', 'cn_en')
+    write_mixed_table(ROOT/'rime-data/en_dicts/cn_en_flypy.txt', stage/'cn_en_flypy.dict.yaml', 'cn_en_flypy')
+    write_mixed_table(ROOT/'rime-data/en_dicts/cn_en_double_pinyin.txt', stage/'cn_en_ziranma.dict.yaml', 'cn_en_ziranma')
+    for _schema_id, dictionary in TABLES:
+        (stage/(dictionary+'.schema.yaml')).write_text(table_schema(dictionary))
 def run(*args, **kw):
     subprocess.run([str(a) for a in args], check=True, **kw)
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -112,6 +193,12 @@ def prepare_data():
         (stage/(schema+'.schema.yaml')).write_text(data)
         private = data.replace('schema_id: '+schema,'schema_id: '+schema+'_private').replace('enable_user_dict: true','enable_user_dict: false')
         (stage/(schema+'_private.schema.yaml')).write_text(private)
+    stage_mixed_tables(stage)
+    for schema, dictionary in MIXED:
+        mixed = mixed_schema(schema_source(schema).read_text(), schema, dictionary)
+        (stage/(schema+'_mix.schema.yaml')).write_text(mixed)
+        private = mixed.replace('schema_id: '+schema+'_mix','schema_id: '+schema+'_mix_private').replace('enable_user_dict: true','enable_user_dict: false')
+        (stage/(schema+'_mix_private.schema.yaml')).write_text(private)
     for item in LOCK['data']:
         if item['path'].endswith('.dict.yaml'):
             download(item['url'],WORK/'downloads'/pathlib.Path(item['path']).name,item['sha256'])
@@ -144,6 +231,11 @@ def prepare_data():
     for schema in SCHEMAS:
         run(deployer,'--compile',stage/(schema+'.schema.yaml'),stage,stage,stage/'build')
         run(deployer,'--compile',stage/(schema+'_private.schema.yaml'),stage,stage,stage/'build')
+    for _schema_id, dictionary in TABLES:
+        run(deployer,'--compile',stage/(dictionary+'.schema.yaml'),stage,stage,stage/'build')
+    for schema, _dictionary in MIXED:
+        run(deployer,'--compile',stage/(schema+'_mix.schema.yaml'),stage,stage,stage/'build')
+        run(deployer,'--compile',stage/(schema+'_mix_private.schema.yaml'),stage,stage,stage/'build')
     dest = ANDROID/'app/build/generated/rime/assets/rime'
     if dest.exists(): shutil.rmtree(dest)
     (dest/'build').mkdir(parents=True)
@@ -158,6 +250,8 @@ def prepare_data():
     shutil.copy2(ROOT/'LICENSE',licenses/'RIMES-Apache-2.0.txt')
     shutil.copy2(ROOT/'NOTICE',licenses/'RIMES-NOTICE.txt')
     shutil.copy2(ROOT/'OfficialPlugins/NOTICE',licenses/'RIMES-Plugins-NOTICE.txt')
+    shutil.copy2(ROOT/'rime-data/licenses/GPL-3.0.txt',licenses/'rime-ice-GPL-3.0.txt')
+    shutil.copy2(ROOT/'rime-data/licenses/rime-ice-SOURCE.md',licenses/'rime-ice-SOURCE.md')
     entries = {str(p.relative_to(dest)):sha(p) for p in sorted(dest.rglob('*')) if p.is_file()}
     manifest = {'format':1,'librime':LOCK['librime']['commit'],'files':entries}
     (dest/'manifest.json').write_text(json.dumps(manifest,sort_keys=True,indent=2)+'\n')
@@ -182,6 +276,7 @@ if __name__ == '__main__':
                ANDROID/'core/src/main/java/org/scholay/rimes/core/ChordData.java']
     inputs += [ROOT/'platforms/ios/Resources/EngineData/default.yaml']
     if (ROOT/'rime-data/cn_dicts/base.dict.yaml').exists(): inputs.append(ROOT/'rime-data/cn_dicts/base.dict.yaml')
+    inputs += list(ENGLISH_SOURCES)
     inputs += list((ROOT/'platforms/ios/Licenses').glob('*'))
     receipt = {'inputs':{str(p.relative_to(ROOT)):sha(p) for p in sorted(inputs) if p.is_file()},
                'libraries':{abi:sha(ANDROID/'app/build/generated/rime/jniLibs'/abi/'librimes_jni.so') for abi in args.abis},
