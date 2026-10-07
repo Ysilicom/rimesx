@@ -84,8 +84,10 @@ final class CandidateGridPanel extends ScrollView {
         title.setTextColor(palette.ink);
         prevButton.theme(theme);
         prevButton.setEnabled(canPrev);
+        prevButton.setVisibility(canPrev?VISIBLE:GONE);
         nextButton.theme(theme);
         nextButton.setEnabled(canNext);
+        nextButton.setVisibility(canNext?VISIBLE:GONE);
         closeButton.theme(theme);
 
         gridContainer.removeAllViews();

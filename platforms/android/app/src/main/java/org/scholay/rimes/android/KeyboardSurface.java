@@ -51,7 +51,7 @@ final class KeyboardSurface extends ViewGroup {
             boolean system=theme.id.equals("apple"),letter=key.action==KeyboardLayout.Action.TEXT;
             boolean functional=mode!=KeyboardLayout.Mode.NINE_KEY && !letter && key.action!=KeyboardLayout.Action.SPACE && key.action!=KeyboardLayout.Action.PUNCTUATION;
             button.appearance(functional,false,key.action==KeyboardLayout.Action.RETURN);
-            int baseFont=letter?(mode==KeyboardLayout.Mode.NINE_KEY?18:18)
+            int baseFont=letter?(mode==KeyboardLayout.Mode.NINE_KEY?18:23)
                     :key.action==KeyboardLayout.Action.LANGUAGE || key.action==KeyboardLayout.Action.PUNCTUATION?15:14;
             int font=Math.round(baseFont*(1.0f+(heightFactor-1.0f)*0.25f));
             button.fontStyle(false,font,true);

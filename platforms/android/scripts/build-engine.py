@@ -116,6 +116,29 @@ def prepare_data():
         if item['path'].endswith('.dict.yaml'):
             download(item['url'],WORK/'downloads'/pathlib.Path(item['path']).name,item['sha256'])
             shutil.copy2(WORK/'downloads'/pathlib.Path(item['path']).name,stage)
+    base_dict = ROOT / 'rime-data/cn_dicts/base.dict.yaml'
+    pinyin_simp_stage = stage / 'pinyin_simp.dict.yaml'
+    if base_dict.exists() and pinyin_simp_stage.exists():
+        existing_words = set()
+        for line in pinyin_simp_stage.read_text(encoding='utf-8').splitlines():
+            parts = line.strip().split('\t')
+            if parts: existing_words.add(parts[0])
+        additions = []
+        for line in base_dict.read_text(encoding='utf-8').splitlines():
+            line_str = line.strip()
+            if not line_str or line_str.startswith('#'): continue
+            parts = line_str.split('\t')
+            if len(parts) >= 3 and parts[2].isdigit():
+                freq = int(parts[2])
+                word = parts[0]
+                if (freq >= 500 or '帧' in word) and word not in existing_words:
+                    existing_words.add(word)
+                    additions.append(line_str)
+        if additions:
+            with pinyin_simp_stage.open('a', encoding='utf-8') as out:
+                out.write('\n# --- Modern Vocabulary Supplement (rime-ice) ---\n')
+                out.write('\n'.join(additions) + '\n')
+            print(f'AUGMENTED pinyin_simp with {len(additions)} modern phrases including 帧数', flush=True)
     deployer = WORK/'host/rime/bin/rime_deployer'
     run(deployer,'--build',stage,stage,stage/'build')
     for schema in SCHEMAS:
@@ -158,6 +181,7 @@ if __name__ == '__main__':
     inputs += [ANDROID/'resources/nine-key-syllables.json',ANDROID/'resources/chord-profile.json',
                ANDROID/'core/src/main/java/org/scholay/rimes/core/ChordData.java']
     inputs += [ROOT/'platforms/ios/Resources/EngineData/default.yaml']
+    if (ROOT/'rime-data/cn_dicts/base.dict.yaml').exists(): inputs.append(ROOT/'rime-data/cn_dicts/base.dict.yaml')
     inputs += list((ROOT/'platforms/ios/Licenses').glob('*'))
     receipt = {'inputs':{str(p.relative_to(ROOT)):sha(p) for p in sorted(inputs) if p.is_file()},
                'libraries':{abi:sha(ANDROID/'app/build/generated/rime/jniLibs'/abi/'librimes_jni.so') for abi in args.abis},

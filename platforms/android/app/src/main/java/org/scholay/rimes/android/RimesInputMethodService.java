@@ -104,12 +104,13 @@ public final class RimesInputMethodService extends InputMethodService {
     private static final String[] MARK_LABELS={"，","。","？","！","、","：","；","'"};
     private TextView preedit;
     private HorizontalScrollView candidateScroll;
+    private LinearLayout candidateStrip;
     private ChordPreview chordReadout;
     private ChordGesture.Preview heldPreview;
     private String renderedRaw="";
     private int renderedPage=-1;
     private Button bufferButton, retryButton, previous, next, insertNext;
-    private final List<Button> candidates=new ArrayList<>();
+    private final List<KeyButton> candidates=new ArrayList<>();
     private boolean uppercase, numeric, directOnly, privateField, english, ready, failed, destroyed;
     private boolean hostComposing;
     private int pending, selection=-1, selectionStart=-1, composingStart=-1;
@@ -358,6 +359,23 @@ public final class RimesInputMethodService extends InputMethodService {
         if(before.composing()) engine.clearComposition(session);
         return new Result(RimeEngine.Snapshot.EMPTY,before.raw+text,false,0);
     }
+    private RimeEngine.Snapshot expandSnapshot(RimeEngine.Snapshot snapshot) {
+        if(session==0 || snapshot==null || !snapshot.composing() || snapshot.candidates.isEmpty() || snapshot.lastPage) return snapshot;
+        java.util.ArrayList<String> allCandidates=new java.util.ArrayList<>(snapshot.candidates);
+        java.util.ArrayList<String> allComments=new java.util.ArrayList<>(snapshot.comments);
+        int pages=0;
+        while(pages<5) {
+            RimeEngine.Snapshot next=engine.processKey(session,0xff56);
+            if(next.candidates.isEmpty() || next.pageStart<=snapshot.pageStart) break;
+            allCandidates.addAll(next.candidates);
+            allComments.addAll(next.comments);
+            pages++;
+            if(next.lastPage) break;
+        }
+        for(int i=0;i<pages;i++) engine.processKey(session,0xff55);
+        return new RimeEngine.Snapshot(snapshot.handled,snapshot.raw,snapshot.preedit,snapshot.caret,snapshot.commit,
+                allCandidates.toArray(new String[0]),allComments.toArray(new String[0]),0,snapshot.highlighted,true);
+    }
     private void type(String text) {
         type(text,0f,0f);
     }
@@ -377,7 +395,7 @@ public final class RimesInputMethodService extends InputMethodService {
             if(before.raw.length()>=128 && !" ".equals(text)) return Result.state(before);
             if(" ".equals(text) && before.composing() && !before.candidates.isEmpty()) {
                 lastTypedChar=0;
-                return Result.state(engine.selectCandidate(session,before.pageStart));
+                return Result.state(expandSnapshot(engine.selectCandidate(session,before.pageStart)));
             }
             int codePoint=text.codePointAt(0);
             RimeEngine.Snapshot after=engine.processKey(session,codePoint);
@@ -436,7 +454,7 @@ public final class RimesInputMethodService extends InputMethodService {
                     }
 
                     if(rescued && bestSnapshot!=null) {
-                        return Result.state(bestSnapshot);
+                        return Result.state(expandSnapshot(bestSnapshot));
                     }
 
                     // Level 3: Restore original Kn if no neighbor rescued the candidate list
@@ -452,7 +470,7 @@ public final class RimesInputMethodService extends InputMethodService {
                 lastTypedChar=0;
             }
 
-            return Result.state(after);
+            return Result.state(expandSnapshot(after));
         });
     }
     private boolean deliver(String text,boolean block) {
@@ -589,7 +607,7 @@ public final class RimesInputMethodService extends InputMethodService {
         final boolean nine=nineKeyVisible();
         dispatch(() -> {
             lastTypedChar=0;
-            return state().composing() ? (nine?replaceNineKey(NineKeyPinyin.backspace(state().raw)):Result.state(engine.processKey(session,0xff08)))
+            return state().composing() ? (nine?replaceNineKey(NineKeyPinyin.backspace(state().raw)):Result.state(expandSnapshot(engine.processKey(session,0xff08))))
                     : new Result(RimeEngine.Snapshot.EMPTY,"",false,1);
         });
     }
@@ -663,7 +681,7 @@ public final class RimesInputMethodService extends InputMethodService {
         final int absolute=snapshot.pageStart+index;
         dispatch(() -> {
             lastTypedChar=0;
-            return Result.state(engine.selectCandidate(session,absolute));
+            return Result.state(expandSnapshot(engine.selectCandidate(session,absolute)));
         });
     }
     private void page(boolean forward) {
@@ -676,7 +694,7 @@ public final class RimesInputMethodService extends InputMethodService {
         engine.clearComposition(session);
         RimeEngine.Snapshot after=RimeEngine.Snapshot.EMPTY;
         for(int key:raw.codePoints().toArray()) after=engine.processKey(session,key);
-        return Result.state(after);
+        return Result.state(expandSnapshot(after));
     }
     private void chooseSpelling(int index) {
         if(pending!=0 || index>=spellingChoices.size()) return;
@@ -974,28 +992,25 @@ public final class RimesInputMethodService extends InputMethodService {
         candidateRow=row(keyboard,38);
         layoutButton=button(candidateRow,"⚙",this::toggleAppearance,0); fixedWidth(layoutButton,32); gapRight(layoutButton,4); layoutButton.setContentDescription("键位布局"); layoutButton.icon(KeyboardIcon.SETTINGS);
         previous=button(candidateRow,"‹",() -> candidatePage(false),0); fixedWidth(previous,32); ((KeyButton)previous).plain(true); previous.setContentDescription("上一页候选"); ((KeyButton)previous).icon(KeyboardIcon.CHEVRON_LEFT,16);
+        previous.setVisibility(View.GONE);
         candidateScroll=new HorizontalScrollView(this); candidateScroll.setFillViewport(false); candidateScroll.setHorizontalScrollBarEnabled(false);
         candidateScroll.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
-        LinearLayout strip=new LinearLayout(this); candidateScroll.addView(strip,new HorizontalScrollView.LayoutParams(-2,-1));
-        preedit=new TextView(this); preedit.setSingleLine(true); preedit.setTextSize(15); preedit.setGravity(Gravity.CENTER_VERTICAL);
-        preedit.setPadding(dp(8),0,dp(8),0); preedit.setTypeface(android.graphics.Typeface.create("sans-serif-medium",android.graphics.Typeface.NORMAL));
-        strip.addView(preedit,new LinearLayout.LayoutParams(-2,-1));
+        LinearLayout strip=new LinearLayout(this); candidateStrip=strip; candidateScroll.addView(strip,new HorizontalScrollView.LayoutParams(-2,-1));
         FrameLayout center=new FrameLayout(this); candidateRow.addView(center,new LinearLayout.LayoutParams(0,-1,1));
         center.addView(candidateScroll,new FrameLayout.LayoutParams(-1,-1));
+        preedit=new TextView(this); preedit.setSingleLine(true); preedit.setTextSize(15); preedit.setGravity(Gravity.CENTER_VERTICAL);
+        preedit.setPadding(dp(8),0,dp(8),0); preedit.setTypeface(android.graphics.Typeface.create("sans-serif-medium",android.graphics.Typeface.NORMAL));
+        center.addView(preedit,new FrameLayout.LayoutParams(-2,-1,Gravity.CENTER_VERTICAL|Gravity.START));
         pluginShortcuts=new PluginShortcutBar(this,theme,new PluginShortcutBar.Listener() {
             public void onPluginTap(String id) { selectPlugin(id); }
             public void onPluginLongPress(String id) { openPluginSettings(id); }
             public void onPasteTap() { pasteClipboard(); }
             public void onEmojiTap() { settleAndSwitch(() -> { emoji=!emoji; numeric=false; }); }
-        }); center.addView(pluginShortcuts,new FrameLayout.LayoutParams(-1,-1)); chordReadout=new ChordPreview(this); center.addView(chordReadout,new FrameLayout.LayoutParams(-1,-1)); candidates.clear();
-        for(int i=0;i<9;i++) {
-            final int index=i; KeyButton candidate=button(strip,"",() -> candidateTapped(index),0);
-            candidate.setLayoutParams(new LinearLayout.LayoutParams(-2,-1)); candidate.fontStyle(false,18,false); candidate.plain(true);
-            candidate.setMinWidth(dp(36)); candidate.setMinimumWidth(dp(36)); candidate.setPadding(dp(10),0,dp(10),0);
-            gapRight(candidate,2);
-            candidate.setAutoSizeTextTypeWithDefaults(TextView.AUTO_SIZE_TEXT_TYPE_NONE); candidate.setTextSize(18); candidates.add(candidate);
-        }
+        }); center.addView(pluginShortcuts,new FrameLayout.LayoutParams(-1,-1)); chordReadout=new ChordPreview(this); center.addView(chordReadout,new FrameLayout.LayoutParams(-1,-1));
+        candidates.clear();
+        ensureCandidateButtons(9);
         next=button(candidateRow,"›",() -> candidatePage(true),0); fixedWidth(next,32); ((KeyButton)next).plain(true); next.setContentDescription("下一页候选"); ((KeyButton)next).icon(KeyboardIcon.CHEVRON_RIGHT,16);
+        next.setVisibility(View.GONE);
         candidateGridButton=button(candidateRow,"⌄",this::toggleCandidateGrid,0); fixedWidth(candidateGridButton,32); gapLeft(candidateGridButton,2); ((KeyButton)candidateGridButton).plain(true); candidateGridButton.setContentDescription("展开候选");
         bufferButton=button(candidateRow,"▤",() -> { if(pending==0 && !snapshot.composing() && retained.isEmpty()) { cancelChord(); buffer.setEnabled(!buffer.isEnabled()); if(!buffer.isEnabled()) { cancelPlugin(); pluginSession.clear(); activePlugin=null; pluginSettingsOpen=false; } render(); } },0);
         fixedWidth(bufferButton,32); gapLeft(bufferButton,4); ((KeyButton)bufferButton).appearance(false,false,true); ((KeyButton)bufferButton).icon(KeyboardIcon.STACK_LAYERS);
@@ -1200,6 +1215,18 @@ public final class RimesInputMethodService extends InputMethodService {
         if(spellingOpen) { spellingPage=Math.max(0,Math.min(((spellingChoices.size()-1)/9)*9,spellingPage+(forward?9:-9))); render(); }
         else page(forward);
     }
+    private void ensureCandidateButtons(int count) {
+        if(candidateStrip==null) return;
+        while(candidates.size()<count) {
+            final int index=candidates.size();
+            KeyButton candidate=button(candidateStrip,"",() -> candidateTapped(index),0);
+            candidate.setLayoutParams(new LinearLayout.LayoutParams(-2,-1)); candidate.fontStyle(false,18,false); candidate.plain(true);
+            candidate.setMinWidth(dp(36)); candidate.setMinimumWidth(dp(36)); candidate.setPadding(dp(10),0,dp(10),0);
+            gapRight(candidate,2);
+            candidate.setAutoSizeTextTypeWithDefaults(TextView.AUTO_SIZE_TEXT_TYPE_NONE); candidate.setTextSize(18);
+            candidates.add(candidate);
+        }
+    }
     private void render() {
         if(keyboard==null) return;
         KeyboardTheme.Palette palette=theme.palette(this); keyboard.setBackgroundColor(palette.background);
@@ -1211,7 +1238,7 @@ public final class RimesInputMethodService extends InputMethodService {
         bufferButton.setEnabled(buffer.isPermitted() && pending==0 && !snapshot.composing() && retained.isEmpty() && !chords.isChordActive());
         String status=failed?getString(R.string.engine_failed):!ready?getString(R.string.engine_loading):"";
         if(!retained.isEmpty()) status=getString(R.string.delivery_pending);
-        else if(status.isEmpty() && !hostComposing && snapshot.composing()) status=snapshot.preedit;
+        else if(status.isEmpty() && !hostComposing && snapshot.composing() && snapshot.candidates.isEmpty()) status=snapshot.preedit;
         setText(preedit,status); preedit.setTextColor(palette.accentText); preedit.setVisibility(!directOnly && !status.isEmpty()?View.VISIBLE:View.GONE);
         spellingChoices=nineKeyVisible()?spellings.choices(snapshot.raw):java.util.Collections.emptyList();
         if(spellingChoices.isEmpty()) spellingOpen=false;
@@ -1220,12 +1247,13 @@ public final class RimesInputMethodService extends InputMethodService {
         boolean idle=!snapshot.composing() && snapshot.candidates.isEmpty() && heldPreview==null && chordPreview.isEmpty() && !chords.isChordActive() && !punctuationOpen;
         pluginShortcuts.setVisibility(idle && !privateField && !directOnly?View.VISIBLE:View.GONE);
         pluginShortcuts.render(theme,buffer.isEnabled()?activePlugin:null,canSelectPlugin(),officialPlugins::enabled);
-        candidateScroll.setVisibility(heldPreview==null && !idle?View.VISIBLE:View.GONE); chordReadout.setVisibility(heldPreview==null?View.GONE:View.VISIBLE);
+        candidateScroll.setVisibility(heldPreview==null && !idle && !snapshot.candidates.isEmpty()?View.VISIBLE:View.GONE); chordReadout.setVisibility(heldPreview==null?View.GONE:View.VISIBLE);
         chordReadout.render(heldPreview,theme,landscape());
         boolean marks=punctuationOpen;
         int count=directOnly?0:!chordPreview.isEmpty()?1:marks?MARKS.length:snapshot.candidates.size();
-        for(int i=0;i<9;i++) {
-            Button item=candidates.get(i); boolean exists=i<count;
+        ensureCandidateButtons(count);
+        for(int i=0;i<candidates.size();i++) {
+            KeyButton item=candidates.get(i); boolean exists=i<count;
             item.setVisibility(exists?View.VISIBLE:View.GONE);
             if(exists) {
                 String value=!chordPreview.isEmpty()?chordPreview:marks?(english || numeric || emoji?MARKS[i]:MARK_LABELS[i]):snapshot.candidates.get(i);
@@ -1234,14 +1262,16 @@ public final class RimesInputMethodService extends InputMethodService {
             }
             item.setEnabled(exists && chordPreview.isEmpty());
         }
-        if(renderedPage!=snapshot.pageStart || !renderedRaw.equals(snapshot.raw)) {
-            candidateScroll.scrollTo(0,0); renderedPage=snapshot.pageStart; renderedRaw=snapshot.raw;
+        if(!renderedRaw.equals(snapshot.raw)) {
+            candidateScroll.scrollTo(0,0); renderedRaw=snapshot.raw;
         }
-        previous.setVisibility(idle || marks && !spellingOpen || directOnly || heldPreview!=null || !spellingOpen && snapshot.pageStart==0?View.GONE:View.VISIBLE); next.setVisibility(idle || marks && !spellingOpen || directOnly || heldPreview!=null?View.GONE:View.VISIBLE);
-        previous.setEnabled(spellingOpen?spellingPage>0:snapshot.pageStart>0);
-        next.setEnabled(spellingOpen?spellingPage+9<spellingChoices.size():!snapshot.lastPage);
+        boolean composing=snapshot.composing() || !snapshot.candidates.isEmpty() || marks;
+        layoutButton.setVisibility(composing?View.GONE:View.VISIBLE);
+        bufferButton.setVisibility(composing?View.GONE:View.VISIBLE);
+        previous.setVisibility(View.GONE);
+        next.setVisibility(View.GONE);
         if(candidateGridButton!=null) {
-            candidateGridButton.setVisibility(idle || directOnly || marks || heldPreview!=null || snapshot.candidates.isEmpty()?View.GONE:View.VISIBLE);
+            candidateGridButton.setVisibility(composing && !snapshot.candidates.isEmpty()?View.VISIBLE:View.GONE);
             candidateGridButton.setEnabled(!snapshot.candidates.isEmpty());
         }
         bufferRow.setVisibility(buffer.isEnabled()?View.VISIBLE:View.GONE);
