@@ -49,8 +49,12 @@ public final class SetupActivity extends Activity {
         super.onCreate(state);
         officialPlugins=new OfficialPluginStore(this);
         settings=new KeyboardSettings(this);
-        if(state!=null) { page=state.getString("settings.page","home"); license=state.getString("settings.license");
-            java.util.ArrayList<String> saved=state.getStringArrayList("settings.navigation"); if(saved!=null) navigation.addAll(saved); }
+        if(getIntent()!=null && getIntent().hasExtra("settings.page")) {
+            page=getIntent().getStringExtra("settings.page");
+        } else if(state!=null) {
+            page=state.getString("settings.page","home"); license=state.getString("settings.license");
+            java.util.ArrayList<String> saved=state.getStringArrayList("settings.navigation"); if(saved!=null) navigation.addAll(saved);
+        }
         getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         if(Build.VERSION.SDK_INT>=33) getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,this::goBack);
@@ -124,7 +128,7 @@ public final class SetupActivity extends Activity {
         TextView title=text(title(),page.equals("home")?34:22,ink,true); title.setPadding(0,dp(12),0,dp(16)); content.addView(title);
         switch(page) {
             case "home":home();break;case "setup":setup();break;case "playground":playground();break;
-            case "schema":schemas();break;case "chords":chords();break;case "appearance":appearance();break;
+            case "schema":schemas();break;case "fuzzy":fuzzy();break;case "chords":chords();break;case "appearance":appearance();break;
             case "resources":resources();break;case "translation":translation();break;case "ai":ai();break;
             case "mappings":mappings();break;case "plugins":plugins();break;
             case "data":data();break;case "privacy":privacy();break;case "licenses":licenses();break;
@@ -150,7 +154,7 @@ public final class SetupActivity extends Activity {
     private String titleFor(String destination) {
         switch(destination) {
             case "setup":return t("启用 RIMES 键盘","Enable RIMES");case "playground":return t("输入体验","Try typing");
-            case "schema":return t("默认方案","Default scheme");case "chords":return t("滑动并击与键位","Slide chords & mappings");
+            case "schema":return t("默认方案","Default scheme");case "fuzzy":return t("模糊拼音设置","Fuzzy Pinyin");case "chords":return t("滑动并击与键位","Slide chords & mappings");
             case "plugins":return t("官方插件","Official plugins");
             case "mappings":return t("内置并击映射","Built-in chord mappings");
             case "appearance":return t("键盘布局与换肤","Keyboard layout & skins");case "resources":return t("Rime 方案与词典","Rime schemes & dictionaries");
@@ -233,6 +237,7 @@ public final class SetupActivity extends Activity {
         row(start,KeyboardIcon.WRITE,t("输入体验","Try typing"),null,null,"settings.home.playground",() -> navigate("playground"));
         LinearLayout typing=group(t("你的输入方式","Your typing"));
         row(typing,null,t("默认方案","Default scheme"),null,schemeName(settings.getSchema()),"settings.home.schema",() -> navigate("schema"));
+        row(typing,KeyboardIcon.SPARKLE,t("模糊拼音设置","Fuzzy Pinyin settings"),null,null,"settings.home.fuzzy",() -> navigate("fuzzy"));
         row(typing,KeyboardIcon.SLIDERS,t("滑动并击与键位","Slide chords & mappings"),null,null,"settings.home.chords",() -> navigate("chords"));
         row(typing,KeyboardIcon.KEYBOARD,t("键盘布局与换肤","Keyboard layout & skins"),null,null,"settings.home.appearance",() -> navigate("appearance"));
         row(typing,KeyboardIcon.STACK_LAYERS,t("Rime 方案与词典","Rime schemes & dictionaries"),null,null,"settings.home.resources",() -> navigate("resources"));
@@ -298,7 +303,25 @@ public final class SetupActivity extends Activity {
     private void schemas() {
         LinearLayout choices=group(t("中文输入方案","Chinese input scheme")); String[] ids={"rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi"}; String[] samples={"nihao → 你好","nihk → 你好","nihc → 你好","wq → 你"};
         for(int i=0;i<ids.length;i++) { String id=ids[i]; choice(choices,schemeName(id),samples[i],"settings.schema."+id,settings.getSchema().equals(id),() -> { settings.setSchema(id); render(); }); }
+        row(choices,KeyboardIcon.SPARKLE,t("模糊拼音设置","Fuzzy Pinyin settings"),t("平翘舌互通、前后鼻音、鼻边音等细项开关","Configure granular phonetic interchange rules"),null,"settings.schema.fuzzy",() -> navigate("fuzzy"));
         note(t("九键使用全拼；选择其他方案会切换到 QWERTY。并击使用自然码编码，选择普通中文方案会退出并击布局。","9-key uses Pinyin; another scheme switches to QWERTY. Chords use Natural Code; selecting a regular scheme leaves the chord layout."));
+    }
+    private void fuzzy() {
+        content.addView(text(t("模糊拼音设置","Fuzzy Pinyin settings"),20,ink,true));
+        note(t("根据个人发音习惯，独立勾选或取消各个音节互通规则。","Configure individual phonetic interchange rules according to your pronunciation habit."));
+        LinearLayout group=group(t("声母模糊音","Initials"));
+        toggle(group,t("平翘舌互通 (z ↔ zh)","z ↔ zh"),"settings.fuzzy.z_zh",settings.isFuzzy(KeyboardSettings.KEY_FUZZY_ZH_Z),v -> { settings.setFuzzy(KeyboardSettings.KEY_FUZZY_ZH_Z,v); render(); });
+        toggle(group,t("平翘舌互通 (c ↔ ch)","c ↔ ch"),"settings.fuzzy.c_ch",settings.isFuzzy(KeyboardSettings.KEY_FUZZY_CH_C),v -> { settings.setFuzzy(KeyboardSettings.KEY_FUZZY_CH_C,v); render(); });
+        toggle(group,t("平翘舌互通 (s ↔ sh)","s ↔ sh"),"settings.fuzzy.s_sh",settings.isFuzzy(KeyboardSettings.KEY_FUZZY_SH_S),v -> { settings.setFuzzy(KeyboardSettings.KEY_FUZZY_SH_S,v); render(); });
+        toggle(group,t("鼻音 / 边音 (l ↔ n)","l ↔ n"),"settings.fuzzy.l_n",settings.isFuzzy(KeyboardSettings.KEY_FUZZY_L_N),v -> { settings.setFuzzy(KeyboardSettings.KEY_FUZZY_L_N,v); render(); });
+        toggle(group,t("唇齿 / 舌根 (f ↔ h)","f ↔ h"),"settings.fuzzy.f_h",settings.isFuzzy(KeyboardSettings.KEY_FUZZY_F_H),v -> { settings.setFuzzy(KeyboardSettings.KEY_FUZZY_F_H,v); render(); });
+        toggle(group,t("卷舌 / 边音 (r ↔ l)","r ↔ l"),"settings.fuzzy.r_l",settings.isFuzzy(KeyboardSettings.KEY_FUZZY_R_L),v -> { settings.setFuzzy(KeyboardSettings.KEY_FUZZY_R_L,v); render(); });
+
+        LinearLayout finalsGroup=group(t("韵母模糊音","Finals"));
+        toggle(finalsGroup,t("前后鼻音 (an ↔ ang)","an ↔ ang"),"settings.fuzzy.an_ang",settings.isFuzzy(KeyboardSettings.KEY_FUZZY_AN_ANG),v -> { settings.setFuzzy(KeyboardSettings.KEY_FUZZY_AN_ANG,v); render(); });
+        toggle(finalsGroup,t("前后鼻音 (en ↔ eng)","en ↔ eng"),"settings.fuzzy.en_eng",settings.isFuzzy(KeyboardSettings.KEY_FUZZY_EN_ENG),v -> { settings.setFuzzy(KeyboardSettings.KEY_FUZZY_EN_ENG,v); render(); });
+        toggle(finalsGroup,t("前后鼻音 (in ↔ ing)","in ↔ ing"),"settings.fuzzy.in_ing",settings.isFuzzy(KeyboardSettings.KEY_FUZZY_IN_ING),v -> { settings.setFuzzy(KeyboardSettings.KEY_FUZZY_IN_ING,v); render(); });
+        note(t("修改后即时保存并生效。仅在全拼方案（26键/9键）下起效。","Saved and applied immediately. Takes effect in Pinyin mode (26-key/9-key)."));
     }
     private void segments(LinearLayout parent,String[] ids,String[] labels,String selected,String prefix,java.util.function.Consumer<String> action) {
         LinearLayout bar=new LinearLayout(this); bar.setOrientation(LinearLayout.HORIZONTAL); bar.setPadding(dp(3),dp(3),dp(3),dp(3)); bar.setBackground(shape(separator,9));
@@ -312,14 +335,19 @@ public final class SetupActivity extends Activity {
         LinearLayout.LayoutParams frame=new LinearLayout.LayoutParams(-1,-2); frame.setMargins(dp(16),dp(12),dp(16),dp(12)); parent.addView(bar,frame);
     }
     private void preview(LinearLayout group) {
-        SettingsKeyboardPreview preview=new SettingsKeyboardPreview(this,settings.getLayout(),KeyboardTheme.named(settings.getTheme())); preview.setTag("settings.preview");
+        SettingsKeyboardPreview preview=new SettingsKeyboardPreview(this,settings.getLayout(),KeyboardTheme.named(settings.getTheme()),settings.getHeightFactor()); preview.setTag("settings.preview");
         LinearLayout.LayoutParams frame=new LinearLayout.LayoutParams(-1,-2); frame.setMargins(dp(12),dp(4),dp(12),dp(12)); group.addView(preview,frame);
     }
     private void appearance() {
         content.addView(text(t("熟悉的键位，喜欢的外观","Familiar keys. Your favorite look."),20,ink,true));
         note(t("标准键盘和并击共用配色，按下反馈也跟随主题。","Standard keys and chords share a palette, including press feedback."));
         LinearLayout standard=group(t("标准键盘","Standard keyboard"));
-        segments(standard,new String[]{"qwerty","nineKey"},new String[]{t("QWERTY · 26 键","QWERTY · 26 keys"),t("九键全拼","9-key Pinyin")},settings.getLayout(),"settings.layout.",id -> { settings.setLayout(id); render(); }); preview(standard);
+        segments(standard,new String[]{"qwerty","nineKey"},new String[]{t("QWERTY · 26 键","QWERTY · 26 keys"),t("九键全拼","9-key Pinyin")},settings.getLayout(),"settings.layout.",id -> { settings.setLayout(id); render(); });
+        LinearLayout heightGroup=group(t("键盘高度","Keyboard height"));
+        segments(heightGroup,new String[]{"short","normal","medium_tall","tall"},
+                new String[]{t("偏矮 · 90%","Short 90%"),t("适中 · 100%","Normal 100%"),t("偏高 · 110%","Medium 110%"),t("高 · 120%","Tall 120%")},
+                settings.getHeightScale(),"settings.height.",scale -> { settings.setHeightScale(scale); render(); });
+        preview(standard);
         note(settings.getLayout().equals("nineKey")?t("九键仅用于全拼；英文和数字沿用标准键位。","9-key is for Pinyin; English and numbers use the standard keys."):t("当前布局：","Current layout: ")+layoutName(settings.getLayout()));
         LinearLayout themes=group(t("宠物与键盘配色","Pets & keyboard colors")); paragraph(themes,t("当前配色：","Current color: ")+KeyboardTheme.named(settings.getTheme()).title);
         for(int start=0;start<KeyboardTheme.ALL.length;start+=3) {

@@ -477,12 +477,33 @@ public final class RimesInputMethodService extends InputMethodService {
             }
         }
         else {
+            EditorInfo info=getCurrentInputEditorInfo();
+            boolean isTerminal=info==null || info.inputType==android.text.InputType.TYPE_NULL;
+            if(isTerminal) {
+                sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL);
+                return;
+            }
             CharSequence selected=target.getSelectedText(0);
-            if(selected!=null && selected.length()>0) { expect(Math.min(selectionStart,selection)); target.commitText("",1); }
+            if(selected!=null && selected.length()>0) {
+                expect(Math.min(selectionStart,selection));
+                if(!target.commitText("",1)) {
+                    sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL);
+                }
+            }
             else {
                 CharSequence before=target.getTextBeforeCursor(2,0);
                 int units=before!=null && before.length()>0 ? Character.charCount(Character.codePointBefore(before,before.length())) : 1;
-                expect(selection>0 ? Math.max(0,selection-units) : 0); target.deleteSurroundingTextInCodePoints(1,0);
+                expect(selection>0 ? Math.max(0,selection-units) : 0);
+                boolean deleted=false;
+                if(Build.VERSION.SDK_INT>=24) {
+                    try { deleted=target.deleteSurroundingTextInCodePoints(1,0); } catch(Throwable ignored) {}
+                }
+                if(!deleted) {
+                    try { deleted=target.deleteSurroundingText(units,0); } catch(Throwable ignored) {}
+                }
+                if(!deleted) {
+                    sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL);
+                }
             }
         }
     }
@@ -538,10 +559,34 @@ public final class RimesInputMethodService extends InputMethodService {
             if(chordLayout()) english=false;
         });
     }
+    private void openFuzzySettings() {
+        android.content.Intent intent=new android.content.Intent(this,SetupActivity.class);
+        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+        intent.putExtra("settings.page","fuzzy");
+        startActivity(intent);
+    }
     private void chooseHeightScale(String selected) {
         settings.setHeightScale(selected);
         heightScale=selected;
         heightFactor=KeyboardSettings.heightScaleFactor(selected);
+        if(keys!=null) {
+            keys.setHeightFactor(heightFactor);
+            keys.requestLayout();
+        }
+        if(surfaceContainer!=null) {
+            float width=(keyboard.getWidth()>0?keyboard.getWidth():getResources().getDisplayMetrics().widthPixels)-keyboard.getPaddingLeft()-keyboard.getPaddingRight();
+            float surfaceHeight=chordVisible()?ChordLayout.height(Math.max(1,width/getResources().getDisplayMetrics().density),"splitOrthogonal".equals(layout)):KeyboardLayout.height(landscape(),heightFactor);
+            if(chordVisible() && (appearanceOpen || pluginSettingsOpen)) surfaceHeight+=landscape()?35:41;
+            surfaceContainer.getLayoutParams().height=Math.round(surfaceHeight*getResources().getDisplayMetrics().density);
+            surfaceContainer.requestLayout();
+        }
+        if(keyboard!=null) {
+            keyboard.requestLayout();
+            keyboard.invalidate();
+        }
+        if(getWindow()!=null && getWindow().getWindow()!=null) {
+            getWindow().getWindow().setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT,android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
         render();
     }
     private void typeChord(String code) {
@@ -773,6 +818,7 @@ public final class RimesInputMethodService extends InputMethodService {
         appearancePanel.action("全部插入",getString(R.string.insert_all),() -> insert(true));
         appearancePanel.action("粘贴剪贴板","读取剪贴板内容并上屏",this::pasteClipboard);
         appearancePanel.action("清空 Buffer",getString(R.string.clear),() -> { if(pending==0 && !snapshot.composing()) { invalidatePlugin(); buffer.clear(); retryRetained(); render(); } });
+        appearancePanel.action("模糊音设置","配置平翘舌与前后鼻音",this::openFuzzySettings);
         appearancePanel.action("系统键盘",getString(R.string.switch_keyboard),() -> { endTarget(); getSystemService(InputMethodManager.class).showInputMethodPicker(); });
         surfaceContainer.addView(appearancePanel,new FrameLayout.LayoutParams(-1,-1));
         pluginPanel=new BufferPluginPanel(this,new BufferPluginPanel.Listener() {
@@ -992,7 +1038,14 @@ public final class RimesInputMethodService extends InputMethodService {
         boolean panelOpen=appearanceOpen || pluginSettingsOpen;
         if(chord && panelOpen) surfaceHeight+=landscape()?35:41;
         int desiredHeight=Math.round(surfaceHeight*getResources().getDisplayMetrics().density);
-        if(surfaceContainer.getLayoutParams().height!=desiredHeight) { surfaceContainer.getLayoutParams().height=desiredHeight; surfaceContainer.requestLayout(); }
+        if(surfaceContainer.getLayoutParams().height!=desiredHeight) {
+            surfaceContainer.getLayoutParams().height=desiredHeight;
+            surfaceContainer.requestLayout();
+            if(keyboard!=null) { keyboard.requestLayout(); keyboard.invalidate(); }
+            if(getWindow()!=null && getWindow().getWindow()!=null) {
+                getWindow().getWindow().setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT,android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+            }
+        }
         keys.setHeightFactor(heightFactor);
         keys.render(visibleMode(),theme); keys.setVisibility(panelOpen || chord?View.GONE:View.VISIBLE);
         chords.render("splitOrthogonal".equals(layout),!english && !uppercase,uppercase,theme); chords.setVisibility(panelOpen || !chord?View.GONE:View.VISIBLE);

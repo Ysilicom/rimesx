@@ -18,6 +18,16 @@ public final class KeyboardSettings {
     public static final String KEY_TRANSLATION_DIRECTION="translation_direction";
     public static final String KEY_LEARNING="learning";
     public static final String KEY_AI_MOCK_ENABLED="ai_mock_enabled";
+    public static final String KEY_FUZZY_ENABLED="fuzzy_enabled";
+    public static final String KEY_FUZZY_ZH_Z="fuzzy_zh_z";
+    public static final String KEY_FUZZY_CH_C="fuzzy_ch_c";
+    public static final String KEY_FUZZY_SH_S="fuzzy_sh_s";
+    public static final String KEY_FUZZY_L_N="fuzzy_l_n";
+    public static final String KEY_FUZZY_F_H="fuzzy_f_h";
+    public static final String KEY_FUZZY_R_L="fuzzy_r_l";
+    public static final String KEY_FUZZY_AN_ANG="fuzzy_an_ang";
+    public static final String KEY_FUZZY_EN_ENG="fuzzy_en_eng";
+    public static final String KEY_FUZZY_IN_ING="fuzzy_in_ing";
     public static final String DEFAULT_SCHEMA="rimes_pinyin";
     public static final String DEFAULT_LAYOUT="qwerty";
     public static final String DEFAULT_THEME="gboard";
@@ -128,6 +138,8 @@ public final class KeyboardSettings {
     }
     public void setLearningEnabled(boolean enabled) { preferences.edit().putBoolean(KEY_LEARNING,enabled).apply(); }
     public void setAiMockEnabled(boolean enabled) { preferences.edit().putBoolean(KEY_AI_MOCK_ENABLED,enabled).apply(); }
+    public boolean isFuzzy(String key) { return preferences.getBoolean(key,true); }
+    public void setFuzzy(String key,boolean value) { preferences.edit().putBoolean(key,value).apply(); }
 
     public static final class Snapshot {
         public final String schema,layout,theme,heightScale,translationDirection;

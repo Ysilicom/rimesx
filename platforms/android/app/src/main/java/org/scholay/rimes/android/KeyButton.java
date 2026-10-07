@@ -73,11 +73,11 @@ final class KeyButton extends Button {
     }
     private void updateTextColors() {
         if(palette==null) return;
-        int selectedInk=systemCaps() && !accent && !shortcut?palette.ink:palette.accentInk;
+        int selectedInk=palette.accentInk;
         setTextColor(new ColorStateList(new int[][]{new int[]{-android.R.attr.state_enabled},
                 new int[]{android.R.attr.state_pressed,android.R.attr.state_selected},new int[]{android.R.attr.state_pressed},
                 new int[]{android.R.attr.state_selected},new int[]{}},
-                new int[]{plain?palette.ink:(palette.ink&0xFFFFFF)|0x66000000,(!systemCaps() || accent || shortcut)?palette.pressedSelectedInk:palette.accentInk,
+                new int[]{plain?palette.ink:(palette.ink&0xFFFFFF)|0x66000000,palette.pressedSelectedInk,
                     palette.accentInk,selectedInk,palette.ink}));
     }
     void font(int size) { setAutoSizeTextTypeUniformWithConfiguration(10,size,1,android.util.TypedValue.COMPLEX_UNIT_SP); }
@@ -150,16 +150,16 @@ final class KeyButton extends Button {
             if(!isEnabled()) paint.setAlpha(Math.round(paint.getAlpha()*0.4f));
             canvas.drawRoundRect(cap,radius,radius,paint);
             cap.offset(0,-1.2f*density);
-            int fill=pressed?(accent && selected?palette.pressedSelected:palette.accent)
-                    :accent && selected?palette.accent:selected?palette.key:functional?palette.functional:palette.key;
+            int fill=pressed?(selected?palette.pressedSelected:palette.accent)
+                    :selected?palette.accent:functional?palette.functional:palette.key;
             paint.setColor(fill); paint.setAlpha(alpha); canvas.drawRoundRect(cap,radius,radius,paint);
         } else if(systemCaps()) {
             cap.set(x,y+0.5f*density,x+width,y+height-0.5f*density);
             cap.offset(0,density); paint.setColor(palette.dark?0x80000000:0x40000000);
             if(!isEnabled()) paint.setAlpha(Math.round(paint.getAlpha()*0.4f));
             canvas.drawRoundRect(cap,radius,radius,paint); cap.offset(0,-density);
-            int fill=pressed?(accent && selected?palette.pressedSelected:palette.accent)
-                    :accent && selected?palette.accent:selected?palette.key:functional?palette.functional:palette.key;
+            int fill=pressed?(selected?palette.pressedSelected:palette.accent)
+                    :selected?palette.accent:functional?palette.functional:palette.key;
             paint.setColor(fill); paint.setAlpha(alpha); canvas.drawRoundRect(cap,radius,radius,paint);
         } else {
             float dx=(compact?0:0.5f)*density,dy=(compact?0.75f:1.5f)*density;

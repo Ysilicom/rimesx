@@ -66,13 +66,14 @@ final class KeyboardAppearancePanel extends ScrollView {
         if(!schemas.isEmpty()) return;
         LinearLayout column=(LinearLayout)getChildAt(0);
         LinearLayout row=new LinearLayout(getContext()); column.addView(row,2,new LinearLayout.LayoutParams(-1,dp(40)));
-        String[] ids={"rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi"},names={"拼音(模糊音)","自然码","小鹤","五笔"};
+        String[] ids={"rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi"},names={"全拼","自然码","小鹤","五笔"};
         for(int i=0;i<ids.length;i++) { final String id=ids[i]; KeyButton key=button(row,names[i],() -> choose.accept(id)); key.setContentDescription("中文方案 "+names[i]); schemas.add(key); }
     }
     void action(String title,String description,Runnable perform) {
         LinearLayout column=(LinearLayout)getChildAt(0); KeyButton button=button(row(column),title,perform); button.setContentDescription(description); button.icon(description.equals(getResources().getString(R.string.switch_keyboard))?KeyboardIcon.GLOBE
                 :description.equals(getResources().getString(R.string.insert_all))?KeyboardIcon.SEND_ALL
-                :title.contains("剪贴") || title.contains("粘贴")?KeyboardIcon.WRITE:KeyboardIcon.CLEAR,18,true); actions.add(button);
+                :title.contains("剪贴") || title.contains("粘贴")?KeyboardIcon.WRITE
+                :title.contains("模糊")?KeyboardIcon.SPARKLE:KeyboardIcon.CLEAR,18,true); actions.add(button);
     }
     private LinearLayout row(LinearLayout column) {
         LinearLayout row=new LinearLayout(getContext()); column.addView(row,new LinearLayout.LayoutParams(-1,dp(48))); return row;

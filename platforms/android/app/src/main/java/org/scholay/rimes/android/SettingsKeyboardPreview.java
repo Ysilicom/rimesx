@@ -23,17 +23,21 @@ final class SettingsKeyboardPreview extends View {
     private final java.util.List<ChordLayout.Key> chordKeys;
     private final RectF frame=new RectF();
     private final java.util.EnumMap<KeyboardIcon,Drawable> icons=new java.util.EnumMap<>(KeyboardIcon.class);
+    private final float heightFactor;
     SettingsKeyboardPreview(Context context,String layout,KeyboardTheme theme) {
-        super(context); this.layout=layout; this.theme=theme;
+        this(context,layout,theme,1.0f);
+    }
+    SettingsKeyboardPreview(Context context,String layout,KeyboardTheme theme,float heightFactor) {
+        super(context); this.layout=layout; this.theme=theme; this.heightFactor=heightFactor;
         split=layout.equals("splitOrthogonal"); chord=split || layout.equals("orthogonal");
-        keys=chord?java.util.Collections.emptyList():KeyboardLayout.keys(WIDTH-8,false,layout.equals("nineKey")?KeyboardLayout.Mode.NINE_KEY:KeyboardLayout.Mode.QWERTY);
+        keys=chord?java.util.Collections.emptyList():KeyboardLayout.keys(WIDTH-8,false,layout.equals("nineKey")?KeyboardLayout.Mode.NINE_KEY:KeyboardLayout.Mode.QWERTY,heightFactor);
         chordKeys=chord?ChordLayout.keys(WIDTH-8,split):java.util.Collections.emptyList();
         for(KeyboardIcon icon:new KeyboardIcon[]{KeyboardIcon.CHEVRON_RIGHT,KeyboardIcon.DELETE,KeyboardIcon.SHIFT,KeyboardIcon.SMILE}) icons.put(icon,icon.drawable(context));
         paint.setTypeface(Typeface.create("sans-serif",Typeface.NORMAL));
         setContentDescription("RIMES "+layout+" · "+theme.title); setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
         setLayoutDirection(LAYOUT_DIRECTION_LTR);
     }
-    private float logicalHeight() { return CANDIDATES+(chord?ChordLayout.height(WIDTH,split):KeyboardLayout.height(false))+8; }
+    private float logicalHeight() { return CANDIDATES+(chord?ChordLayout.height(WIDTH,split):KeyboardLayout.height(false,heightFactor))+8; }
     @Override protected void onMeasure(int widthSpec,int heightSpec) {
         int width=MeasureSpec.getSize(widthSpec);
         setMeasuredDimension(width,resolveSize(Math.round(width*logicalHeight()/WIDTH),heightSpec));
