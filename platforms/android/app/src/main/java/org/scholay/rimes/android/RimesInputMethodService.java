@@ -751,9 +751,16 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private void moveCursor(int steps) {
         if(!ownsTarget()) return;
-        int keyCode=steps<0?KeyEvent.KEYCODE_DPAD_LEFT:KeyEvent.KEYCODE_DPAD_RIGHT;
-        int count=Math.abs(steps);
-        for(int i=0;i<count;i++) sendDownUpKeyEvents(keyCode);
+        int currentSel=selection>=0?selection:composingStart>=0?composingStart:-1;
+        if(currentSel>=0) {
+            int newSel=Math.max(0,currentSel+steps);
+            target.setSelection(newSel,newSel);
+            expect(newSel);
+        } else {
+            int keyCode=steps<0?KeyEvent.KEYCODE_DPAD_LEFT:KeyEvent.KEYCODE_DPAD_RIGHT;
+            int count=Math.abs(steps);
+            for(int i=0;i<count;i++) sendDownUpKeyEvents(keyCode);
+        }
     }
     private void pressSpace() {
         long now=System.currentTimeMillis();
@@ -821,7 +828,7 @@ public final class RimesInputMethodService extends InputMethodService {
             switch(key.action) {
                 case TEXT:
                     if(nineKeyVisible()) return new String[]{"ABC","DEF","GHI","JKL","MNO","PQRS","TUV","WXYZ"}[Integer.parseInt(key.text)-2];
-                    return !numeric && !emoji?key.text.toUpperCase(Locale.ROOT):key.text;
+                    return !numeric && !emoji?(uppercase?key.text.toUpperCase(Locale.ROOT):key.text.toLowerCase(Locale.ROOT)):key.text;
                 case SHIFT: return uppercase?"⇪":"⇧";
                 case DELETE: return "⌫";
                 case RETURN: return returnLabel();
@@ -949,8 +956,6 @@ public final class RimesInputMethodService extends InputMethodService {
             } else { left=insets.getSystemWindowInsetLeft(); right=insets.getSystemWindowInsetRight(); bottom=insets.getSystemWindowInsetBottom(); }
             view.setPadding(dp(5)+left,dp(5),dp(5)+right,dp(5+bottomInset)+bottom); return insets;
         });
-        preedit=new TextView(this); preedit.setSingleLine(true); preedit.setTextSize(13); preedit.setGravity(Gravity.CENTER_VERTICAL);
-        preedit.setPadding(dp(8),0,dp(8),0); keyboard.addView(preedit,new LinearLayout.LayoutParams(-1,dp(28)));
         bufferRow=new LinearLayout(this); bufferRow.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams bufferParams=new LinearLayout.LayoutParams(-1,dp(landscape()?60:76)); bufferParams.bottomMargin=dp(4); keyboard.addView(bufferRow,bufferParams);
         int railHeight=landscape()?28:36;
@@ -966,11 +971,15 @@ public final class RimesInputMethodService extends InputMethodService {
         metrics.setTypeface(android.graphics.Typeface.create("sans-serif-medium",android.graphics.Typeface.NORMAL)); details.addView(metrics,new LinearLayout.LayoutParams(0,-1,1));
         pluginRunButton=button(details,"执行",this::runOrCancelPlugin,0); fixedWidth(pluginRunButton,32); gapLeft(pluginRunButton,4); pluginRunButton.icon(KeyboardIcon.PLAY);
         pluginButton=button(details,"插件",() -> openPluginSettings(activePlugin),0); fixedWidth(pluginButton,32); gapLeft(pluginButton,4); pluginButton.icon(KeyboardIcon.GRID_9); pluginButton.setContentDescription("Buffer 插件设置");
-        candidateRow=row(keyboard,32);
+        candidateRow=row(keyboard,38);
         layoutButton=button(candidateRow,"⚙",this::toggleAppearance,0); fixedWidth(layoutButton,32); gapRight(layoutButton,4); layoutButton.setContentDescription("键位布局"); layoutButton.icon(KeyboardIcon.SETTINGS);
         previous=button(candidateRow,"‹",() -> candidatePage(false),0); fixedWidth(previous,32); ((KeyButton)previous).plain(true); previous.setContentDescription("上一页候选"); ((KeyButton)previous).icon(KeyboardIcon.CHEVRON_LEFT,16);
         candidateScroll=new HorizontalScrollView(this); candidateScroll.setFillViewport(false); candidateScroll.setHorizontalScrollBarEnabled(false);
+        candidateScroll.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
         LinearLayout strip=new LinearLayout(this); candidateScroll.addView(strip,new HorizontalScrollView.LayoutParams(-2,-1));
+        preedit=new TextView(this); preedit.setSingleLine(true); preedit.setTextSize(15); preedit.setGravity(Gravity.CENTER_VERTICAL);
+        preedit.setPadding(dp(8),0,dp(8),0); preedit.setTypeface(android.graphics.Typeface.create("sans-serif-medium",android.graphics.Typeface.NORMAL));
+        strip.addView(preedit,new LinearLayout.LayoutParams(-2,-1));
         FrameLayout center=new FrameLayout(this); candidateRow.addView(center,new LinearLayout.LayoutParams(0,-1,1));
         center.addView(candidateScroll,new FrameLayout.LayoutParams(-1,-1));
         pluginShortcuts=new PluginShortcutBar(this,theme,new PluginShortcutBar.Listener() {
@@ -981,10 +990,10 @@ public final class RimesInputMethodService extends InputMethodService {
         }); center.addView(pluginShortcuts,new FrameLayout.LayoutParams(-1,-1)); chordReadout=new ChordPreview(this); center.addView(chordReadout,new FrameLayout.LayoutParams(-1,-1)); candidates.clear();
         for(int i=0;i<9;i++) {
             final int index=i; KeyButton candidate=button(strip,"",() -> candidateTapped(index),0);
-            candidate.setLayoutParams(new LinearLayout.LayoutParams(-2,-1)); candidate.fontStyle(false,20,false); candidate.plain(true);
-            candidate.setMinWidth(dp(32)); candidate.setMinimumWidth(dp(32)); candidate.setPadding(dp(6),0,dp(6),0);
-            gapRight(candidate,4);
-            candidate.setAutoSizeTextTypeWithDefaults(TextView.AUTO_SIZE_TEXT_TYPE_NONE); candidate.setTextSize(20); candidates.add(candidate);
+            candidate.setLayoutParams(new LinearLayout.LayoutParams(-2,-1)); candidate.fontStyle(false,18,false); candidate.plain(true);
+            candidate.setMinWidth(dp(36)); candidate.setMinimumWidth(dp(36)); candidate.setPadding(dp(10),0,dp(10),0);
+            gapRight(candidate,2);
+            candidate.setAutoSizeTextTypeWithDefaults(TextView.AUTO_SIZE_TEXT_TYPE_NONE); candidate.setTextSize(18); candidates.add(candidate);
         }
         next=button(candidateRow,"›",() -> candidatePage(true),0); fixedWidth(next,32); ((KeyButton)next).plain(true); next.setContentDescription("下一页候选"); ((KeyButton)next).icon(KeyboardIcon.CHEVRON_RIGHT,16);
         candidateGridButton=button(candidateRow,"⌄",this::toggleCandidateGrid,0); fixedWidth(candidateGridButton,32); gapLeft(candidateGridButton,2); ((KeyButton)candidateGridButton).plain(true); candidateGridButton.setContentDescription("展开候选");

@@ -119,6 +119,7 @@ def prepare_data():
     deployer = WORK/'host/rime/bin/rime_deployer'
     run(deployer,'--build',stage,stage,stage/'build')
     for schema in SCHEMAS:
+        run(deployer,'--compile',stage/(schema+'.schema.yaml'),stage,stage,stage/'build')
         run(deployer,'--compile',stage/(schema+'_private.schema.yaml'),stage,stage,stage/'build')
     dest = ANDROID/'app/build/generated/rime/assets/rime'
     if dest.exists(): shutil.rmtree(dest)

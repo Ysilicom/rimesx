@@ -67,6 +67,25 @@ speller:
     - "xform/(.)ou$/$1Ⓑ/"
     - "xform/in$/Ⓝ/"
     - "xlit/ⓆⓌⓇⓉⓎⓊⒾⓄⓅⓈⒹⒻⒼⒽⓂⒿⒸⓀⓁⓏⓍⓋⒷⓃ/qwrtyuiopsdfghmjcklzxvbn/"
+    # --- 自然码双拼直属模糊音规则 ---
+    - "derive/^v/z/"
+    - "derive/^z/v/"
+    - "derive/^i/c/"
+    - "derive/^c/i/"
+    - "derive/^u/s/"
+    - "derive/^s/u/"
+    - "derive/^l/n/"
+    - "derive/^n/l/"
+    - "derive/^f/h/"
+    - "derive/^h/f/"
+    - "derive/^r/l/"
+    - "derive/^l/r/"
+    - "derive/j$/h/"
+    - "derive/h$/j/"
+    - "derive/f$/g/"
+    - "derive/g$/f/"
+    - "derive/n$/y/"
+    - "derive/y$/n/"
 translator:
   dictionary: pinyin_simp
   prism: rimes_ziranma

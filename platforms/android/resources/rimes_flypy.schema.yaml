@@ -73,6 +73,25 @@ speller:
     - "xform/ui$/Ⓥ/"
     - "xform/in$/Ⓑ/"
     - "xlit/ⓆⓌⓇⓉⓎⓊⒾⓄⓅⓈⒹⒻⒼⒽⒿⓀⓁⓏⓍⒸⓋⒷⓃⓂ/qwrtyuiopsdfghjklzxcvbnm/"
+    # --- 双拼直属模糊音规则 (保证双拼下平翘舌、前后鼻音、鼻边音100%生效) ---
+    - "derive/^v/z/"
+    - "derive/^z/v/"
+    - "derive/^i/c/"
+    - "derive/^c/i/"
+    - "derive/^u/s/"
+    - "derive/^s/u/"
+    - "derive/^l/n/"
+    - "derive/^n/l/"
+    - "derive/^f/h/"
+    - "derive/^h/f/"
+    - "derive/^r/l/"
+    - "derive/^l/r/"
+    - "derive/j$/h/"
+    - "derive/h$/j/"
+    - "derive/f$/g/"
+    - "derive/g$/f/"
+    - "derive/b$/k/"
+    - "derive/k$/b/"
 translator:
   dictionary: pinyin_simp
   prism: rimes_flypy

@@ -51,9 +51,9 @@ final class KeyboardSurface extends ViewGroup {
             boolean system=theme.id.equals("apple"),letter=key.action==KeyboardLayout.Action.TEXT;
             boolean functional=mode!=KeyboardLayout.Mode.NINE_KEY && !letter && key.action!=KeyboardLayout.Action.SPACE && key.action!=KeyboardLayout.Action.PUNCTUATION;
             button.appearance(functional,false,key.action==KeyboardLayout.Action.RETURN);
-            int baseFont=letter?(mode==KeyboardLayout.Mode.NINE_KEY?20:23)
-                    :key.action==KeyboardLayout.Action.LANGUAGE || key.action==KeyboardLayout.Action.PUNCTUATION?16:15;
-            int font=Math.round(baseFont*(1.0f+(heightFactor-1.0f)*0.35f));
+            int baseFont=letter?(mode==KeyboardLayout.Mode.NINE_KEY?18:18)
+                    :key.action==KeyboardLayout.Action.LANGUAGE || key.action==KeyboardLayout.Action.PUNCTUATION?15:14;
+            int font=Math.round(baseFont*(1.0f+(heightFactor-1.0f)*0.25f));
             button.fontStyle(false,font,true);
             button.icon(key.action==KeyboardLayout.Action.SHIFT?(handler.selected(key)?KeyboardIcon.SHIFT_FILL:KeyboardIcon.SHIFT)
                     :key.action==KeyboardLayout.Action.DELETE?KeyboardIcon.DELETE:key.action==KeyboardLayout.Action.EMOJI && mode!=KeyboardLayout.Mode.EMOJI?KeyboardIcon.SMILE:null);
@@ -109,7 +109,7 @@ final class KeyboardSurface extends ViewGroup {
         });
     }
     private void setupSpaceCursorSlide(KeyButton button,Consumer<Integer> onSlide) {
-        final float stepPx=12f*getResources().getDisplayMetrics().density;
+        final float stepPx=16f*getResources().getDisplayMetrics().density;
         button.setOnTouchListener(new OnTouchListener() {
             private float downX,downY,lastStepX;
             private boolean sliding=false;
