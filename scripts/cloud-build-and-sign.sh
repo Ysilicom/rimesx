@@ -69,12 +69,20 @@ if [ -z "$RUN_ID" ]; then
     echo ""
 
     echo "⏳ 正在等待 GitHub Actions 注册并启动工作流..."
-    for i in {1..20}; do
-        RUNS_JSON=$(curl -s "${CURL_AUTH[@]}" "https://api.github.com/repos/$REPO/actions/runs?head_sha=$TARGET_SHA")
-        RUN_ID=$(echo "$RUNS_JSON" | jq -r '.workflow_runs[]? | select(.name=="'"$WORKFLOW_NAME"'") | .id' | head -n 1)
+    for i in {1..25}; do
+        RUNS_JSON=$(curl -s "${CURL_AUTH[@]}" "https://api.github.com/repos/$REPO/actions/runs?head_sha=$TARGET_SHA" 2>/dev/null || true)
+        RUN_ID=$(echo "$RUNS_JSON" | jq -r '.workflow_runs[]? | select(.name=="'"$WORKFLOW_NAME"'") | .id' 2>/dev/null | head -n 1 || true)
         if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
             RUN_URL="https://github.com/$REPO/actions/runs/$RUN_ID"
             echo "✓ 成功检测到工作流 Run ID: $RUN_ID"
+            echo "  网页监控地址: $RUN_URL"
+            break
+        fi
+        HTML_RUN_ID=$(curl -sL "https://github.com/$REPO/actions" 2>/dev/null | grep -E "actions/runs/[0-9]+" | head -n 1 | grep -oE "runs/[0-9]+" | cut -d'/' -f2 || true)
+        if [ -n "$HTML_RUN_ID" ] && [ "$HTML_RUN_ID" != "null" ]; then
+            RUN_ID="$HTML_RUN_ID"
+            RUN_URL="https://github.com/$REPO/actions/runs/$RUN_ID"
+            echo "✓ 成功检测到最新工作流 Run ID: $RUN_ID"
             echo "  网页监控地址: $RUN_URL"
             break
         fi
@@ -102,23 +110,26 @@ while true; do
     STATUS=$(echo "$RUN_DATA" | jq -r '.status // empty')
     CONCLUSION=$(echo "$RUN_DATA" | jq -r '.conclusion // empty')
 
-    if [ "$STATUS" = "null" ] || [ -z "$STATUS" ]; then
-        PAGE_HTML=$(curl -sL "https://github.com/$REPO/actions/runs/$RUN_ID")
-        if echo "$PAGE_HTML" | grep -q 'data-concluded="false"'; then
+    if [ "$STATUS" = "null" ] || [ -z "$STATUS" ] || [ "$STATUS" = "401" ] || [ "$STATUS" = "403" ]; then
+        PAGE_HTML=$(curl -sL "https://github.com/$REPO/actions/runs/$RUN_ID" 2>/dev/null || true)
+        if echo "$PAGE_HTML" | grep -q 'currently running:' || echo "$PAGE_HTML" | grep -q 'data-concluded="false"'; then
             STATUS="in_progress"
-            echo "[$TIME_STR] 云端构建进行中..."
-        else
+            echo "[$TIME_STR] 云端构建进行中 (Build & Sign RIMES X APK running)..."
+        elif echo "$PAGE_HTML" | grep -q 'aria-label="completed successfully: "'; then
             STATUS="completed"
-            if echo "$PAGE_HTML" | grep -q 'aria-label="completed successfully: "'; then
-                CONCLUSION="success"
-            else
-                CONCLUSION="failure"
-            fi
-            echo "[$TIME_STR] 云端构建已结束 (结果: $CONCLUSION)"
+            CONCLUSION="success"
+            echo "[$TIME_STR] 云端构建已结束 (结果: success)"
+        elif echo "$PAGE_HTML" | grep -q 'aria-label="failed: "'; then
+            STATUS="completed"
+            CONCLUSION="failure"
+            echo "[$TIME_STR] 云端构建已结束 (结果: failure)"
+        else
+            STATUS="in_progress"
+            echo "[$TIME_STR] 正在获取云端状态..."
         fi
     else
         echo "[$TIME_STR] 总体状态: $STATUS | 结果: ${CONCLUSION:-进行中}"
-        JOBS_DATA=$(curl -s "${CURL_AUTH[@]}" "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID/jobs")
+        JOBS_DATA=$(curl -s "${CURL_AUTH[@]}" "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID/jobs" 2>/dev/null || true)
         echo "$JOBS_DATA" | jq -r '.jobs[]? | "  - \(.name): \(.status) (\(.conclusion // "running"))"' 2>/dev/null || true
     fi
 

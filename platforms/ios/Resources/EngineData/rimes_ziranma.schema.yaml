@@ -1,8 +1,9 @@
 # RIMES iOS original minimal schema (Apache-2.0). No desktop includes or Lua.
+# Enhanced with standard fuzzy pinyin (平翘舌、前后鼻音、鼻边音、唇齿音).
 schema:
   schema_id: rimes_ziranma
   name: RIMES ziranma
-  version: "0.1.0"
+  version: "0.2.0"
 switches:
   - name: ascii_mode
     reset: 0
@@ -13,7 +14,59 @@ engine:
 speller:
   alphabet: abcdefghijklmnopqrstuvwxyz
   delimiter: " '"
-  algebra: ["erase/^xx$/", "derive/^([jqxy])u$/$1v/", "derive/^([aoe])([ioun])$/$1$1$2/", "xform/^([aoe])(ng)?$/$1$1$2/", "xform/iu$/Ⓠ/", "xform/[iu]a$/Ⓦ/", "xform/[uv]an$/Ⓡ/", "xform/[uv]e$/Ⓣ/", "xform/ing$|uai$/Ⓨ/", "xform/^sh/Ⓤ/", "xform/^ch/Ⓘ/", "xform/^zh/Ⓥ/", "xform/uo$/Ⓞ/", "xform/[uv]n$/Ⓟ/", "xform/(.)i?ong$/$1Ⓢ/", "xform/[iu]ang$/Ⓓ/", "xform/(.)en$/$1Ⓕ/", "xform/(.)eng$/$1Ⓖ/", "xform/(.)ang$/$1Ⓗ/", "xform/ian$/Ⓜ/", "xform/(.)an$/$1Ⓙ/", "xform/iao$/Ⓒ/", "xform/(.)ao$/$1Ⓚ/", "xform/(.)ai$/$1Ⓛ/", "xform/(.)ei$/$1Ⓩ/", "xform/ie$/Ⓧ/", "xform/ui$/Ⓥ/", "xform/(.)ou$/$1Ⓑ/", "xform/in$/Ⓝ/", "xlit/ⓆⓌⓇⓉⓎⓊⒾⓄⓅⓈⒹⒻⒼⒽⓂⒿⒸⓀⓁⓏⓍⓋⒷⓃ/qwrtyuiopsdfghmjcklzxvbn/"]
+  algebra:
+    - "erase/^xx$/"
+    # --- 模糊音规则 (Fuzzy Pinyin) ---
+    - "derive/^([zcs])h/$1/"
+    - "derive/^([zcs])([^h])/$1h$2/"
+    - "derive/^l/n/"
+    - "derive/^n/l/"
+    - "derive/^f/h/"
+    - "derive/^h/f/"
+    - "derive/^r/l/"
+    - "derive/^l/r/"
+    - "derive/^g/k/"
+    - "derive/^k/g/"
+    - "derive/([ei])n$/$1ng/"
+    - "derive/([ei])ng$/$1n/"
+    - "derive/([au])n$/$1ng/"
+    - "derive/([au])ng$/$1n/"
+    - "derive/ian$/iang/"
+    - "derive/iang$/ian/"
+    - "derive/uan$/uang/"
+    - "derive/uang$/uan/"
+    - "derive/ong$/eng/"
+    - "derive/eng$/ong/"
+    # --- 双拼映射规则 (自然码) ---
+    - "derive/^([jqxy])u$/$1v/"
+    - "derive/^([aoe])([ioun])$/$1$1$2/"
+    - "xform/^([aoe])(ng)?$/$1$1$2/"
+    - "xform/iu$/Ⓠ/"
+    - "xform/[iu]a$/Ⓦ/"
+    - "xform/[uv]an$/Ⓡ/"
+    - "xform/[uv]e$/Ⓣ/"
+    - "xform/ing$|uai$/Ⓨ/"
+    - "xform/^sh/Ⓤ/"
+    - "xform/^ch/Ⓘ/"
+    - "xform/^zh/Ⓥ/"
+    - "xform/uo$/Ⓞ/"
+    - "xform/[uv]n$/Ⓟ/"
+    - "xform/(.)i?ong$/$1Ⓢ/"
+    - "xform/[iu]ang$/Ⓓ/"
+    - "xform/(.)en$/$1Ⓕ/"
+    - "xform/(.)eng$/$1Ⓖ/"
+    - "xform/(.)ang$/$1Ⓗ/"
+    - "xform/ian$/Ⓜ/"
+    - "xform/(.)an$/$1Ⓙ/"
+    - "xform/iao$/Ⓒ/"
+    - "xform/(.)ao$/$1Ⓚ/"
+    - "xform/(.)ai$/$1Ⓛ/"
+    - "xform/(.)ei$/$1Ⓩ/"
+    - "xform/ie$/Ⓧ/"
+    - "xform/ui$/Ⓥ/"
+    - "xform/(.)ou$/$1Ⓑ/"
+    - "xform/in$/Ⓝ/"
+    - "xlit/ⓆⓌⓇⓉⓎⓊⒾⓄⓅⓈⒹⒻⒼⒽⓂⒿⒸⓀⓁⓏⓍⓋⒷⓃ/qwrtyuiopsdfghmjcklzxvbn/"
 translator:
   dictionary: pinyin_simp
   prism: rimes_ziranma

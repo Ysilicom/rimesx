@@ -322,7 +322,7 @@ public final class SetupActivity extends Activity {
         toggle(finalsGroup,t("前后鼻音 (an ↔ ang)","an ↔ ang"),"settings.fuzzy.an_ang",settings.isFuzzy(KeyboardSettings.KEY_FUZZY_AN_ANG),v -> { settings.setFuzzy(KeyboardSettings.KEY_FUZZY_AN_ANG,v); render(); });
         toggle(finalsGroup,t("前后鼻音 (en ↔ eng)","en ↔ eng"),"settings.fuzzy.en_eng",settings.isFuzzy(KeyboardSettings.KEY_FUZZY_EN_ENG),v -> { settings.setFuzzy(KeyboardSettings.KEY_FUZZY_EN_ENG,v); render(); });
         toggle(finalsGroup,t("前后鼻音 (in ↔ ing)","in ↔ ing"),"settings.fuzzy.in_ing",settings.isFuzzy(KeyboardSettings.KEY_FUZZY_IN_ING),v -> { settings.setFuzzy(KeyboardSettings.KEY_FUZZY_IN_ING,v); render(); });
-        note(t("修改后即时保存并生效。仅在全拼方案（26键/9键）下起效。","Saved and applied immediately. Takes effect in Pinyin mode (26-key/9-key)."));
+        note(t("修改后即时保存并生效。支持全拼（26键/9键）与双拼方案（小鹤/自然码）。","Saved and applied immediately. Takes effect in Pinyin (26-key/9-key) and Shuangpin (Flypy/Natural Code) schemes."));
     }
     private void segments(LinearLayout parent,String[] ids,String[] labels,String selected,String prefix,java.util.function.Consumer<String> action) {
         LinearLayout bar=new LinearLayout(this); bar.setOrientation(LinearLayout.HORIZONTAL); bar.setPadding(dp(3),dp(3),dp(3),dp(3)); bar.setBackground(shape(separator,9));
