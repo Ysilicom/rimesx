@@ -945,7 +945,8 @@ public final class RimesInputMethodService extends InputMethodService {
             switch(key.action) {
                 case TEXT:
                     if(nineKeyVisible()) return new String[]{"ABC","DEF","GHI","JKL","MNO","PQRS","TUV","WXYZ"}[Integer.parseInt(key.text)-2];
-                    return !numeric && !emoji?key.text.toUpperCase(Locale.ROOT):key.text;
+                    if(numeric || emoji) return key.text;
+                    return uppercase?key.text.toUpperCase(Locale.ROOT):key.text;
                 case SHIFT: return uppercase?"⇪":"⇧";
                 case DELETE: return "⌫";
                 case RETURN: return returnLabel();
@@ -1145,7 +1146,7 @@ public final class RimesInputMethodService extends InputMethodService {
             public void onPluginLongPress(String id) { openPluginSettings(id); }
             public void onPasteTap() { pasteClipboard(); }
             public void onEmojiTap() { settleAndSwitch(() -> { emoji=!emoji; numeric=false; }); }
-        }); center.addView(pluginShortcuts,new FrameLayout.LayoutParams(-1,-2,Gravity.CENTER_VERTICAL)); chordReadout=new ChordPreview(this); center.addView(chordReadout,new FrameLayout.LayoutParams(-1,-1));
+        }); center.addView(pluginShortcuts,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM)); chordReadout=new ChordPreview(this); center.addView(chordReadout,new FrameLayout.LayoutParams(-1,-1));
         candidates.clear();
         ensureCandidateButtons(9);
         next=button(candidateRow,"›",() -> candidatePage(true),0); fixedWidth(next,32); ((KeyButton)next).plain(true); next.setContentDescription("下一页候选"); ((KeyButton)next).icon(KeyboardIcon.CHEVRON_RIGHT,16);
@@ -1398,10 +1399,10 @@ public final class RimesInputMethodService extends InputMethodService {
         candidateRow.setVisibility(View.VISIBLE);
         boolean marks=punctuationOpen;
         boolean idle=!snapshot.composing() && snapshot.candidates.isEmpty() && heldPreview==null && chordPreview.isEmpty() && !chords.isChordActive() && !marks && status.isEmpty();
-        // The 64dp slot fits a pinyin line plus candidates. Idle shortcuts are one
-        // 30dp band; leaving the slot tall parks them in empty space above the keys.
+        // Keep one height with or without candidates. Shrinking the idle row
+        // resizes the keyboard and jumps the editor on every syllable.
         boolean shortcuts=idle && !privateField && !directOnly;
-        int desiredRowHeight=dp(shortcuts?(landscape()?36:40):(landscape()?50:64));
+        int desiredRowHeight=dp(landscape()?50:64);
         if(candidateRow.getLayoutParams().height!=desiredRowHeight) {
             candidateRow.getLayoutParams().height=desiredRowHeight;
             candidateRow.requestLayout();
@@ -1532,11 +1533,11 @@ public final class RimesInputMethodService extends InputMethodService {
         button.setOnClickListener(v -> action.run()); row.addView(button,new LinearLayout.LayoutParams(0,-1,weight)); chromeButtons.add(button); return button;
     }
     private void fixedWidth(View view,int width) { view.setLayoutParams(new LinearLayout.LayoutParams(dp(width),-1)); }
-    /** Idle gear and Buffer match the 30dp shortcut chips instead of stretching through the candidate slot. */
+    /** Idle gear and Buffer match the 30dp shortcut chips and sit on the keys. */
     private void toolbarSlot(View view,boolean compact) {
         LinearLayout.LayoutParams params=(LinearLayout.LayoutParams)view.getLayoutParams();
         int height=compact?dp(30):LinearLayout.LayoutParams.MATCH_PARENT;
-        int gravity=compact?Gravity.CENTER_VERTICAL:Gravity.NO_GRAVITY;
+        int gravity=compact?Gravity.BOTTOM:Gravity.NO_GRAVITY;
         if(params.height!=height || params.gravity!=gravity) {
             params.height=height; params.gravity=gravity; view.requestLayout();
         }

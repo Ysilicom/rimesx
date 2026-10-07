@@ -42,6 +42,8 @@ final class KeyButton extends Button {
         int vertical=Math.round(4*getResources().getDisplayMetrics().density);
         setPadding(1,vertical,1,vertical); setBackgroundColor(android.graphics.Color.TRANSPARENT);
         setStateListAnimator(null); setElevation(0); setIncludeFontPadding(false);
+        setLetterSpacing(0f);
+        if(Build.VERSION.SDK_INT>=28) setElegantTextHeight(false);
         setSingleLine(true); setGravity(android.view.Gravity.CENTER);
         setAutoSizeTextTypeUniformWithConfiguration(10,24,1,android.util.TypedValue.COMPLEX_UNIT_SP);
         theme(KeyboardTheme.ALL[0]);
@@ -112,6 +114,15 @@ final class KeyButton extends Button {
         Typeface face=monospaced?Typeface.MONOSPACE:Typeface.create("sans-serif",Typeface.NORMAL);
         if(medium) face=Build.VERSION.SDK_INT>=28?Typeface.create(face,500,false)
                 :monospaced?Typeface.MONOSPACE:Typeface.create("sans-serif-medium",Typeface.NORMAL);
+        if(!face.equals(getTypeface())) setTypeface(face);
+        if(fontLimit!=size) { fontLimit=size; font(size); }
+    }
+    /** Latin letters, digits and symbols. Chinese labels stay on the system face. */
+    void letterFace(int size) {
+        int style=4;
+        if(fontStyle==style && fontLimit==size) return;
+        fontStyle=style;
+        Typeface face=LetterFont.get(getContext());
         if(!face.equals(getTypeface())) setTypeface(face);
         if(fontLimit!=size) { fontLimit=size; font(size); }
     }
@@ -237,15 +248,19 @@ final class KeyButton extends Button {
         float scale=Math.min(1,availableWidth/Math.max(1,textWidth));
         if(scale<1) textPaint.setTextSize(originalSize*scale);
         textPaint.getFontMetrics(fontMetrics); textPaint.setColor(getCurrentTextColor());
-        canvas.drawText(text,x+(width-textPaint.measureText(text))/2,centreY-(fontMetrics.ascent+fontMetrics.descent)/2,textPaint);
+        textPaint.setShadowLayer(0,0,0,0);
+        float textLeft=x+(width-textPaint.measureText(text))/2f;
+        float baseline=centreY-(fontMetrics.ascent+fontMetrics.descent)/2f;
+        canvas.drawText(text,Math.round(textLeft),Math.round(baseline),textPaint);
         if(hint!=null && !hint.isEmpty()) {
-            float hintSize=Math.max(7.5f*density,hint.length()>2?originalSize*0.36f:originalSize*0.44f);
-            textPaint.setTextSize(hintSize);
-            int hintAlpha=palette!=null && palette.dark?0x66000000:0x50000000;
-            textPaint.setColor((palette!=null?palette.ink:getCurrentTextColor())&0x00FFFFFF|hintAlpha);
-            float hintX=x+width-textPaint.measureText(hint)-dx-2.5f*density;
-            float hintY=y+dy+hintSize+0.5f*density;
-            canvas.drawText(hint,hintX,hintY,textPaint);
+            float hintSize=Math.min(height*0.24f,(hint.length()>2?8.5f:10f)*density);
+            textPaint.setTextSize(Math.max(8f*density,hintSize));
+            textPaint.getFontMetrics(fontMetrics);
+            int hintAlpha=palette!=null && palette.dark?0x99000000:0x8C000000;
+            textPaint.setColor(((palette!=null?palette.ink:getCurrentTextColor())&0x00FFFFFF)|hintAlpha);
+            float hintX=x+width-textPaint.measureText(hint)-3.5f*density;
+            float hintY=y+2.5f*density-fontMetrics.ascent;
+            canvas.drawText(hint,Math.round(hintX),Math.round(hintY),textPaint);
         }
         textPaint.setTextSize(originalSize); canvas.restoreToCount(saved);
     }

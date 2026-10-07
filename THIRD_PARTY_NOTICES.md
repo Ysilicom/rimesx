@@ -167,6 +167,16 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## Manrope
+
+Android key letters use Manrope, an unmodified variable font, at weight 500.
+Copyright 2018 The Manrope Project Authors. Licensed under the SIL Open Font
+License 1.1. The font and the license ship with the Android app as
+`platforms/android/app/src/main/assets/fonts/Manrope.ttf` and
+`platforms/android/app/src/main/assets/licenses/Manrope-OFL.txt`.
+
+Source: https://github.com/googlefonts/manrope
+
 ## AVL Drumkits — Black Pearl 4pc
 
 The acoustic drum sample library `Black_Pearl_4_LV2.sf2` is by Glen MacArthur

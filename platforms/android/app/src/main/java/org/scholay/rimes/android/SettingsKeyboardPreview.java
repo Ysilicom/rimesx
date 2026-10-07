@@ -33,7 +33,7 @@ final class SettingsKeyboardPreview extends View {
         keys=chord?java.util.Collections.emptyList():KeyboardLayout.keys(WIDTH-8,false,layout.equals("nineKey")?KeyboardLayout.Mode.NINE_KEY:KeyboardLayout.Mode.QWERTY,heightFactor);
         chordKeys=chord?ChordLayout.keys(WIDTH-8,split):java.util.Collections.emptyList();
         for(KeyboardIcon icon:new KeyboardIcon[]{KeyboardIcon.CHEVRON_RIGHT,KeyboardIcon.DELETE,KeyboardIcon.SHIFT,KeyboardIcon.SMILE}) icons.put(icon,icon.drawable(context));
-        paint.setTypeface(Typeface.create("sans-serif",Typeface.NORMAL));
+        paint.setTypeface(LetterFont.get(context));
         setContentDescription("RIMES "+layout+" · "+theme.title); setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
         setLayoutDirection(LAYOUT_DIRECTION_LTR);
     }
@@ -77,7 +77,12 @@ final class SettingsKeyboardPreview extends View {
     }
     private void cap(Canvas canvas,RectF frame,int color) { paint.setColor(color); canvas.drawRoundRect(frame,5,5,paint); }
     private void drawText(Canvas canvas,String text,float x,float y) {
+        paint.setTypeface(latinLabel(text)?LetterFont.get(getContext()):Typeface.create("sans-serif",Typeface.NORMAL));
         canvas.drawText(text,x-paint.measureText(text)/2,y-(paint.ascent()+paint.descent())/2,paint);
+    }
+    private static boolean latinLabel(String text) {
+        for(int i=0;i<text.length();i++) if(text.charAt(i)>0x024F) return false;
+        return true;
     }
     private void drawIcon(Canvas canvas,KeyboardIcon icon,float x,float y,int size,int color) {
         Drawable drawable=icons.get(icon); drawable.setTint(color);

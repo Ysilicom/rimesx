@@ -51,16 +51,18 @@ final class KeyboardSurface extends ViewGroup {
         }
         for(int i=0;i<getChildCount();i++) {
             KeyboardLayout.Key key=frames.get(i); KeyButton button=(KeyButton)getChildAt(i);
-            boolean system=theme.id.equals("apple"),letter=key.action==KeyboardLayout.Action.TEXT;
+            boolean letter=key.action==KeyboardLayout.Action.TEXT;
             boolean functional=mode!=KeyboardLayout.Mode.NINE_KEY && !letter && key.action!=KeyboardLayout.Action.SPACE && key.action!=KeyboardLayout.Action.PUNCTUATION;
             button.appearance(functional,false,key.action==KeyboardLayout.Action.RETURN);
-            int baseFont=letter?(mode==KeyboardLayout.Mode.NINE_KEY?18:23)
-                    :key.action==KeyboardLayout.Action.LANGUAGE || key.action==KeyboardLayout.Action.PUNCTUATION?15:14;
-            int font=Math.round(baseFont*(1.0f+(heightFactor-1.0f)*0.25f));
-            button.fontStyle(false,font,true);
             button.icon(key.action==KeyboardLayout.Action.SHIFT?(handler.selected(key)?KeyboardIcon.SHIFT_FILL:KeyboardIcon.SHIFT)
                     :key.action==KeyboardLayout.Action.DELETE?KeyboardIcon.DELETE:key.action==KeyboardLayout.Action.EMOJI && mode!=KeyboardLayout.Mode.EMOJI?KeyboardIcon.SMILE:null);
             String label=handler.label(key); if(!android.text.TextUtils.equals(button.getText(),label)) button.setText(label);
+            // Latin keys use Manrope. Emoji and Chinese labels keep their own faces.
+            boolean latin=letter && mode!=KeyboardLayout.Mode.EMOJI;
+            int baseFont=latin?(mode==KeyboardLayout.Mode.NINE_KEY?18:landscape()?20:22)
+                    :key.action==KeyboardLayout.Action.LANGUAGE || key.action==KeyboardLayout.Action.PUNCTUATION?15:14;
+            int font=Math.round(baseFont*(1.0f+(heightFactor-1.0f)*0.25f));
+            if(latin) button.letterFace(font); else button.fontStyle(false,font,true);
             String description=handler.description(key);
             if(!android.text.TextUtils.equals(button.getContentDescription(),description)) button.setContentDescription(description);
             String hint=mode==KeyboardLayout.Mode.QWERTY && letter?handler.hint(key):null;
