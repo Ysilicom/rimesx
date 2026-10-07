@@ -22,6 +22,8 @@ final class KeyboardSurface extends ViewGroup {
         default void press(KeyboardLayout.Key key, float biasX, float biasY) { press(key); }
         default boolean longPress(KeyboardLayout.Key key) { return false; }
         default void slideCursor(int steps) {}
+        /** Swipe up on delete. A tap still deletes one character. */
+        default void clearAll() {}
         default String hint(KeyboardLayout.Key key) { return hintForLetter(key.text); }
     }
     private KeyboardLayout.Mode mode;
@@ -76,12 +78,15 @@ final class KeyboardSurface extends ViewGroup {
         }
     }
     private void setupDeleteRepeat(KeyButton button,Runnable onDelete) {
+        final float swipe=32f*getResources().getDisplayMetrics().density;
         final android.os.Handler mainHandler=new android.os.Handler(Looper.getMainLooper());
         button.setOnTouchListener(new OnTouchListener() {
-            private boolean repeating=false;
+            private boolean repeating=false,cleared=false;
             private int repeatCount=0;
+            private float downX,downY;
             private final Runnable repeatTask=new Runnable() {
                 @Override public void run() {
+                    if(cleared) return;
                     repeating=true;
                     repeatCount++;
                     onDelete.run();
@@ -92,14 +97,28 @@ final class KeyboardSurface extends ViewGroup {
             @Override public boolean onTouch(View v,MotionEvent event) {
                 switch(event.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
-                        repeating=false; repeatCount=0;
+                        repeating=false; cleared=false; repeatCount=0;
+                        downX=event.getRawX(); downY=event.getRawY();
                         mainHandler.removeCallbacks(repeatTask);
                         mainHandler.postDelayed(repeatTask,300);
+                        return false;
+                    case MotionEvent.ACTION_MOVE:
+                        if(cleared) return true;
+                        float dx=event.getRawX()-downX,dy=event.getRawY()-downY;
+                        // Upward travel has to dominate so a sideways slip still deletes one character.
+                        if(dy<=-swipe && -dy>Math.abs(dx)*1.2f) {
+                            cleared=true; repeating=false;
+                            mainHandler.removeCallbacks(repeatTask);
+                            v.cancelLongPress(); v.setPressed(false);
+                            v.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK);
+                            handler.clearAll();
+                            return true;
+                        }
                         return false;
                     case MotionEvent.ACTION_UP:
                     case MotionEvent.ACTION_CANCEL:
                         mainHandler.removeCallbacks(repeatTask);
-                        if(repeating) {
+                        if(repeating || cleared) {
                             v.setPressed(false);
                             return true;
                         }

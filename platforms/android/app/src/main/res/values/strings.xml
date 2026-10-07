@@ -12,6 +12,7 @@
     <string name="insert_all">Insert all</string>
     <string name="clear">Clear</string>
     <string name="backspace">Delete</string>
+    <string name="backspace_clear">Delete. Swipe up to clear all</string>
     <string name="space">Space</string>
     <string name="enter">Enter</string>
     <string name="switch_keyboard">Switch keyboard</string>

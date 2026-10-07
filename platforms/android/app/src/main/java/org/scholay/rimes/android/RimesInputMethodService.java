@@ -661,6 +661,55 @@ public final class RimesInputMethodService extends InputMethodService {
                     : new Result(RimeEngine.Snapshot.EMPTY,"",false,1);
         });
     }
+    /** Swipe up on delete. Clears the same place a tap would delete: the whole editor, or the whole Buffer draft. */
+    private void clearAll() {
+        if(!ownsTarget()) return;
+        if(chords!=null && chords.isChordActive()) return;
+        candidateGridOpen=false;
+        retainedResults.clear(); retained="";
+        boolean drafting=buffer.isEnabled();
+        if(drafting) buffer.clear();
+        invalidatePlugin();
+        snapshot=RimeEngine.Snapshot.EMPTY;
+        // A key still in flight must not commit again after the field is wiped.
+        epoch.revoke(); pending=0; expectedSelections.clear();
+        if(!drafting) clearEditorText();
+        if(ready) resetEngine();
+        render();
+    }
+    private void clearEditorText() {
+        if(!ownsTarget()) return;
+        if(hostComposing) {
+            int cursor=composingStart>=0?composingStart:Math.max(0,Math.min(selectionStart,selection));
+            expect(cursor);
+            target.setComposingText("",1); target.finishComposingText();
+            hostComposing=false; hostPreedit=""; composingStart=-1;
+        }
+        EditorInfo info=getCurrentInputEditorInfo();
+        boolean terminal=info==null || info.inputType==InputType.TYPE_NULL || visiblePassword;
+        if(terminal) {
+            target.performContextMenuAction(android.R.id.selectAll);
+            sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL);
+            return;
+        }
+        CharSequence selected=target.getSelectedText(0);
+        if(selected!=null && selected.length()>0) {
+            expect(Math.max(0,Math.min(selectionStart,selection)));
+            target.commitText("",1);
+        }
+        for(int pass=0;pass<64;pass++) {
+            CharSequence before=target.getTextBeforeCursor(4096,0);
+            CharSequence after=target.getTextAfterCursor(4096,0);
+            int behind=before==null?0:before.length();
+            int ahead=after==null?0:after.length();
+            if(behind==0 && ahead==0) break;
+            if(selection>=0) expect(Math.max(0,selection-behind));
+            boolean deleted;
+            try { deleted=target.deleteSurroundingText(behind,ahead); }
+            catch(Throwable ignored) { break; }
+            if(!deleted) break;
+        }
+    }
     private void deleteHostOrBuffer() {
         if(!ownsTarget()) return;
         if(buffer.isEnabled()) {
@@ -917,7 +966,7 @@ public final class RimesInputMethodService extends InputMethodService {
             switch(key.action) {
                 case TEXT: return nineKeyVisible()?"九键 "+key.text+" "+label(key):!uppercase && !numeric && !emoji?key.text:label(key);
                 case SHIFT: return "Shift";
-                case DELETE: return getString(R.string.backspace);
+                case DELETE: return getString(R.string.backspace_clear);
                 case RETURN: return getString(R.string.enter);
                 case NUMBERS: return "数字与字母";
                 case SYMBOLS: return "符号页";
@@ -954,6 +1003,7 @@ public final class RimesInputMethodService extends InputMethodService {
         @Override public void slideCursor(int steps) {
             moveCursor(steps);
         }
+        @Override public void clearAll() { RimesInputMethodService.this.clearAll(); }
         @Override public void press(KeyboardLayout.Key key) {
             press(key,0f,0f);
         }
