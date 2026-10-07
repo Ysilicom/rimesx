@@ -15,6 +15,7 @@ import android.widget.Button;
 /** A native accessible button with a full touch cell and an inset, visibly pressed keycap. */
 final class KeyButton extends Button {
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint.FontMetrics fontMetrics=new Paint.FontMetrics();
     private Drawable iconDrawable;
     private int iconTint;
     private final RectF cap=new RectF();
@@ -170,27 +171,27 @@ final class KeyButton extends Button {
         float dx=(compact?0:0.5f)*density,dy=(compact?0.75f:1.5f)*density;
         float centreY=y+height/2+(plain || shortcut?0:pressed?(compact?0.75f:1.5f):(compact?-0.25f:-0.5f))*density;
         float textWidth=textPaint.measureText(text),availableWidth=Math.max(1,plain || shortcut?width-getPaddingLeft()-getPaddingRight():width-2*dx-2*density);
-        Paint.FontMetrics metrics=textPaint.getFontMetrics(); float availableHeight=Math.max(1,height-2*dy);
+        textPaint.getFontMetrics(fontMetrics); float availableHeight=Math.max(1,height-2*dy);
         if(icon!=null) {
             float glyphSize=Math.max(1,Math.min(iconSize*density,Math.min(availableWidth,availableHeight-2*density)));
             float gap=iconWithText && !text.isEmpty()?3*density:0;
             if(iconWithText && !text.isEmpty()) {
-                float scale=Math.min(1,Math.min(Math.max(1,availableWidth-glyphSize-gap)/Math.max(1,textWidth),availableHeight/(metrics.descent-metrics.ascent)));
+                float scale=Math.min(1,Math.min(Math.max(1,availableWidth-glyphSize-gap)/Math.max(1,textWidth),availableHeight/(fontMetrics.descent-fontMetrics.ascent)));
                 if(scale<1) textPaint.setTextSize(originalSize*scale);
-                textWidth=textPaint.measureText(text); metrics=textPaint.getFontMetrics();
+                textWidth=textPaint.measureText(text); textPaint.getFontMetrics(fontMetrics);
                 float left=x+(width-glyphSize-gap-textWidth)/2;
                 drawIcon(canvas,left,centreY-glyphSize/2,glyphSize);
                 textPaint.setColor(getCurrentTextColor());
-                canvas.drawText(text,left+glyphSize+gap,centreY-(metrics.ascent+metrics.descent)/2,textPaint);
+                canvas.drawText(text,left+glyphSize+gap,centreY-(fontMetrics.ascent+fontMetrics.descent)/2,textPaint);
             } else {
                 drawIcon(canvas,x+(width-glyphSize)/2,centreY-glyphSize/2,glyphSize);
             }
             textPaint.setTextSize(originalSize); canvas.restoreToCount(saved); return;
         }
-        float scale=Math.min(1,Math.min(availableWidth/Math.max(1,textWidth),availableHeight/(metrics.descent-metrics.ascent)));
+        float scale=Math.min(1,Math.min(availableWidth/Math.max(1,textWidth),availableHeight/(fontMetrics.descent-fontMetrics.ascent)));
         if(scale<1) textPaint.setTextSize(originalSize*scale);
-        metrics=textPaint.getFontMetrics(); textPaint.setColor(getCurrentTextColor());
-        canvas.drawText(text,x+(width-textPaint.measureText(text))/2,centreY-(metrics.ascent+metrics.descent)/2,textPaint);
+        textPaint.getFontMetrics(fontMetrics); textPaint.setColor(getCurrentTextColor());
+        canvas.drawText(text,x+(width-textPaint.measureText(text))/2,centreY-(fontMetrics.ascent+fontMetrics.descent)/2,textPaint);
         textPaint.setTextSize(originalSize); canvas.restoreToCount(saved);
     }
     private void drawIcon(Canvas canvas,float left,float top,float size) {

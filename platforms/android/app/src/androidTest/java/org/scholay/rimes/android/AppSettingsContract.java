@@ -266,6 +266,7 @@ final class AppSettingsContract {
         selected("settings.layout.",KeyboardSettings.layoutValues(),"nineKey"); home();
         open("schema"); selected("settings.schema.",KeyboardSettings.schemaValues(),"rimes_pinyin");
         tap("settings.schema.rimes_ziranma"); preference("schema","rimes_ziranma"); preference("layout","qwerty"); home();
+        open("schema"); tap("settings.schema.rimes_flypy"); preference("schema","rimes_flypy"); preference("layout","qwerty"); home();
         open("chords"); tap("settings.layout.orthogonal"); preference("layout","orthogonal"); preference("schema","rimes_ziranma");
         selected("settings.layout.",KeyboardSettings.layoutValues(),"orthogonal");
         tap("settings.layout.splitOrthogonal"); preference("layout","splitOrthogonal");

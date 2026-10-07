@@ -6,6 +6,7 @@ import android.inputmethodservice.InputMethodService;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.InputType;
 import android.view.View;
 import android.view.WindowInsets;
@@ -103,8 +104,8 @@ public final class RimesInputMethodService extends InputMethodService {
     // Worker-owned state. Access only inside EngineWorker.QUEUE.
     private RimeEngine engine;
     private long session;
-    private static final String[] SCHEMAS={"rimes_pinyin","rimes_ziranma","rimes_wubi"};
-    private static final String[] NAMES={"拼音","自然码","五笔"};
+    private static final String[] SCHEMAS={"rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi"};
+    private static final String[] NAMES={"拼音","自然码","小鹤","五笔"};
 
     @Override public void onCreate() {
         super.onCreate();
@@ -293,7 +294,7 @@ public final class RimesInputMethodService extends InputMethodService {
         if(!ownsTarget()) { endTarget(); return; }
         if(!policyChange && !retained.isEmpty()) { notice(R.string.delivery_pending); return; }
         InputEpoch.Ticket ticket=epoch.issue(); InputConnection connection=target;
-        pending++; render();
+        pending++;
         EngineWorker.QUEUE.execute(() -> {
             // Revocation also cancels queued engine work, before it could learn an old selection.
             if(!epoch.current(ticket)) return;
@@ -456,12 +457,12 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private void select(int index) {
         if(chords!=null && chords.isChordActive()) return;
-        if(pending!=0 || !ready || index>=snapshot.candidates.size()) return;
+        if(!ready || index>=snapshot.candidates.size()) return;
         final int absolute=snapshot.pageStart+index;
         dispatch(() -> Result.state(engine.selectCandidate(session,absolute)));
     }
     private void page(boolean forward) {
-        if(pending==0 && snapshot.composing()) dispatch(() -> Result.state(engine.processKey(session,forward?0xff56:0xff55)));
+        if(snapshot.composing()) dispatch(() -> Result.state(engine.processKey(session,forward?0xff56:0xff55)));
     }
     private void notice(int message) { Toast.makeText(this,message,Toast.LENGTH_SHORT).show(); }
 
@@ -518,6 +519,24 @@ public final class RimesInputMethodService extends InputMethodService {
         if(appearanceOpen) appearancePanel.scrollTo(0,0);
         render();
     }
+    private long lastPunctuationTime=0;
+    private void pressPunctuation() {
+        long now=SystemClock.uptimeMillis();
+        if(now-lastPunctuationTime<500) {
+            delete();
+            type(".");
+            lastPunctuationTime=0;
+        } else {
+            type(",");
+            lastPunctuationTime=now;
+        }
+    }
+    private boolean longPressPunctuation() {
+        type(".");
+        lastPunctuationTime=0;
+        if(keyboard!=null) keyboard.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+        return true;
+    }
     private final KeyboardSurface.Handler keyHandler=new KeyboardSurface.Handler() {
         @Override public String label(KeyboardLayout.Key key) {
             switch(key.action) {
@@ -534,7 +553,7 @@ public final class RimesInputMethodService extends InputMethodService {
                 case SPACE: return english || directOnly?"space":"空格";
                 case SPELLING: return "选拼音";
                 case SEPARATOR: return "分隔";
-                case PUNCTUATION: return "，。?!";
+                case PUNCTUATION: return nineKeyVisible()?"，。?!":english || directOnly?",.":"，。";
                 default: throw new IllegalStateException();
             }
         }
@@ -551,7 +570,7 @@ public final class RimesInputMethodService extends InputMethodService {
                 case SPACE: return getString(R.string.space);
                 case SPELLING: return "选拼音";
                 case SEPARATOR: return "分隔音节";
-                case PUNCTUATION: return "中文标点";
+                case PUNCTUATION: return nineKeyVisible()?"中文标点":english || directOnly?"逗号与句号":"中文逗号与句号";
                 default: throw new IllegalStateException();
             }
         }
@@ -565,7 +584,12 @@ public final class RimesInputMethodService extends InputMethodService {
             return key.action==KeyboardLayout.Action.SHIFT && uppercase || key.action==KeyboardLayout.Action.SPELLING && spellingOpen
                     || key.action==KeyboardLayout.Action.RETURN && returnSelected();
         }
+        @Override public boolean longPress(KeyboardLayout.Key key) {
+            if(key.action==KeyboardLayout.Action.PUNCTUATION && !nineKeyVisible()) return longPressPunctuation();
+            return false;
+        }
         @Override public void press(KeyboardLayout.Key key) {
+            if(key.action!=KeyboardLayout.Action.PUNCTUATION) lastPunctuationTime=0;
             switch(key.action) {
                 case TEXT:
                     String text=uppercase && !numeric && !emoji?key.text.toUpperCase(Locale.ROOT):key.text;
@@ -582,7 +606,10 @@ public final class RimesInputMethodService extends InputMethodService {
                 case SPACE: type(" "); break;
                 case SPELLING: spellingOpen=!spellingOpen; punctuationOpen=false; spellingPage=0; render(); break;
                 case SEPARATOR: type("'"); break;
-                case PUNCTUATION: punctuationOpen=!punctuationOpen; spellingOpen=false; render(); break;
+                case PUNCTUATION:
+                    if(nineKeyVisible()) { punctuationOpen=!punctuationOpen; spellingOpen=false; render(); }
+                    else pressPunctuation();
+                    break;
                 default: throw new IllegalStateException();
             }
         }
@@ -828,14 +855,14 @@ public final class RimesInputMethodService extends InputMethodService {
                 setText(item,value);
                 item.setContentDescription(marks?MARKS[i]:"候选"+(i+1)+" "+value);
             }
-            item.setEnabled(exists && pending==0 && chordPreview.isEmpty());
+            item.setEnabled(exists && chordPreview.isEmpty());
         }
         if(renderedPage!=snapshot.pageStart || !renderedRaw.equals(snapshot.raw)) {
             candidateScroll.scrollTo(0,0); renderedPage=snapshot.pageStart; renderedRaw=snapshot.raw;
         }
         previous.setVisibility(idle || marks && !spellingOpen || directOnly || heldPreview!=null || !spellingOpen && snapshot.pageStart==0?View.GONE:View.VISIBLE); next.setVisibility(idle || marks && !spellingOpen || directOnly || heldPreview!=null?View.GONE:View.VISIBLE);
-        previous.setEnabled(pending==0 && (spellingOpen?spellingPage>0:snapshot.pageStart>0));
-        next.setEnabled(pending==0 && (spellingOpen?spellingPage+9<spellingChoices.size():!snapshot.lastPage));
+        previous.setEnabled(spellingOpen?spellingPage>0:snapshot.pageStart>0);
+        next.setEnabled(spellingOpen?spellingPage+9<spellingChoices.size():!snapshot.lastPage);
         bufferRow.setVisibility(buffer.isEnabled()?View.VISIBLE:View.GONE);
         boolean plugin=buffer.isEnabled() && activePlugin!=null;
         if(plugin!=renderedPluginMode) {

@@ -10,10 +10,13 @@ import java.util.TreeSet;
 public final class NineKeyPinyin {
     private static final String[] GROUPS={"abc","def","ghi","jkl","mno","pqrs","tuv","wxyz"};
     private final List<String> syllables;
+    private final List<String> precomputedDigits;
     public NineKeyPinyin(Collection<String> source) {
         TreeSet<String> valid=new TreeSet<>();
         for(String value:source) if(value!=null && value.matches("[a-z]{1,8}")) valid.add(value);
         syllables=new ArrayList<>(valid);
+        precomputedDigits=new ArrayList<>(syllables.size());
+        for(String s:syllables) precomputedDigits.add(digits(s));
     }
     public static String digits(String spelling) {
         StringBuilder out=new StringBuilder();
@@ -29,13 +32,14 @@ public final class NineKeyPinyin {
     public List<String> choices(String raw) {
         List<String> result=new ArrayList<>(); int start=start(raw); if(start<0) return result;
         String pending=raw.substring(start);
-        for(String syllable:syllables) if(pending.startsWith(digits(syllable))) result.add(syllable);
+        for(int i=0;i<syllables.size();i++) if(pending.startsWith(precomputedDigits.get(i))) result.add(syllables.get(i));
         result.sort((a,b) -> a.length()==b.length()?a.compareTo(b):Integer.compare(b.length(),a.length()));
         return result;
     }
     public String select(String syllable,String raw) {
-        int start=start(raw); if(start<0 || !syllables.contains(syllable)) return null;
-        String digits=digits(syllable); if(!raw.substring(start).startsWith(digits)) return null;
+        int index=syllables.indexOf(syllable);
+        int start=start(raw); if(start<0 || index<0) return null;
+        String digits=precomputedDigits.get(index); if(!raw.substring(start).startsWith(digits)) return null;
         String rest=raw.substring(start+digits.length());
         return raw.substring(0,start)+syllable+(rest.startsWith("'")?"":"'")+rest;
     }

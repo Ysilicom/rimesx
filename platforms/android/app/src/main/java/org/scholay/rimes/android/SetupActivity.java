@@ -206,6 +206,7 @@ public final class SetupActivity extends Activity {
     }
     private String schemeName(String id) {
         if(id.equals("rimes_ziranma")) return t("自然码双拼","Natural Code");
+        if(id.equals("rimes_flypy")) return t("小鹤双拼","Flypy");
         if(id.equals("rimes_wubi")) return t("五笔 86","Wubi 86"); return t("全拼 · Pinyin","Pinyin");
     }
     private String layoutName(String id) {
@@ -295,7 +296,7 @@ public final class SetupActivity extends Activity {
         if(selected) row.addView(icon(KeyboardIcon.CHECK,accent,20));
     }
     private void schemas() {
-        LinearLayout choices=group(t("中文输入方案","Chinese input scheme")); String[] ids={"rimes_pinyin","rimes_ziranma","rimes_wubi"}; String[] samples={"nihao → 你好","nihk → 你好","wq → 你"};
+        LinearLayout choices=group(t("中文输入方案","Chinese input scheme")); String[] ids={"rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi"}; String[] samples={"nihao → 你好","nihk → 你好","nihc → 你好","wq → 你"};
         for(int i=0;i<ids.length;i++) { String id=ids[i]; choice(choices,schemeName(id),samples[i],"settings.schema."+id,settings.getSchema().equals(id),() -> { settings.setSchema(id); render(); }); }
         note(t("九键使用全拼；选择其他方案会切换到 QWERTY。并击使用自然码编码，选择普通中文方案会退出并击布局。","9-key uses Pinyin; another scheme switches to QWERTY. Chords use Natural Code; selecting a regular scheme leaves the chord layout."));
     }
@@ -394,7 +395,7 @@ public final class SetupActivity extends Activity {
     }
     private void resources() {
         LinearLayout bundled=group(t("随应用安装","Bundled with the app")); row(bundled,KeyboardIcon.STACK_LAYERS,"librime",t("离线引擎","Offline engine"),"1.17.0","settings.resources.engine",null);
-        for(String id:new String[]{"rimes_pinyin","rimes_ziranma","rimes_wubi"}) row(bundled,KeyboardIcon.BOOK,schemeName(id),t("已预编译，无需下载","Precompiled; no download needed"),null,"settings.resources."+id,null);
+        for(String id:new String[]{"rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi"}) row(bundled,KeyboardIcon.BOOK,schemeName(id),t("已预编译，无需下载","Precompiled; no download needed"),null,"settings.resources."+id,null);
         note(t("系统词典与用户词库分别保存，更新应用保留用户词库。Android 暂不支持外部方案包导入。","System dictionaries and learned words are stored separately. App updates preserve learned words. External scheme import is not available on Android yet."));
         LinearLayout actions=group(t("管理","Manage")); row(actions,KeyboardIcon.STACK_LAYERS,t("本机词库学习","Local word learning"),null,null,"settings.resources.data",() -> navigate("data"));
         row(actions,KeyboardIcon.BOOK,t("第三方许可","Third-party licenses"),null,null,"settings.resources.licenses",() -> navigate("licenses"));

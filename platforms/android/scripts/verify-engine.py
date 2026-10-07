@@ -17,7 +17,7 @@ for name,digest in manifest['files'].items():
     assert '..' not in name and not name.startswith('/')
     assert hashlib.sha256((data/name).read_bytes()).hexdigest()==digest,name
 assert not list(data.rglob('*.dict.yaml')), 'Raw dictionaries must not trigger on-device compilation'
-for schema in ('rimes_pinyin','rimes_pinyin9','rimes_ziranma','rimes_wubi'):
+for schema in ('rimes_pinyin','rimes_pinyin9','rimes_ziranma','rimes_flypy','rimes_wubi'):
     for suffix in ('','_private'):
         text=(data/'build'/(schema+suffix+'.schema.yaml')).read_text()
         assert 'page_size: 9' in text

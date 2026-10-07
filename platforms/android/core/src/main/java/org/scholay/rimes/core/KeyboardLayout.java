@@ -61,8 +61,13 @@ public final class KeyboardLayout {
             }
             Action[] footer=mode==Mode.EMOJI
                     ?new Action[]{Action.NUMBERS,Action.EMOJI,Action.LANGUAGE,Action.SPACE,Action.DELETE}
+                    :mode==Mode.QWERTY
+                    ?new Action[]{Action.NUMBERS,Action.EMOJI,Action.LANGUAGE,Action.PUNCTUATION,Action.SPACE,Action.RETURN}
                     :new Action[]{Action.NUMBERS,Action.EMOJI,Action.LANGUAGE,Action.SPACE,Action.RETURN};
-            float[] weights={1,1,1,4.8f,2.2f}; float x=0,footerUnit=(width-4*gap)/10;
+            float[] weights=mode==Mode.QWERTY
+                    ?new float[]{1,1,1,1.2f,3.6f,2.2f}
+                    :new float[]{1,1,1,4.8f,2.2f};
+            float x=0,footerUnit=(width-(footer.length-1)*gap)/10f;
             for(int i=0;i<footer.length;i++) {
                 float w=footerUnit*weights[i];
                 float left=i==0?0:x-gap/2,right=i==footer.length-1?width:x+w+gap/2;

@@ -38,7 +38,7 @@ final class KeyboardAppearancePanel extends ScrollView {
         qwerty.setSelected(layout.equals("qwerty")); nine.setSelected(layout.equals("nineKey"));
         chord.setSelected(layout.equals("orthogonal")); split.setSelected(layout.equals("splitOrthogonal"));
         chord.theme(theme); split.theme(theme);
-        for(int i=0;i<schemas.size();i++) { schemas.get(i).theme(theme); schemas.get(i).setSelected(schema.equals(new String[]{"rimes_pinyin","rimes_ziranma","rimes_wubi"}[i])); }
+        for(int i=0;i<schemas.size();i++) { schemas.get(i).theme(theme); schemas.get(i).setSelected(schema.equals(new String[]{"rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi"}[i])); }
         qwerty.theme(theme); nine.theme(theme);
         for(KeyButton key:actions) key.theme(theme);
         title.setTextColor(theme.palette(getContext()).ink); note.setTextColor(theme.palette(getContext()).ink);
@@ -50,7 +50,7 @@ final class KeyboardAppearancePanel extends ScrollView {
         if(!schemas.isEmpty()) return;
         LinearLayout column=(LinearLayout)getChildAt(0);
         LinearLayout row=new LinearLayout(getContext()); column.addView(row,2,new LinearLayout.LayoutParams(-1,dp(40)));
-        String[] ids={"rimes_pinyin","rimes_ziranma","rimes_wubi"},names={"拼音","自然码","五笔"};
+        String[] ids={"rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi"},names={"拼音","自然码","小鹤","五笔"};
         for(int i=0;i<ids.length;i++) { final String id=ids[i]; KeyButton key=button(row,names[i],() -> choose.accept(id)); key.setContentDescription("中文方案 "+names[i]); schemas.add(key); }
     }
     void action(String title,String description,Runnable perform) {

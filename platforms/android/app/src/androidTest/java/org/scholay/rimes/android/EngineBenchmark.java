@@ -25,6 +25,7 @@ final class EngineBenchmark {
     private static final String[][] PROFILES={
         {"pinyin","rimes_pinyin_private","nihao","你好"},
         {"natural_code","rimes_ziranma_private","nihk","你好"},
+        {"flypy","rimes_flypy_private","nihc","你好"},
         {"wubi","rimes_wubi_private","wq","你"},
         {"nine_key_pinyin","rimes_pinyin9_private","64426","你好"}
     };

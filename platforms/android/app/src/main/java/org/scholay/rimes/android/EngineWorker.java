@@ -6,7 +6,12 @@ import java.util.concurrent.Executors;
 /** One process-wide serial lane: librime and LevelDB never run on the UI thread. */
 final class EngineWorker {
     static final ExecutorService QUEUE=Executors.newSingleThreadExecutor(r -> {
-        Thread thread=new Thread(r,"RIMES-engine"); thread.setPriority(Thread.NORM_PRIORITY); return thread;
+        Thread thread=new Thread(() -> {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT);
+            r.run();
+        },"RIMES-engine");
+        thread.setPriority(Thread.NORM_PRIORITY);
+        return thread;
     });
     private EngineWorker() {}
 }

@@ -7,9 +7,9 @@ WORK = ANDROID / '.native'
 LOCK = json.loads((ROOT / 'platforms/ios/dependencies.lock.json').read_text())
 NDK = '29.0.14206865'
 CMAKE = '3.22.1'
-SCHEMAS = ('rimes_pinyin', 'rimes_pinyin9', 'rimes_ziranma', 'rimes_wubi')
+SCHEMAS = ('rimes_pinyin', 'rimes_pinyin9', 'rimes_ziranma', 'rimes_flypy', 'rimes_wubi')
 def schema_source(name):
-    root = ANDROID/'resources' if name == 'rimes_pinyin9' else ROOT/'platforms/ios/Resources/EngineData'
+    root = ANDROID/'resources' if name in ('rimes_pinyin9', 'rimes_flypy') else ROOT/'platforms/ios/Resources/EngineData'
     return root/(name+'.schema.yaml')
 def run(*args, **kw):
     subprocess.run([str(a) for a in args], check=True, **kw)
@@ -74,12 +74,12 @@ def build(src, abi, sdk):
         if stamp.exists() and stamp.read_text() == fingerprint: continue
         run(cmake, '-S', src/'deps'/dep, '-B', folder, *base, *flags)
         if dep == 'opencc' and abi != 'host':
-            run(cmake,'--build',folder,'--target','libopencc','--parallel','6')
+            run(cmake,'--build',folder,'--target','libopencc','--parallel','2')
             (prefix/'lib').mkdir(parents=True,exist_ok=True)
             for lib in folder.rglob('*.a'): shutil.copy2(lib,prefix/'lib'/lib.name)
             shutil.copytree(src/'deps/opencc/src',prefix/'include/opencc',dirs_exist_ok=True)
             shutil.copy2(folder/'src/opencc_config.h',prefix/'include/opencc/opencc_config.h')
-        else: run(cmake,'--build',folder,'--target','install','--parallel','6')
+        else: run(cmake,'--build',folder,'--target','install','--parallel','2')
         stamp.write_text(fingerprint)
     flags = [f'-DBoost_INCLUDE_DIR={WORK/"boost_1_86_0"}', f'-DBOOST_ROOT={WORK/"boost_1_86_0"}', '-DBoost_NO_BOOST_CMAKE=ON',
              f'-DYamlCpp_NEW_API={prefix/"include"}',f'-DCMAKE_PREFIX_PATH={prefix}', '-DBUILD_STATIC=ON', '-DBUILD_TEST=OFF',
@@ -88,10 +88,10 @@ def build(src, abi, sdk):
         flags += [f'-D{package}_INCLUDE_PATH={prefix/"include"}',f'-D{package}_LIBRARY={prefix/"lib"/f"lib{library}.a"}']
     folder = WORK/abi/'rime'
     run(cmake,'-S',src,'-B',folder,*base,*flags, '-DBUILD_SHARED_LIBS='+('ON' if abi=='host' else 'OFF'))
-    run(cmake,'--build',folder,'--target','rime_deployer' if abi=='host' else 'rime-static','--parallel','6')
+    run(cmake,'--build',folder,'--target','rime_deployer' if abi=='host' else 'rime-static','--parallel','2')
     if abi != 'host':
         run(cmake,'-S',ANDROID/'native','-B',WORK/abi/'bridge',*base,f'-DRIME_SOURCE={src}',f'-DRIME_BUILD={folder}',f'-DRIME_DEPS={prefix}')
-        run(cmake,'--build',WORK/abi/'bridge','--parallel','6')
+        run(cmake,'--build',WORK/abi/'bridge','--parallel','2')
         destination = ANDROID/'app/build/generated/rime/jniLibs'/abi
         destination.mkdir(parents=True,exist_ok=True)
         shutil.copy2(WORK/abi/'bridge/librimes_jni.so', destination/'librimes_jni.so')
@@ -104,6 +104,8 @@ def prepare_data():
     default = (resources/'default.yaml').read_text()
     if 'schema: rimes_pinyin9' not in default:
         default = default.replace('  - schema: rimes_pinyin\n', '  - schema: rimes_pinyin\n  - schema: rimes_pinyin9\n')
+    if 'schema: rimes_flypy' not in default:
+        default = default.replace('  - schema: rimes_ziranma\n', '  - schema: rimes_ziranma\n  - schema: rimes_flypy\n')
     (stage/'default.yaml').write_text(default)
     for schema in SCHEMAS:
         data = schema_source(schema).read_text()

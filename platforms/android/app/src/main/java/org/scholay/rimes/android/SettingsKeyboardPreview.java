@@ -58,7 +58,7 @@ final class SettingsKeyboardPreview extends View {
             boolean nine=layout.equals("nineKey");
             for(KeyboardLayout.Key key:keys) {
                 frame.set(key.visualX,key.visualY,key.visualX+key.visualWidth,key.visualY+key.visualHeight);
-                boolean functional=!nine && key.action!=KeyboardLayout.Action.TEXT && key.action!=KeyboardLayout.Action.SPACE;
+                boolean functional=!nine && key.action!=KeyboardLayout.Action.TEXT && key.action!=KeyboardLayout.Action.SPACE && key.action!=KeyboardLayout.Action.PUNCTUATION;
                 cap(canvas,frame,key.action==KeyboardLayout.Action.RETURN?palette.accent:functional?palette.functional:palette.key);
                 int color=key.action==KeyboardLayout.Action.RETURN?palette.accentInk:palette.ink;
                 KeyboardIcon icon=key.action==KeyboardLayout.Action.DELETE?KeyboardIcon.DELETE:key.action==KeyboardLayout.Action.SHIFT?KeyboardIcon.SHIFT:key.action==KeyboardLayout.Action.EMOJI?KeyboardIcon.SMILE:null;
@@ -85,7 +85,7 @@ final class SettingsKeyboardPreview extends View {
             case TEXT: if(nine) return NINE_LABELS[Integer.parseInt(key.text)]; return key.text;
             case NUMBERS:return "123";case SYMBOLS:return "#+=";case LANGUAGE:return "中/En";
             case RETURN:return chinese?"换行":"return";case SPACE:return chinese?"空格":"space";
-            case PUNCTUATION:return "，。";case SEPARATOR:return "分词";case SPELLING:return "拼音";default:return "";
+            case PUNCTUATION:return nine?"，。?!":chinese?"，。":",.";case SEPARATOR:return "分词";case SPELLING:return "拼音";default:return "";
         }
     }
 }

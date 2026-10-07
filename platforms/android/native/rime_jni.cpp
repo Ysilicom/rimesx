@@ -27,9 +27,28 @@ static jstring string(JNIEnv* env, const std::string& s) {
 static RimeApi* api() { return rime_get_api(); }
 static bool initialized = false;
 static std::string shared_path, user_path, build_path;
+static jclass g_string_class = nullptr;
+static jclass g_snapshot_class = nullptr;
+static jmethodID g_snapshot_init = nullptr;
+
+static void ensure_classes(JNIEnv* env) {
+    if (!g_string_class) {
+        jclass local_string = env->FindClass("java/lang/String");
+        g_string_class = reinterpret_cast<jclass>(env->NewGlobalRef(local_string));
+        env->DeleteLocalRef(local_string);
+    }
+    if (!g_snapshot_class) {
+        jclass local_snapshot = env->FindClass("org/scholay/rimes/core/RimeEngine$Snapshot");
+        g_snapshot_class = reinterpret_cast<jclass>(env->NewGlobalRef(local_snapshot));
+        g_snapshot_init = env->GetMethodID(g_snapshot_class, "<init>", "(ZLjava/lang/String;Ljava/lang/String;ILjava/lang/String;[Ljava/lang/String;[Ljava/lang/String;IIZ)V");
+        env->DeleteLocalRef(local_snapshot);
+    }
+}
+
 #define JNI(name) Java_org_scholay_rimes_android_NativeRimeEngine_##name
 extern "C" JNIEXPORT void JNICALL JNI(initializeNative)(JNIEnv* env, jclass, jstring shared, jstring user) {
     if (initialized) return;
+    ensure_classes(env);
     shared_path = utf8(env, shared); user_path = utf8(env, user); build_path = shared_path + "/build";
     RIME_STRUCT(RimeTraits, traits);
     traits.shared_data_dir = shared_path.c_str(); traits.user_data_dir = user_path.c_str();
@@ -70,15 +89,13 @@ extern "C" JNIEXPORT jobject JNICALL JNI(snapshotNative)(JNIEnv* env, jclass, jl
         }
         api()->free_context(&context);
     }
-    jclass strings=env->FindClass("java/lang/String");
-    auto texts=env->NewObjectArray(candidates.size(),strings,nullptr);
-    auto notes=env->NewObjectArray(comments.size(),strings,nullptr);
+    ensure_classes(env);
+    auto texts=env->NewObjectArray(candidates.size(),g_string_class,nullptr);
+    auto notes=env->NewObjectArray(comments.size(),g_string_class,nullptr);
     for (size_t i=0;i<candidates.size();++i) {
         auto t=string(env,candidates[i]); auto n=string(env,comments[i]);
         env->SetObjectArrayElement(texts,i,t); env->SetObjectArrayElement(notes,i,n);
         env->DeleteLocalRef(t); env->DeleteLocalRef(n);
     }
-    auto cls=env->FindClass("org/scholay/rimes/core/RimeEngine$Snapshot");
-    auto constructor=env->GetMethodID(cls,"<init>","(ZLjava/lang/String;Ljava/lang/String;ILjava/lang/String;[Ljava/lang/String;[Ljava/lang/String;IIZ)V");
-    return env->NewObject(cls,constructor,handled,string(env,raw),string(env,preedit),cursor,string(env,commit),texts,notes,start,highlighted,static_cast<jboolean>(last));
+    return env->NewObject(g_snapshot_class,g_snapshot_init,handled,string(env,raw),string(env,preedit),cursor,string(env,commit),texts,notes,start,highlighted,static_cast<jboolean>(last));
 }

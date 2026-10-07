@@ -30,7 +30,7 @@ public class KeyboardLayoutTest {
         int letters=0;
         for(KeyboardLayout.Key key:keys) {
             if(key.action==KeyboardLayout.Action.TEXT) { letters++; assertEquals(39,key.width,0.01); }
-            if(key.action==KeyboardLayout.Action.SPACE) assertTrue(key.width>=390*0.45);
+            if(key.action==KeyboardLayout.Action.SPACE) assertTrue(key.width>=390*0.34);
         }
         assertEquals(26,letters);
         assertEquals(19.5,keys.get(10).x,0.01);
@@ -53,9 +53,12 @@ public class KeyboardLayoutTest {
         assertEquals(33.8,q.visualWidth,0.01); assertEquals(44,q.visualHeight,0.01);
         assertEquals(19.9,a.visualX,0.01); assertEquals(54,a.visualY,0.01);
         assertEquals(59.7,z.visualX,0.01); assertEquals(108,z.visualY,0.01);
-        KeyboardLayout.Key shift=find(qwerty,KeyboardLayout.Action.SHIFT),space=find(qwerty,KeyboardLayout.Action.SPACE);
+        KeyboardLayout.Key shift=find(qwerty,KeyboardLayout.Action.SHIFT);
+        KeyboardLayout.Key punct=find(qwerty,KeyboardLayout.Action.PUNCTUATION);
+        KeyboardLayout.Key space=find(qwerty,KeyboardLayout.Action.SPACE);
         assertEquals(45.08,shift.visualWidth,0.01);
-        assertEquals(128.4,space.visualX,0.01); assertEquals(176.64,space.visualWidth,0.01);
+        assertEquals(126.6,punct.visualX,0.01); assertEquals(43.44,punct.visualWidth,0.01);
+        assertEquals(176.04,space.visualX,0.01); assertEquals(130.32,space.visualWidth,0.01);
         assertEquals(162,space.visualY,0.01);
         List<KeyboardLayout.Key> nine=KeyboardLayout.keys(392,false,KeyboardLayout.Mode.NINE_KEY);
         KeyboardLayout.Key enter=find(nine,KeyboardLayout.Action.RETURN),nineSpace=find(nine,KeyboardLayout.Action.SPACE);

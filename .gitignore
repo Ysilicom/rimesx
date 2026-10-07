@@ -1,6 +1,7 @@
 .build/
 .swiftpm/
 DerivedData/
+build-output/
 
 # Vendored librime runtime (fetched at build time by scripts/fetch-rime.sh)
 Vendor/

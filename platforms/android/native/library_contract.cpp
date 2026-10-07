@@ -14,7 +14,7 @@ int main(int argc,char** argv) {
     traits.prebuilt_data_dir=compiled.c_str(); traits.staging_dir=compiled.c_str(); traits.app_name="rime.android_library_contract";
     api->setup(&traits); api->initialize(&traits); auto session=api->create_session();
     struct Case {const char* schema; const char* code; const char* expected;};
-    for(const auto item:{Case{"rimes_pinyin_private","nihao","你好"},Case{"rimes_ziranma_private","nihk","你好"},Case{"rimes_wubi_private","wq","你"}}) {
+    for(const auto item:{Case{"rimes_pinyin_private","nihao","你好"},Case{"rimes_ziranma_private","nihk","你好"},Case{"rimes_flypy_private","nihc","你好"},Case{"rimes_wubi_private","wq","你"}}) {
         if(!api->select_schema(session,item.schema)) return 1;
         for(const char* c=item.code;*c;++c) api->process_key(session,*c,0);
         if(!api->select_candidate(session,0)) return 1;

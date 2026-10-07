@@ -17,7 +17,11 @@ final class EngineResources {
         try(InputStream in=context.getAssets().open("rime/manifest.json")) { manifest=readAll(in); }
         JSONObject files=new JSONObject(new String(manifest,StandardCharsets.UTF_8)).getJSONObject("files");
         File root=new File(context.getNoBackupFilesDir(),"rime-system/"+hash(manifest));
-        if (valid(root,files)) return root;
+        File stamp=new File(root,".verified");
+        if(stamp.exists() || valid(root,files)) {
+            if(!stamp.exists()) try { stamp.createNewFile(); } catch(Exception ignored) {}
+            return root;
+        }
         File staging=new File(root.getPath()+".staging");
         remove(staging);
         if (!staging.mkdirs()) throw new java.io.IOException("Cannot prepare dictionaries");
@@ -37,6 +41,7 @@ final class EngineResources {
         if(!valid(staging,files)) throw new java.io.IOException("Dictionary checksum mismatch");
         remove(root);
         if(!staging.renameTo(root)) throw new java.io.IOException("Cannot install dictionaries");
+        try { new File(root,".verified").createNewFile(); } catch(Exception ignored) {}
         return root;
     }
     static File userDirectory(Context context) throws java.io.IOException {

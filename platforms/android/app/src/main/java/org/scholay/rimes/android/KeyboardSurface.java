@@ -15,6 +15,7 @@ final class KeyboardSurface extends ViewGroup {
         boolean enabled(KeyboardLayout.Key key);
         boolean selected(KeyboardLayout.Key key);
         void press(KeyboardLayout.Key key);
+        default boolean longPress(KeyboardLayout.Key key) { return false; }
     }
     private KeyboardLayout.Mode mode;
     private List<KeyboardLayout.Key> frames;
@@ -28,18 +29,20 @@ final class KeyboardSurface extends ViewGroup {
             frames=KeyboardLayout.keys(400,landscape(),mode);
             for(KeyboardLayout.Key key:frames) {
                 KeyButton button=new KeyButton(getContext());
-                button.setOnClickListener(v -> handler.press(key)); addView(button);
+                button.setOnClickListener(v -> handler.press(key));
+                button.setOnLongClickListener(v -> handler.longPress(key));
+                addView(button);
             }
             requestLayout();
         }
         for(int i=0;i<getChildCount();i++) {
             KeyboardLayout.Key key=frames.get(i); KeyButton button=(KeyButton)getChildAt(i);
             boolean system=theme.id.equals("apple"),letter=key.action==KeyboardLayout.Action.TEXT;
-            boolean functional=mode!=KeyboardLayout.Mode.NINE_KEY && !letter && key.action!=KeyboardLayout.Action.SPACE;
+            boolean functional=mode!=KeyboardLayout.Mode.NINE_KEY && !letter && key.action!=KeyboardLayout.Action.SPACE && key.action!=KeyboardLayout.Action.PUNCTUATION;
             button.appearance(functional,false,key.action==KeyboardLayout.Action.RETURN);
             int font=letter?(mode==KeyboardLayout.Mode.NINE_KEY?20:system?24:21)
-                    :key.action==KeyboardLayout.Action.LANGUAGE?18:system?18:14;
-            button.fontStyle(letter && !system && mode!=KeyboardLayout.Mode.EMOJI,font,!system || key.action==KeyboardLayout.Action.LANGUAGE);
+                    :key.action==KeyboardLayout.Action.LANGUAGE || key.action==KeyboardLayout.Action.PUNCTUATION?16:system?18:14;
+            button.fontStyle(letter && !system && mode!=KeyboardLayout.Mode.EMOJI,font,!system || key.action==KeyboardLayout.Action.LANGUAGE || key.action==KeyboardLayout.Action.PUNCTUATION);
             button.icon(key.action==KeyboardLayout.Action.SHIFT?(handler.selected(key)?KeyboardIcon.SHIFT_FILL:KeyboardIcon.SHIFT)
                     :key.action==KeyboardLayout.Action.DELETE?KeyboardIcon.DELETE:key.action==KeyboardLayout.Action.EMOJI && mode!=KeyboardLayout.Mode.EMOJI?KeyboardIcon.SMILE:null);
             String label=handler.label(key); if(!android.text.TextUtils.equals(button.getText(),label)) button.setText(label);
