@@ -1095,7 +1095,7 @@ public final class RimesInputMethodService extends InputMethodService {
             public void onPluginLongPress(String id) { openPluginSettings(id); }
             public void onPasteTap() { pasteClipboard(); }
             public void onEmojiTap() { settleAndSwitch(() -> { emoji=!emoji; numeric=false; }); }
-        }); center.addView(pluginShortcuts,new FrameLayout.LayoutParams(-1,-1)); chordReadout=new ChordPreview(this); center.addView(chordReadout,new FrameLayout.LayoutParams(-1,-1));
+        }); center.addView(pluginShortcuts,new FrameLayout.LayoutParams(-1,-2,Gravity.CENTER_VERTICAL)); chordReadout=new ChordPreview(this); center.addView(chordReadout,new FrameLayout.LayoutParams(-1,-1));
         candidates.clear();
         ensureCandidateButtons(9);
         next=button(candidateRow,"›",() -> candidatePage(true),0); fixedWidth(next,32); ((KeyButton)next).plain(true); next.setContentDescription("下一页候选"); ((KeyButton)next).icon(KeyboardIcon.CHEVRON_RIGHT,16);
@@ -1326,11 +1326,6 @@ public final class RimesInputMethodService extends InputMethodService {
         bufferButton.setContentDescription(getString(buffer.isEnabled()?R.string.buffer_on:R.string.buffer_off)); bufferButton.setSelected(buffer.isEnabled());
         bufferButton.setEnabled(buffer.isPermitted() && pending==0 && !snapshot.composing() && retained.isEmpty() && !chords.isChordActive());
 
-        int desiredRowHeight=dp(landscape()?50:64);
-        if(candidateRow.getLayoutParams().height!=desiredRowHeight) {
-            candidateRow.getLayoutParams().height=desiredRowHeight;
-            candidateRow.requestLayout();
-        }
         int desiredPreeditHeight=dp(landscape()?16:22);
         if(preedit.getLayoutParams().height!=desiredPreeditHeight) {
             preedit.getLayoutParams().height=desiredPreeditHeight;
@@ -1353,7 +1348,15 @@ public final class RimesInputMethodService extends InputMethodService {
         candidateRow.setVisibility(View.VISIBLE);
         boolean marks=punctuationOpen;
         boolean idle=!snapshot.composing() && snapshot.candidates.isEmpty() && heldPreview==null && chordPreview.isEmpty() && !chords.isChordActive() && !marks && status.isEmpty();
-        pluginShortcuts.setVisibility(idle && !privateField && !directOnly?View.VISIBLE:View.GONE);
+        // The 64dp slot fits a pinyin line plus candidates. Idle shortcuts are one
+        // 30dp band; leaving the slot tall parks them in empty space above the keys.
+        boolean shortcuts=idle && !privateField && !directOnly;
+        int desiredRowHeight=dp(shortcuts?(landscape()?36:40):(landscape()?50:64));
+        if(candidateRow.getLayoutParams().height!=desiredRowHeight) {
+            candidateRow.getLayoutParams().height=desiredRowHeight;
+            candidateRow.requestLayout();
+        }
+        pluginShortcuts.setVisibility(shortcuts?View.VISIBLE:View.GONE);
         pluginShortcuts.render(theme,buffer.isEnabled()?activePlugin:null,canSelectPlugin(),officialPlugins::enabled);
         candidateBox.setVisibility(heldPreview==null && !idle?View.VISIBLE:View.GONE);
         candidateScroll.setVisibility(heldPreview==null && !idle && (!snapshot.candidates.isEmpty() || marks)?View.VISIBLE:View.GONE);
@@ -1380,6 +1383,8 @@ public final class RimesInputMethodService extends InputMethodService {
         boolean composing=snapshot.composing() || !snapshot.candidates.isEmpty() || marks || !status.isEmpty();
         layoutButton.setVisibility(composing?View.GONE:View.VISIBLE);
         bufferButton.setVisibility(composing?View.GONE:View.VISIBLE);
+        toolbarSlot(layoutButton,shortcuts);
+        toolbarSlot(bufferButton,shortcuts);
         previous.setVisibility(View.GONE);
         next.setVisibility(View.GONE);
         if(candidateGridButton!=null) {
@@ -1477,5 +1482,14 @@ public final class RimesInputMethodService extends InputMethodService {
         button.setOnClickListener(v -> action.run()); row.addView(button,new LinearLayout.LayoutParams(0,-1,weight)); chromeButtons.add(button); return button;
     }
     private void fixedWidth(View view,int width) { view.setLayoutParams(new LinearLayout.LayoutParams(dp(width),-1)); }
+    /** Idle gear and Buffer match the 30dp shortcut chips instead of stretching through the candidate slot. */
+    private void toolbarSlot(View view,boolean compact) {
+        LinearLayout.LayoutParams params=(LinearLayout.LayoutParams)view.getLayoutParams();
+        int height=compact?dp(30):LinearLayout.LayoutParams.MATCH_PARENT;
+        int gravity=compact?Gravity.CENTER_VERTICAL:Gravity.NO_GRAVITY;
+        if(params.height!=height || params.gravity!=gravity) {
+            params.height=height; params.gravity=gravity; view.requestLayout();
+        }
+    }
     private int dp(int value) { return Math.round(value*getResources().getDisplayMetrics().density); }
 }
