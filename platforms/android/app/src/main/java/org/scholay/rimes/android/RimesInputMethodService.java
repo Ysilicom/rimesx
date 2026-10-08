@@ -105,13 +105,20 @@ public final class RimesInputMethodService extends InputMethodService {
     private int spellingPage;
     private NineKeyPinyin spellings=new NineKeyPinyin(java.util.Collections.emptyList());
     private List<String> spellingChoices=java.util.Collections.emptyList();
-    private static final String[] MARKS={",",".","?","!","、",":",";","'"};
-    private static final String[] MARK_LABELS={"，","。","？","！","、","：","；","'"};
+    private static final String[] MARKS={",",".","?","!","、",":",";","'","…"};
+    private static final String[] MARK_LABELS={"，","。","？","！","、","：","；","'","……"};
     /** Number and symbol keys show the character they commit. Chinese uses the full-width mark. */
     private String shapedMark(String text) {
         if(!numeric || english || directOnly) return text;
         for(int i=0;i<MARKS.length;i++) if(text.equals(MARKS[i])) return MARK_LABELS[i];
+        if("—".equals(text)) return "——";
         return text;
+    }
+    /** ASCII marks stay on the engine punctuator. The ellipsis commits the face that was shown. */
+    private String markCommit(int index) {
+        String raw=MARKS[index];
+        if(raw.codePointAt(0)<128 || english || numeric || emoji) return raw;
+        return MARK_LABELS[index];
     }
     private TextView preedit;
     private HorizontalScrollView candidateScroll;
@@ -1321,8 +1328,8 @@ public final class RimesInputMethodService extends InputMethodService {
         next=button(candidateRow,"›",() -> candidatePage(true),0); fixedWidth(next,32); ((KeyButton)next).plain(true); next.setContentDescription("下一页候选"); ((KeyButton)next).icon(KeyboardIcon.CHEVRON_RIGHT,16);
         next.setVisibility(View.GONE);
         candidateGridButton=button(candidateRow,"⌄",this::toggleCandidateGrid,0); fixedWidth(candidateGridButton,32); gapLeft(candidateGridButton,2); ((KeyButton)candidateGridButton).plain(true); candidateGridButton.setContentDescription("展开候选");
-        emailAtButton=button(candidateRow,"@",() -> type("@"),0); fixedWidth(emailAtButton,36); gapLeft(emailAtButton,2); emailAtButton.setContentDescription("at"); emailAtButton.setVisibility(View.GONE);
-        emailComButton=button(candidateRow,".com",() -> type(".com"),0); fixedWidth(emailComButton,52); gapLeft(emailComButton,2); emailComButton.setContentDescription(".com"); emailComButton.setVisibility(View.GONE);
+        emailAtButton=button(candidateRow,"@",() -> type("@"),0); emailChip(emailAtButton); emailAtButton.setContentDescription("at"); emailAtButton.setVisibility(View.GONE);
+        emailComButton=button(candidateRow,".com",() -> type(".com"),0); emailChip(emailComButton); emailComButton.setContentDescription(".com"); emailComButton.setVisibility(View.GONE);
         bufferButton=button(candidateRow,"▤",() -> { if(pending==0 && !snapshot.composing() && retained.isEmpty()) { cancelChord(); buffer.setEnabled(!buffer.isEnabled()); if(!buffer.isEnabled()) { cancelPlugin(); pluginSession.clear(); activePlugin=null; pluginSettingsOpen=false; } render(); } },0);
         fixedWidth(bufferButton,32); gapLeft(bufferButton,4); ((KeyButton)bufferButton).appearance(false,false,true); ((KeyButton)bufferButton).icon(KeyboardIcon.STACK_LAYERS);
         spellingRow=row(keyboard,34); spellingButtons.clear();
@@ -1519,7 +1526,7 @@ public final class RimesInputMethodService extends InputMethodService {
     private void candidateTapped(int index) {
         if(!chordPreview.isEmpty()) return;
         if(punctuationOpen) {
-            if(index<MARKS.length) { punctuationOpen=false; type(MARKS[index]); }
+            if(index<MARKS.length) { punctuationOpen=false; type(markCommit(index)); }
         } else if(snapshot.composing()) select(index);
     }
     private void candidatePage(boolean forward) {
@@ -1736,6 +1743,12 @@ public final class RimesInputMethodService extends InputMethodService {
         button.setOnClickListener(v -> action.run()); row.addView(button,new LinearLayout.LayoutParams(0,-1,weight)); chromeButtons.add(button); return button;
     }
     private void fixedWidth(View view,int width) { view.setLayoutParams(new LinearLayout.LayoutParams(dp(width),-1)); }
+    /** Email shortcuts sit in the candidate row without taking its full height. */
+    private void emailChip(KeyButton button) {
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,dp(30));
+        params.gravity=Gravity.CENTER_VERTICAL; params.leftMargin=dp(2);
+        button.setLayoutParams(params); button.setPadding(dp(8),0,dp(8),0); button.appearance(false,true,false);
+    }
     /** Idle gear and Buffer match the 30dp shortcut chips and sit on the keys. */
     private void toolbarSlot(View view,boolean compact) {
         LinearLayout.LayoutParams params=(LinearLayout.LayoutParams)view.getLayoutParams();

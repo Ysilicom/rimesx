@@ -49,10 +49,11 @@ public final class KeyboardLayout {
             float unit=width/10,capUnit=(width-9*gap)/10;
             if(mode==Mode.EMOJI) {
                 for(int i=0;i<EMOJIS.length;i++) letter(result,EMOJIS[i],i%10,i/10,unit,row,capUnit,capHeight,gap,rowGap);
+            } else if(mode==Mode.SYMBOLS) {
+                symbols(result,width,row,capHeight,gap,rowGap);
             } else {
                 String[] rows=mode==Mode.QWERTY?new String[]{"qwertyuiop","asdfghjkl","zxcvbnm"}
-                        :mode==Mode.NUMERIC?new String[]{"1234567890","-/:;()$&@\"",".,?!'"}
-                        :new String[]{"[]{}#%^*+=","_\\|~<>€£¥•",".,?!'"};
+                        :new String[]{"1234567890","-/:;()$&@\"",".,?!'"};
                 for(int r=0;r<3;r++) {
                     String letters=rows[r]; float start=(10-letters.length())/2f;
                     for(int i=0;i<letters.length();i++) letter(result,letters.substring(i,i+1),start+i,r,unit,row,capUnit,capHeight,gap,rowGap);
@@ -82,6 +83,20 @@ public final class KeyboardLayout {
             }
         }
         return Collections.unmodifiableList(result);
+    }
+    /** Eleven columns so the third row can hold ellipsis, dash and middle dot beside the page and delete keys. */
+    private static void symbols(List<Key> keys,float width,float row,float capHeight,float gap,float rowGap) {
+        int columns=11;
+        float unit=width/columns, capUnit=(width-(columns-1)*gap)/columns;
+        String[] rows=new String[]{"[]{}#%^*+=《","_\\|~<>€£¥•》",".,?!'…—·"};
+        for(int r=0;r<3;r++) {
+            String letters=rows[r]; float start=(columns-letters.length())/2f;
+            for(int i=0;i<letters.length();i++) letter(keys,letters.substring(i,i+1),start+i,r,unit,row,capUnit,capHeight,gap,rowGap);
+        }
+        float sideUnits=1.4f, sideWidth=Math.max(capUnit,width*0.115f);
+        add(keys,Action.SYMBOLS,"",0,2*row,sideUnits*unit,row,0,2*(capHeight+rowGap),sideWidth,capHeight);
+        add(keys,Action.DELETE,"",width-sideUnits*unit,2*row,sideUnits*unit,row,
+                width-sideWidth,2*(capHeight+rowGap),sideWidth,capHeight);
     }
     private static void letter(List<Key> keys,String text,float column,int r,float unit,float row,
             float capUnit,float capHeight,float gap,float rowGap) {
