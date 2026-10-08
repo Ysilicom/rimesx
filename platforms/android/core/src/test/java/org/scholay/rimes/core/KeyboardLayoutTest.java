@@ -101,14 +101,23 @@ public class KeyboardLayoutTest {
         assertRows(texts(keys,1),Punctuation.SYMBOL_MIDDLE);
         assertRows(texts(keys,2),Punctuation.SYMBOL_BOTTOM);
         assertEquals(10,texts(keys,0).size());
-        assertEquals(7,texts(keys,2).size());
+        assertEquals(10,texts(keys,1).size());
+        assertEquals(6,texts(keys,2).size());
         assertEquals(0,texts(keys,0).get(0).x,0.01);
         assertEquals(360,texts(keys,0).get(9).x+texts(keys,0).get(9).width,0.01);
+        assertEquals(texts(keys,0).get(0).width,texts(keys,1).get(0).width,0.01);
         assertNotNull(find(keys,KeyboardLayout.Action.SPACE));
         assertNotNull(find(keys,KeyboardLayout.Action.LANGUAGE));
         assertNotNull(find(keys,KeyboardLayout.Action.RETURN));
         for(KeyboardLayout.Key key:keys) {
+            assertFalse(key.text.contains("【"));
+            assertFalse(key.text.contains("「"));
+            assertFalse(key.text.contains("『"));
+            assertFalse(key.text.contains("〈"));
+            assertFalse("&".equals(key.text));
             assertFalse(key.text.contains("€"));
+            assertFalse(key.text.contains("£"));
+            assertFalse(key.text.contains("•"));
             assertFalse(key.text.contains("×"));
             assertFalse(key.text.contains("①"));
         }

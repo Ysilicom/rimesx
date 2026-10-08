@@ -1543,12 +1543,12 @@ public final class RimesInputMethodService extends InputMethodService {
         if(spellingOpen) { spellingPage=Math.max(0,Math.min(((spellingChoices.size()-1)/9)*9,spellingPage+(forward?9:-9))); render(); }
         else page(forward);
     }
-    /** Eight marks on screen; the other eight are a swipe to the left. */
+    /** Ten marks on screen, the same width as the digit keys. Six more sit to the right. */
     private int weightCellWidth() {
         int span=candidateRow==null?0:candidateRow.getWidth();
         if(span<=0 && keyboard!=null) span=keyboard.getWidth()-keyboard.getPaddingLeft()-keyboard.getPaddingRight();
         if(span<=0) span=getResources().getDisplayMetrics().widthPixels;
-        return Math.max(1,span/8);
+        return Math.max(1,span/10);
     }
     private void applyStripCell(KeyButton item,boolean weight,int cell) {
         LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)item.getLayoutParams();

@@ -19,12 +19,14 @@ public final class Punctuation {
     public static final String[] NUMBER_TAIL={"“","”","（","）","《","》"};
     /**
      * English face of each default, same index as the Chinese mark.
-     * 、 stays. The two quote keys are " and ' so both ASCII quotes are reachable.
+     * 、 and 《》 have no halfwidth twin and stay. The two quote keys are " and '.
      */
-    public static final String[] ENGLISH={",",".","、","?","!","…",":",";","—","·","\"","'","(",")","<",">"};
-    public static final String[] SYMBOL_TOP={"【","】","「","」","『","』","〈","〉","[","]"};
+    public static final String[] ENGLISH={",",".","、","?","!","…",":",";","—","·","\"","'","(",")","《","》"};
+    /** Same 10-key width as the digit row. : ; " return from the old number page. */
+    public static final String[] SYMBOL_TOP={"_","|","\\","^",":",";","\"","~","[","]"};
     public static final String[] SYMBOL_MIDDLE={"{","}","<",">","(",")","@","#","%","*"};
-    public static final String[] SYMBOL_BOTTOM={"-","+","=","/","~","¥","$"};
+    /** Six marks between the side keys, matching the number page. */
+    public static final String[] SYMBOL_BOTTOM={"-","+","=","/","¥","$"};
     private static final String[] CHINESE=join(NUMBER_ROW,NUMBER_TAIL);
     private static final String[] SYMBOLS=join(SYMBOL_TOP,SYMBOL_MIDDLE,SYMBOL_BOTTOM);
 
