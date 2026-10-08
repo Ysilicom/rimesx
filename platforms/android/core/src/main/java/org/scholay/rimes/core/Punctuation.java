@@ -40,41 +40,41 @@ public final class Punctuation {
     }
 
     public static boolean tracked(String mark,boolean english) {
-        return mark!=null && (indexOf(english?ENGLISH:CHINESE,mark)>=0 || indexOf(SYMBOLS,mark)>=0);
+        return mark!=null && (indexOf(CHINESE,mark)>=0 || indexOf(ENGLISH,mark)>=0 || indexOf(SYMBOLS,mark)>=0);
     }
 
-    /** Next stored count. Absent defaults start at {@link #SEED}; absent symbols start at zero. */
+    /** Next stored count. The 16 Chinese marks start at {@link #SEED}. . and 。 stay separate and start at zero. */
     public static int bump(String mark,boolean english,Integer stored) {
         if(!tracked(mark,english)) return stored==null?0:stored;
-        int base=stored!=null?stored:indexOf(english?ENGLISH:CHINESE,mark)>=0?SEED:0;
+        int base=stored!=null?stored:indexOf(CHINESE,mark)>=0?SEED:0;
         return base+1;
     }
 
     /**
-     * Sixteen marks, most-used on the left. Equal counts keep the default order,
-     * then symbol-page order. The big keys are not this list and do not move.
+     * One row for both languages, most-used on the left. . and 。 are different marks.
+     * Equal counts keep the Chinese key order, then the English twins, then the symbol page.
      */
     public static List<String> weightRow(boolean english,Map<String,Integer> stored) {
-        String[] defaults=english?ENGLISH:CHINESE;
-        List<String> row=new ArrayList<>(defaults.length);
-        Collections.addAll(row,defaults);
+        List<String> row=new ArrayList<>(CHINESE.length);
+        Collections.addAll(row,CHINESE);
         List<String> extras=new ArrayList<>();
-        for(String mark:SYMBOLS) if(indexOf(defaults,mark)<0 && !extras.contains(mark)) extras.add(mark);
+        for(String mark:ENGLISH) addExtra(extras,mark);
+        for(String mark:SYMBOLS) addExtra(extras,mark);
         boolean moved=true;
         while(moved) {
             moved=false;
             int min=Integer.MAX_VALUE, victim=0;
             for(int i=0;i<row.size();i++) {
-                int count=countOf(row.get(i),english,stored);
-                if(count<min || count==min && orderOf(row.get(i),english)>orderOf(row.get(victim),english)) {
+                int count=countOf(row.get(i),stored);
+                if(count<min || count==min && orderOf(row.get(i))>orderOf(row.get(victim))) {
                     min=count; victim=i;
                 }
             }
             int best=-1, bestCount=min, bestOrder=Integer.MAX_VALUE;
             for(int i=0;i<extras.size();i++) {
-                int count=countOf(extras.get(i),english,stored);
+                int count=countOf(extras.get(i),stored);
                 if(count<=min) continue;
-                int order=orderOf(extras.get(i),english);
+                int order=orderOf(extras.get(i));
                 if(best<0 || count>bestCount || count==bestCount && order<bestOrder) {
                     best=i; bestCount=count; bestOrder=order;
                 }
@@ -83,15 +83,26 @@ public final class Punctuation {
                 String entering=extras.remove(best);
                 String leaving=row.remove(victim);
                 row.add(entering);
-                if(indexOf(defaults,leaving)<0) extras.add(leaving);
+                if(indexOf(CHINESE,leaving)<0) extras.add(leaving);
                 moved=true;
             }
         }
         row.sort((a,b) -> {
-            int byCount=Integer.compare(countOf(b,english,stored),countOf(a,english,stored));
-            return byCount!=0?byCount:Integer.compare(orderOf(a,english),orderOf(b,english));
+            int byCount=Integer.compare(countOf(b,stored),countOf(a,stored));
+            return byCount!=0?byCount:Integer.compare(orderOf(a),orderOf(b));
         });
         return Collections.unmodifiableList(row);
+    }
+
+    /** Move an older per-language count into the one shared rank. Seeded values already include {@link #SEED}. */
+    public static void foldCount(Map<String,Integer> into,String mark,int absolute,boolean seeded) {
+        if(into==null || mark==null || mark.isEmpty() || absolute<0) return;
+        boolean isDefault=indexOf(CHINESE,mark)>=0;
+        int uses=isDefault || seeded?Math.max(0,absolute-SEED):absolute;
+        if(uses==0) return;
+        int current=into.containsKey(mark)?into.get(mark):isDefault?SEED:0;
+        int above=isDefault?Math.max(0,current-SEED):current;
+        into.put(mark,(isDefault?SEED:0)+above+uses);
     }
 
     public static String encode(Map<String,Integer> counts) {
@@ -117,18 +128,23 @@ public final class Punctuation {
         }
     }
 
-    private static int countOf(String mark,boolean english,Map<String,Integer> stored) {
-        Integer value=stored==null?null:stored.get(mark);
-        if(value!=null) return value;
-        return indexOf(english?ENGLISH:CHINESE,mark)>=0?SEED:0;
+    private static void addExtra(List<String> extras,String mark) {
+        if(indexOf(CHINESE,mark)<0 && !extras.contains(mark)) extras.add(mark);
     }
 
-    private static int orderOf(String mark,boolean english) {
-        String[] defaults=english?ENGLISH:CHINESE;
-        int at=indexOf(defaults,mark);
+    private static int countOf(String mark,Map<String,Integer> stored) {
+        Integer value=stored==null?null:stored.get(mark);
+        if(value!=null) return value;
+        return indexOf(CHINESE,mark)>=0?SEED:0;
+    }
+
+    private static int orderOf(String mark) {
+        int at=indexOf(CHINESE,mark);
         if(at>=0) return at;
+        at=indexOf(ENGLISH,mark);
+        if(at>=0) return CHINESE.length+at;
         at=indexOf(SYMBOLS,mark);
-        return at>=0?defaults.length+at:Integer.MAX_VALUE;
+        return at>=0?CHINESE.length+ENGLISH.length+at:Integer.MAX_VALUE;
     }
 
     private static int indexOf(String[] marks,String mark) {

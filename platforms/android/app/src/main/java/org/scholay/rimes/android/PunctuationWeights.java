@@ -6,20 +6,19 @@ import java.util.List;
 import java.util.Map;
 import org.scholay.rimes.core.Punctuation;
 
-/** Chinese and English commit counts, kept apart. Defaults stay at the seed until they are used. */
+/** One weight row. . and 。 keep their own counts and can both appear in it. */
 final class PunctuationWeights {
     private static final String PREFERENCES="rimes_punctuation";
-    private static final String CHINESE="zh";
-    private static final String ENGLISH="en";
+    private static final String COUNTS="counts";
     private final SharedPreferences preferences;
-    private final Map<String,Integer> chinese=new HashMap<>();
-    private final Map<String,Integer> english=new HashMap<>();
+    private final Map<String,Integer> counts=new HashMap<>();
 
     PunctuationWeights(SharedPreferences preferences) {
         if(preferences==null) throw new IllegalArgumentException("Punctuation preferences are required");
         this.preferences=preferences;
-        Punctuation.decode(preferences.getString(CHINESE,""),chinese);
-        Punctuation.decode(preferences.getString(ENGLISH,""),english);
+        String shared=preferences.getString(COUNTS,null);
+        if(shared!=null) Punctuation.decode(shared,counts);
+        else foldLegacy();
     }
 
     static PunctuationWeights open(android.content.Context context) {
@@ -28,12 +27,22 @@ final class PunctuationWeights {
 
     void note(String mark,boolean englishMode) {
         if(!Punctuation.tracked(mark,englishMode)) return;
-        Map<String,Integer> counts=englishMode?english:chinese;
         counts.put(mark,Punctuation.bump(mark,englishMode,counts.get(mark)));
-        preferences.edit().putString(englishMode?ENGLISH:CHINESE,Punctuation.encode(counts)).apply();
+        preferences.edit().putString(COUNTS,Punctuation.encode(counts)).apply();
     }
 
     List<String> row(boolean englishMode) {
-        return Punctuation.weightRow(englishMode,englishMode?english:chinese);
+        return Punctuation.weightRow(englishMode,counts);
+    }
+
+    /** Older builds stored zh and en apart. The same character is combined; . is not added to 。. */
+    private void foldLegacy() {
+        Map<String,Integer> legacy=new HashMap<>();
+        Punctuation.decode(preferences.getString("zh",""),legacy);
+        for(Map.Entry<String,Integer> entry:legacy.entrySet()) Punctuation.foldCount(counts,entry.getKey(),entry.getValue(),false);
+        legacy.clear();
+        Punctuation.decode(preferences.getString("en",""),legacy);
+        for(Map.Entry<String,Integer> entry:legacy.entrySet()) Punctuation.foldCount(counts,entry.getKey(),entry.getValue(),true);
+        if(!counts.isEmpty()) preferences.edit().putString(COUNTS,Punctuation.encode(counts)).apply();
     }
 }

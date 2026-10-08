@@ -66,12 +66,18 @@ public class PunctuationTest {
         assertFalse(row.contains("|"));
     }
 
-    @Test public void chineseAndEnglishCountsDoNotCross() {
-        Map<String,Integer> chinese=new HashMap<>();
-        chinese.put("_",30);
-        assertTrue(Punctuation.weightRow(false,chinese).contains("_"));
-        assertFalse(Punctuation.weightRow(true,Map.of()).contains("_"));
-        assertEquals(",",Punctuation.weightRow(true,Map.of()).get(0));
+    @Test public void oneRankShowsTheSameRowInBothLanguages() {
+        Map<String,Integer> counts=new HashMap<>();
+        counts.put(".",Punctuation.SEED+1);
+        counts.put("。",40);
+        List<String> chinese=Punctuation.weightRow(false,counts);
+        List<String> english=Punctuation.weightRow(true,counts);
+        assertEquals(chinese,english);
+        assertEquals("。",chinese.get(0));
+        assertEquals(".",chinese.get(1));
+        assertFalse(chinese.contains("》"));
+        assertEquals("，",Punctuation.weightRow(true,Map.of()).get(0));
+        assertFalse(Punctuation.weightRow(false,Map.of()).contains("."));
         assertEquals("、",Punctuation.face("、",true));
         assertEquals("…",Punctuation.face("……",true));
         assertEquals("—",Punctuation.face("——",true));
@@ -86,7 +92,9 @@ public class PunctuationTest {
     @Test public void bumpStartsDefaultsAtTheSeedAndSymbolsAtZero() {
         assertEquals(Punctuation.SEED+1,Punctuation.bump("，",false,null));
         assertEquals(1,Punctuation.bump("_",false,null));
-        assertEquals(Punctuation.SEED+3,Punctuation.bump(",",true,Punctuation.SEED+2));
+        assertEquals(1,Punctuation.bump(".",true,null));
+        assertEquals(5,Punctuation.bump(".",false,4));
+        assertTrue(Punctuation.tracked(".",false));
         assertFalse(Punctuation.tracked("1",false));
         assertTrue(Punctuation.tracked("#",true));
         assertTrue(Punctuation.tracked("(",true));
@@ -103,5 +111,13 @@ public class PunctuationTest {
         assertEquals(counts,back);
         Punctuation.decode("bad\nno-tab\n_\tnope\n",back);
         assertEquals(Integer.valueOf(9),back.get("_"));
+    }
+
+    @Test public void foldedPeriodDoesNotAddToFullwidthPeriod() {
+        Map<String,Integer> counts=new HashMap<>();
+        Punctuation.foldCount(counts,"。",Punctuation.SEED+1,false);
+        Punctuation.foldCount(counts,".",Punctuation.SEED+2,true);
+        assertEquals(Integer.valueOf(Punctuation.SEED+1),counts.get("。"));
+        assertEquals(Integer.valueOf(2),counts.get("."));
     }
 }
