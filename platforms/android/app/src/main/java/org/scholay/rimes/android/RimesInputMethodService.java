@@ -920,6 +920,7 @@ public final class RimesInputMethodService extends InputMethodService {
     private void toggleNumbers() {
         settleAndSwitch(() -> { numeric=!numeric; symbols=false; emoji=false; spellingOpen=false; punctuationOpen=false; });
     }
+    private String letterReturnLabel() { return nineKeyEngine() && !english && !directOnly?"拼音":"ABC"; }
     private KeyboardLayout.Mode visibleMode() {
         return emoji?KeyboardLayout.Mode.EMOJI:numeric?(symbols?KeyboardLayout.Mode.SYMBOLS:KeyboardLayout.Mode.NUMERIC)
                 :nineKeyVisible()?KeyboardLayout.Mode.NINE_KEY:KeyboardLayout.Mode.QWERTY;
@@ -959,12 +960,12 @@ public final class RimesInputMethodService extends InputMethodService {
                 case SHIFT: return uppercase?"⇪":"⇧";
                 case DELETE: return "⌫";
                 case RETURN: return returnLabel();
-                case NUMBERS: return numeric || emoji?(nineKeyEngine() && !english && !directOnly?"拼音":"ABC"):"123";
+                case NUMBERS: return numeric?letterReturnLabel():"123";
                 case SYMBOLS: return numeric && symbols?"123":"#+=";
                 case LANGUAGE:
                     if(english || directOnly) return "英";
                     return (schema.equals("rimes_flypy") || schema.equals("rimes_ziranma"))?"双":"中";
-                case EMOJI: return emoji?"ABC":"☺";
+                case EMOJI: return emoji?letterReturnLabel():"☺";
                 case SPACE: return english || directOnly?"space":"空格";
                 case SPELLING: return "选拼音";
                 case SEPARATOR: return "分隔";
@@ -981,7 +982,7 @@ public final class RimesInputMethodService extends InputMethodService {
                 case NUMBERS: return "数字与字母";
                 case SYMBOLS: return "符号页";
                 case LANGUAGE: return "中英切换";
-                case EMOJI: return "表情";
+                case EMOJI: return emoji?(nineKeyEngine() && !english && !directOnly?"返回拼音":"返回字母"):"表情";
                 case SPACE: return getString(R.string.space);
                 case SPELLING: return "选拼音";
                 case SEPARATOR: return "分隔音节";
@@ -1027,8 +1028,7 @@ public final class RimesInputMethodService extends InputMethodService {
                 case SHIFT: settleAndSwitch(() -> uppercase=!uppercase); break;
                 case DELETE: delete(); break;
                 case RETURN: enter(); break;
-                case NUMBERS:
-                    if(emoji) settleAndSwitch(() -> { emoji=false; numeric=false; }); else toggleNumbers(); break;
+                case NUMBERS: toggleNumbers(); break;
                 case SYMBOLS: settleAndSwitch(() -> { symbols=!symbols || !numeric; numeric=true; emoji=false; }); break;
                 case LANGUAGE: toggleLanguage(); break;
                 case EMOJI: settleAndSwitch(() -> { emoji=!emoji; numeric=false; }); break;
