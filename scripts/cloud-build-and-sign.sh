@@ -92,7 +92,7 @@ echo "================================================================="
 echo "  开始定时监控云端编译进度..."
 echo "================================================================="
 
-POLL_INTERVAL=60
+POLL_INTERVAL="${POLL_INTERVAL:-180}"
 STATUS="in_progress"
 CONCLUSION=""
 
@@ -162,10 +162,19 @@ if [ -n "$AUTH_TOKEN" ]; then
 fi
 
 if [ -z "$DOWNLOADED_APK" ] || [ ! -f "$DOWNLOADED_APK" ]; then
-    if curl -sL -f "https://nightly.link/$REPO/actions/runs/$RUN_ID/$ARTIFACT_NAME.zip" -o "$OUTPUT_DIR/rimesx-artifact.zip"; then
-        unzip -o "$OUTPUT_DIR/rimesx-artifact.zip" -d "$OUTPUT_DIR/"
-        DOWNLOADED_APK=$(find "$OUTPUT_DIR" -name "*.apk" 2>/dev/null | sort -V | tail -n 1)
-    fi
+    echo "尝试通过 nightly.link 获取云端制品..."
+    for retry in {1..8}; do
+        if curl -sL -f "https://nightly.link/$REPO/actions/runs/$RUN_ID/$ARTIFACT_NAME.zip" -o "$OUTPUT_DIR/rimesx-artifact.zip"; then
+            unzip -o "$OUTPUT_DIR/rimesx-artifact.zip" -d "$OUTPUT_DIR/"
+            DOWNLOADED_APK=$(find "$OUTPUT_DIR" -name "*.apk" 2>/dev/null | sort -V | tail -n 1)
+            if [ -n "$DOWNLOADED_APK" ] && [ -f "$DOWNLOADED_APK" ]; then
+                echo "✓ 成功获取并解压制品: $DOWNLOADED_APK"
+                break
+            fi
+        fi
+        echo "  (等待 nightly.link 同步制品中，5秒后重试第 $retry/8 次...)"
+        sleep 5
+    done
 fi
 
 if [ -z "$DOWNLOADED_APK" ] || [ ! -f "$DOWNLOADED_APK" ]; then

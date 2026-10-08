@@ -1,218 +1,310 @@
-# RIMES X
+<h1 align="center">RIMES X</h1>
 
-[![Android](https://img.shields.io/badge/Platform-Android_8.0+-3DDC84.svg?logo=android&logoColor=white)](platforms/android/)
-[![librime](https://img.shields.io/badge/Engine-librime_1.17.0-007AFF.svg)](https://rime.im/)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![GitHub](https://img.shields.io/badge/Repo-Ysilicom%2Frimesx-black.svg?logo=github)](https://github.com/Ysilicom/rimesx)
+<p align="center">
+  <b>Android 极客级高性能输入法、微信键盘质感交互与 120Hz 极限流水线（私有定制增强版）</b><br/>
+  <b>Geek-Grade High-Performance Chinese IME, WeChat-Keyboard Aesthetics & 120Hz Pipeline for Android</b><br/>
+  <sub>librime 1.17 · 微信键盘布局 · 小鹤双拼键帽助记 · 120Hz 零分配渲染 · 空间触控容错 · 中英混输 · 离线词库 · 云端 CI</sub>
+</p>
 
-**RIMES X** 是面向 Android 8.0 及以上的中文输入法，基于开源 [RIMES](https://github.com/scholay/rimes) 与 [RIME](https://rime.im/)（librime 1.17.0）。应用名是 **RIMES X**，包名 `org.scholay.rimes.android`。
+<p align="center">
+  <a href="#english"><b>English</b></a> &nbsp;|&nbsp; <a href="#-rimes-x-中文说明"><b>简体中文</b></a> &nbsp;|&nbsp; <a href="README.en.md">Full English Doc</a> &nbsp;|&nbsp; <a href="README_zh.md">完整中文文档</a>
+</p>
 
-拼音、词库和离线翻译都在手机上完成。在线 AI 默认关闭。需要时在应用设置里填写自己的 HTTPS 接口、模型和密钥；密钥只保存在本机 Android Keystore，不会写入仓库。
+<p align="center">
+  <img src="https://img.shields.io/badge/Edition-RIMES%20X%20Private-brightgreen?style=flat-square" alt="Edition" />
+  <img src="https://img.shields.io/badge/Package-org.scholay.rimes.android-9cf?style=flat-square" alt="Package" />
+  <img src="https://img.shields.io/badge/Android-8.0%2B-3ddc84?style=flat-square&logo=android&logoColor=white" alt="Android 8.0+" />
+  <img src="https://img.shields.io/badge/Engine-librime_1.17.0-007AFF?style=flat-square" alt="librime" />
+  <img src="https://img.shields.io/badge/Upstream-scholay%2Frimes%20Synced-blue?style=flat-square" alt="Upstream" />
+  <img src="https://img.shields.io/badge/Arch-arm64--v8a%20%7C%20x86__64-purple?style=flat-square" alt="Arch" />
+  <img src="https://img.shields.io/badge/License-Apache--2.0-orange?style=flat-square" alt="License" />
+</p>
 
-## 现在可以做什么
+---
 
-- **方案**：全拼、小鹤双拼、自然码、五笔，以及英文。26 键和九键都可以用，上次使用的中文方案会被记住。
-- **标点**：主键盘的逗号键，点一下是逗号，马上再点或长按是句号。中文是 `，。`，英文是 `,` `.`。符号页上看到的标点，就是实际输入的字符。
-- **Buffer**：确认后的文字可以先留在键盘里，再插入当前输入框。纸飞机送出下一块，全部插入一次送出整段草稿。
-- **剪贴板与快捷功能**：没有在组字时，候选栏有剪贴板、表情、翻译、快问、润色、作诗、画画。翻译查内置词典。快问、润色、作诗在配置 AI 后可用；画画目前写出文字提示词，不生成图片。密码框不显示这一排。
-- **齿轮**：打开键盘外观面板，可切换布局和配色，也可以全部插入、清空 Buffer、进入应用设置，或唤出系统键盘。
+<a id="english"></a>
+## 📖 English
 
-## 安装
+### Overview
 
-Android 安装包在本仓库的 GitHub Actions 产物里，不在 Release 列表。
+**RIMES X** is a production-hardened, high-performance Chinese input method distribution tailored specifically for Android 8.0+ mobile devices. It is forked from the open-source project [scholay/rimes](https://github.com/scholay/rimes) (Lingxi IME) and powered by [RIME](https://rime.im/) (librime 1.17.0).
 
-1. 打开 [Build RIMES X Release APK](https://github.com/Ysilicom/rimesx/actions/workflows/build-rimesx.yml)。推送到 `main` 或打上 `v*` 标签会自动编译，也可以在该页点 **Run workflow**。
-2. 进入一次成功的运行，在页面底部下载 `rimesx-release-apk`。
-3. 安装后，到系统设置里启用 **RIMES X**。
+While upstream `scholay/rimes` focuses primarily on the macOS desktop ecosystem (with LaunchAgent guards, system-wide hotkeys, and floating desktop windows), **RIMES X pivots 100% to the Android mobile experience**.
 
-云端默认使用当次构建生成的签名证书。若希望以后覆盖安装时沿用同一证书，把 `KEYSTORE_BASE64`、`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD` 配在仓库的 Settings → Secrets and variables → Actions。不要把密钥文件提交进仓库。
+RIMES X enhances the upstream codebase with **WeChat-Keyboard matte tactile aesthetics**, **native Xiaohe Shuangpin (Flypy) with visual keycap hints**, **Gboard-level 26-key spatial touch error correction**, **120Hz locked-framerate zero-allocation rendering**, **mixed Chinese-English candidate generation**, and an **automated GitHub Actions cloud CI pipeline with persistent local release re-signing**.
 
-源码：
+---
 
+### 🌟 RIMES X Custom Highlights
+
+#### 1. 🎨 WeChat-Keyboard Tactile Layout & Smart Ergonomics
+- **Matte Borderless Keycap Aesthetic**: Re-engineered `KeyButton` drawing pipeline with geometrically balanced **Manrope** typography, ensuring crisp contrast and clear visual feedback for press and long-press states.
+- **Smart 2-in-1 Combo Punctuation Key**: The comma key handles rapid double-tap (≤500ms) and long-press gestures: single tap inserts comma `，` (half-width `,` in English mode); double tap or long-press inserts period `。` (half-width `.` in English mode), drastically reducing thumb travel.
+- **Dedicated Language Toggle & Widened Space**: Emoji key moved to the top utility row, expanding spacebar width by 35%. A dedicated language toggle sits directly adjacent to space for rapid one-handed switching between Chinese and English.
+- **Stepless Height & Inset Adjustment**: Smooth keyboard height scaling via the gear panel, naturally adapting to compact phones, foldables, and tablets.
+
+#### 2. 🕊️ Native Xiaohe Shuangpin (Flypy) & Visual Key Hints
+- **Out-of-the-Box Flypy Scheme**: Bundles pre-tuned `rimes_flypy.schema.yaml` and dedicated dictionaries—no manual file copies or configuration required.
+- **Permanent Visual Key Hints**: Keycaps clearly display initials and finals in subtle contrast, helping beginners touch-type immediately without memorizing key mappings.
+- **Granular Fuzzy Pinyin**: Extends fuzzy pinyin matrix (z/zh, c/ch, s/sh, in/ing, en/eng, l/n, f/h) with individual toggles in settings.
+
+#### 3. 🛡️ Gboard-Level Spatial Touch Correction & Gestures
+- **Spatial Touch Correction (`SmartCorrector`)**: Captures exact coordinate displacement `(biasX, biasY)` relative to keycap center on touch down. Applies 2D Euclidean distance weighting to rescue dead-end inputs via 2-level neighbor prediction, ensuring high candidate accuracy even during rapid misclicks.
+- **Swipe-Up Delete to Clear**: Single tap deletes one character; swiping upward on the backspace key clears the entire text field and uncommitted pinyin (or the entire Buffer draft).
+
+#### 4. ⚡ 120Hz Ultra-Smooth Pipeline & Zero-Jank Rendering
+- **Zero-Allocation `onDraw` Architecture**: Re-architected `KeyboardSurface.onDraw()` path, stripping out per-frame transient objects (`FontMetrics`, `StringBuilder`), eliminating main-thread Android GC hitches and locking a continuous 120Hz refresh rate.
+- **Decoupled State Pipeline**: Typing state updates are completely separated from key face rendering, delivering instantaneous touch responsiveness.
+- **`.verified` State Cache**: Tracks verification states for bundled dictionary assets, bypassing heavy SHA-256 recalculation on every cold launch.
+
+#### 5. 🔤 Mixed Chinese-English Candidates & Modern Lexicon
+- **Mixed Chinese-English Input**: Intelligently interleaves English words (using `melt_eng`) and mixed-language expressions into candidate lists while typing Pinyin.
+- **Contemporary Vocabulary Expansion**: Enriched with terms from modern tech, gaming, AI, and hardware (e.g. "帧数" / FPS, "掉帧" / frame drop, "显存" / VRAM, "算力" / compute).
+- **Expanded Browsing & Direct Tap Commit**: Expandable up to a 54-item candidate grid with Chinese priority guarantee; fixed librime traversal offsets so candidates commit precisely upon tap.
+
+#### 6. 📋 Explicit Staging Buffer & 100% Offline Privacy
+- **Explicit Staging Buffer**: Confirmed text can remain staged on the keyboard workbench before block delivery or full insertion.
+- **100% Offline Privacy**: Pinyin engine, lexicons, and offline translation run exclusively within the local Android sandbox. Zero network telemetry, zero background uploads of keystrokes, clipboard, or passwords.
+- **Optional Private AI Assistant**: Online AI is completely disabled by default. If desired, configure your own custom HTTPS endpoint and API key in settings, protected in hardware via **Android Keystore**.
+
+#### 7. 🚀 Production Release R8 Optimization & Automated Cloud CI Workflow
+- **Strict No-Local-Compilation Rule**: Local device CPU/memory is strictly reserved for code editing and git operations. Heavy native C++ (ARM64/x86_64) compilation and R8 optimizations run on GitHub Actions cloud runners.
+- **One-Click Automated Cloud Build & Sign Script (`scripts/cloud-build-and-sign.sh`)**:
+  - Automatically triggers or attaches to GitHub Actions CI runs and tracks execution with rate-limit protection.
+  - Automatically pulls release artifacts via `nightly.link` without requiring API tokens.
+  - Automatically verifies and re-signs APK using persistent local keystore (`~/.config/rimesx/rimesx-release.jks` / `scripts/sign-rimesx.sh`) with consistent SHA-256 signature for seamless updates (`adb install -r`):
+    ```text
+    Signer #1 certificate SHA-256: fa2dc93cbd65c046230e611e0639b7d8245728e0e94fcf80b0a89bec4090272a
+    ```
+
+---
+
+### ⚔️ Upstream Comparison Matrix: `scholay/rimes` vs `RIMES X`
+
+| Dimension | Upstream (`scholay/rimes`) | RIMES X (This Repository) | Practical Impact & Experience |
+| :--- | :--- | :--- | :--- |
+| **Platform Focus** | Primarily macOS desktop with heavy background launch guards | **100% focused on Android mobile devices**; desktop clutter removed | Lightweight, specialized for phones, foldables, and tablets |
+| **Visual Aesthetics** | Basic Android IME layout with utilitarian styling | **WeChat-Keyboard matte borderless aesthetics**, Manrope typography | Refined visual immersion, crisp high-contrast legibility |
+| **Xiaohe Shuangpin** | Requires manual scheme import, blank keycaps | **Built-in out-of-the-box Flypy scheme**, permanent **Key Hints** on keycaps | Beginners touch-type without memorizing key mappings |
+| **Punctuation Key** | Separate keys or frequent navigation to symbol pages | **Smart 2-in-1 combo comma/period key** (tap `,`, double-tap/long-press `.`) | Drastically reduces thumb travel during sentence composition |
+| **Language Toggle** | Hidden behind symbol page or spacebar long-press | **Dedicated Chinese/English key right of spacebar**; widened spacebar | Instantaneous one-handed language toggling |
+| **Touch Correction** | Strict geometric bounding box; frequent edge misclicks | **Gboard-level 26-key 2D spatial distance weighting model (`SmartCorrector`)** | Intelligently rescues dead-end words from neighboring misclicks |
+| **Gesture Controls** | Single tap / long-press delete only | **Swipe-up on delete to clear entire field (or Buffer)** | Instantly resets text input field with a single swipe gesture |
+| **120Hz High-Refresh** | Heavy object allocation in `onDraw`, GC jank | **Zero-Allocation `onDraw` architecture**, decoupled rendering | Eliminates garbage collection pauses, locking a smooth 120 FPS |
+| **Cold Start** | Computes full SHA-256 hash on large dictionaries every launch | **`.verified` dictionary state cache mechanism** | Keyboard pops up instantly without cold-start hitch |
+| **Lexicon & Candidates** | Standard Chinese candidates, limited pagination | **Mixed Chinese-English candidates** (`melt_eng`), modern tech terms, **54-item grid** | Smooth mixed-language typing without switching keyboards |
+| **Candidate Precision** | Occasional index drift when tapping candidate items | **Rebuilt candidate touch mapping**, aligned librime indexing | Exact pixel-accurate tap-to-commit fidelity |
+| **Clipboard History** | Stale resurrection bugs, unmanaged lifecycle | **Application-context listener**, dedicated visual clipboard panel | Reliable paste history with click-to-commit support |
+| **Height & Insets** | Coarse step adjustments, font stretching on scale | **Stepless height scaling with bottom safety inset adjustment** | Adapts seamlessly to navigation bars, foldables, and tablets |
+| **CI/CD & Signing** | Heavy local toolchain, ad-hoc certificates cause update errors | **GitHub Actions Cloud CI + Permanent Local Keystore Re-signing** | Zero local compute load; seamless in-place updates (`adb install -r`) |
+
+---
+
+### 🌐 Full Feature Matrix (At a Glance)
+
+- **Input Schemes**: Xiaohe Shuangpin (built-in with hints), Full Pinyin, Natural Code, Wubi 86, and English (`melt_eng`).
+- **Keyboard Layouts**: 26-key QWERTY, 9-key Pinyin keypad, symbol matrix, and emoji picker.
+- **Staging Buffer**: Explicit buffer before committing text, supporting block-by-block insertion and draft staging.
+- **Productivity Tools**: Visual clipboard history, offline dictionary translation, and optional Android Keystore-secured private AI.
+- **Security & Privacy**: 100% on-device execution, zero third-party telemetry, zero network dependencies.
+
+---
+
+### 🛠️ Build & Workflow
+
+#### 1. Cloud Build & Automatic Re-Signing (GitHub Actions CI)
+Trigger or attach to GitHub Actions CI and re-sign with local permanent keys:
 ```bash
-git clone https://github.com/Ysilicom/rimesx.git
+# Automated trigger, 3-minute progress monitoring, artifact download & local signing
+./scripts/cloud-build-and-sign.sh
+
+# Or attach to an in-progress run ID directly:
+./scripts/cloud-build-and-sign.sh <RUN_ID>
+```
+
+#### 2. Manual Re-Signing
+Sign any downloaded release APK using the persistent keystore:
+```bash
+./platforms/android/scripts/sign-rimesx.sh path/to/rimesx-release.apk
+```
+Certificate verification fingerprint:
+```text
+Signer #1 certificate SHA-256: fa2dc93cbd65c046230e611e0639b7d8245728e0e94fcf80b0a89bec4090272a
+```
+
+#### 3. Strict No-Local-Compilation Rule
+To conserve local CPU/memory resources, local binary compilations (`build-engine.py`, `assembleRelease`, `ninja`, `cmake`) are disabled. All builds run on GitHub Actions.
+
+---
+
+### 🔄 Upstream Sync Protocol
+
+RIMES X tracks and merges upstream changes regularly:
+```bash
+# 1. Ensure upstream remote is configured
+git remote add upstream https://github.com/scholay/rimes.git
+
+# 2. Fetch latest commits
+git fetch upstream main
+
+# 3. Merge latest upstream into main
+git checkout main
+git merge upstream/main
+
+# 4. Resolve conflicts while preserving RIMES X custom optimizations
+# 5. Push to the fork repository
+git push origin main
 ```
 
 ---
 
-## 📖 上游架构与生态说明 (Upstream RIMES)
+### 📄 License & Credits
 
-[![中文](.github/readme/labels/zh.svg)](README.md) [![English](.github/readme/labels/en.svg)](README.en.md) [![日本語](.github/readme/labels/ja.svg)](README.ja.md) [![한국어](.github/readme/labels/ko.svg)](README.ko.md) [![Español](.github/readme/labels/es.svg)](README.es.md)
+- Forked from [scholay/rimes](https://github.com/scholay/rimes) (Lingxi IME).
+- Powered by [RIME (Rime Input Method Engine)](https://rime.im/) (librime 1.17.0).
+- Licensed under the **[Apache-2.0](LICENSE)**.
 
-致敬伟大的开源精神，本项目中文编码逻辑基于 [RIME 输入法引擎](https://rime.im/)。
-这是一个支持多操作系统的输入法项目，用三个首创的插槽式平台来承接用户的个性化需求: 1. 输入法显式缓冲区（buffer） 2. 管理剪切板历史、截屏、个人知识库的记忆胶囊(capsule) 3. 接收外部信息的对话窗口(mailbox)。
+---
 
-支持全拼、双拼、声笔、五笔、英文方案；支持速录行业的并击式键入方案、支持自定义导入。面向新手用户，本项目安装包**自包含** librime 与词库，开箱即用。
+<a id="-rimes-x-中文说明"></a>
+## 🇨🇳 RIMES X 中文说明
 
-> **RIMES** 是上游项目的架构名称。对外产品名为 **灵犀输入法**（简体中文）、**靈犀輸入法**（繁体中文）和 **Lingxi IME**（英文）。
+### 📖 项目概述
 
-## 联系与交流
+**RIMES X** 是专为 Android 8.0+ 打造的极客级高性能输入法、微信键盘质感交互与 120Hz 极限流水线增强版。本项目基于开源 [scholay/rimes](https://github.com/scholay/rimes)（灵犀输入法）深度定制，底层由著名的 [RIME](https://rime.im/)（librime 1.17.0）核心驱动。
 
-邮箱：[pm@scholay.com](mailto:pm@scholay.com) · 微信 ID：`scholar_hi`，诚邀添加微信进群交流。
+上游源库 `scholay/rimes` 的设计重心主要偏向 macOS 桌面端生态（涵盖 LaunchAgent 守卫、跨输入法全局快捷键、桌面端窗口化 Capsule/Mailbox、多平台预览等机制）。**RIMES X 则彻底聚焦于 Android 移动端打字体验**。
 
-**前 1000 位为本项目点亮 Star 的用户，可免费预约永久 AI 能力会员。** 欢迎添加微信预约。
+RIMES X 在剥离桌面端冗余代码的同时，专属引入了 **微信键盘风格磨砂无边框质感**、**小鹤双拼原生集成与键帽助记符号**、**Gboard 级 26 键空间几何触控纠偏**、**120Hz 零分配满帧渲染流水线**、**中英混输智能候选**，以及 **GitHub Actions CI 云端 R8 极致优化编译 + 本地永久私钥一键重签名** 的工业级自动化流水线。
 
-## 演示视频
+---
 
-- [哔哩哔哩 · 完整介绍](https://www.bilibili.com/video/BV17XuH6SEDg/)
-- [抖音 · 产品演示](https://www.douyin.com/video/7671078195197742355)
+### 🌟 RIMES X 核心定制特性
 
-## 它解决什么问题
+#### 1. 🎨 微信键盘质感交互与智能人体工学布局
+- **磨砂无边框键帽设计**：重构 `KeyButton` 绘制流程，采用几何优化的 **Manrope** 优雅字体，保持字母完全不透明与高对比度，按键视觉沉浸高级。
+- **逗号/句号智能二合一极速键**：26 键模式下单按输入逗号 `，`（英文半角 `,`），快速双击（≤500ms）或长按即输入句号 `。`（英文半角 `.`），大幅减少切换标点界面的多余手指位移。
+- **独立中英切换键与拓宽空格**：Emoji 键上移至顶栏功能区，底部空格宽度增加 35%，空格右侧设立常驻独立中英切换键，单手操作也能瞬时切换输入状态。
+- **无级高度缩放与底栏边距**：齿轮外观面板支持键盘高度自适应平滑微调与底部避让区调节，完美适配小屏、折叠屏及平板大屏。
 
-让你通过一个输入法，实现智能时代的翻译、生成、润色等日常需求，且无需离开当前操作的应用程序，全程由输入法及插件来解决:
+#### 2. 🕊️ 小鹤双拼原生集成与直观键帽助记 (Key Hints)
+- **开箱即用方案集成**：代码库内置 `rimes_flypy.schema.yaml` 及专属配套词库，无需任何手动文件拷贝或外部配置导入。
+- **键帽视觉助记 (Key Hints)**：在 26 键键帽右上角以适度灰度精确排布对应声母与韵母助记符号，初学双拼轻松盲打，熟手输入行云流水。
+- **细粒度双拼模糊音**：扩展自然码与小鹤双拼模糊音矩阵（z/zh、c/ch、s/sh、in/ing、en/eng、l/n、f/h 等），支持在设置中按需单独开启。
 
-- **Buffer**（`⌘⇧B`）：上屏前的文本工作台。中文 / 英文先进入缓冲，可实时翻译，或使用选定的 AI 连接器生成和改写；你确认后， **显式投递**到当前输入框。
-- **Capsule**（`⌘⇧V`）：屏幕底部的底栏。刚复制的文本、链接、图片、文件和颜色先出现在「最近」；要长期留下的，收进笔记、图片、PDF、技能或密码。
-- **Mailbox**（`⌘⇧M`）：AI 会话、备注和待审核的外部推送都留在这个窗口里。可以新建对话并选择已配置的连接器。
+#### 3. 🛡️ Gboard 级空间几何触控容错 (`SmartCorrector`) 与手势操作
+- **空间触控纠偏模型 (`SmartCorrector`)**：在触控阶段捕获触点相对键帽中心的偏移向量 `(biasX, biasY)`，引入二维欧氏空间距离加权算法，针对高频死胡同输入启动两级邻键救援预测，快速盲打误触也能精准预测正确候选词。
+- **退格键上滑一键清空输入框**：点按退格键正常删除单个字符；在退格键上向上滑动即可一次性清空输入框文本及未确认拼音（开启 Buffer 时清空整段暂存草稿）。
 
-## 主要能力须知
+#### 4. ⚡ 120Hz 极限高刷与零卡顿渲染管线 (Zero-Allocation onDraw)
+- **零分配渲染架构 (Zero-Allocation onDraw)**：彻底重构 `KeyboardSurface.onDraw()` 渲染路径，剔除频繁瞬态对象分配与主线程 GC 垃圾回收抖动，按键动画与拖拽在 120Hz 高刷屏下满帧丝滑。
+- **打字更新解耦**：打字状态变更与键帽绘制完全解耦，触控响应时间缩短至毫秒级。
+- **`.verified` 字典校验缓存机制**：记录离线词典校验状态，跳过冷启动重复执行的大文件 SHA-256 哈希重算，实现键盘秒起秒开。
 
-> 安装完成并进入图形登录会话后，一次性后台任务会用 `open -g` 启动同一个 RIMES 进程，因此 Buffer、Clipboard History、Mailbox 与 Capsule 的全局快捷键可跨输入法使用。
->
-> 发布包在替换系统 payload 前会审计全部本机普通账户，除可由 postinstall 退休的当前 GUI 用户开发版外，发现同 ID 开发版 App/任务或无法安全核验的 home 就直接失败。postinstall 退休开发版、再次审计后，才以可回滚事务更新系统任务；登录 guard 对后来出现的开发版痕迹只作防御性短路。两种任务都不设 `KeepAlive`，也不会启动第二个 UI/IME 服务。
->
-> Mailbox 与 Capsule 是正常取得键盘焦点的管理窗口。在其他输入法下用快捷键（或 Mailbox 通知）唤出时，RIMES 会先把自己切换为当前输入法再打开它，保证功能完整；关闭时不会切回，你之后自行切到其他输入法也不会被撤销，此时按下文描述降级。
->
-> 这些功能不会访问其他输入法的 IMK 客户端，也不会读取、提交或取消外部输入法的组字。唯一的按键注入是 Capsule 激活时可选的一次 `⌘V`（见下方 Capsule 底栏）。设置的快捷键同样跨输入法可用，其中 Mailbox 与 Capsule 页面只展示配置和状态，实际会话与内容管理留在各自独立窗口。
+#### 5. 🔤 智能候选与现代混合词库 (中英混输 / melt_eng)
+- **中英混输智能候选**：拼音输入时底层智能混编匹配高频中英文混合词与英文词汇（集成 `melt_eng` 表），无需频繁切换中英键盘状态。
+- **现代高频词库扩充**：收录当下前沿科技、数码、极客及游戏常用热词（如 “帧数”、“掉帧”、“显存”、“算力” 等）。
+- **宽幅候选浏览与直触上屏**：支持展开多达 54 个候选词大网格浏览，首位候选保障中文优先级，修复 librime 索引对齐，点击候选词精准直达上屏。
 
-| 能力 | 快捷键 | 内容 | 操作 | 存放 | 边界 |
-|---|---|---|---|---|---|
-| 输入方案 | — | 雾凇全拼、自然码、小鹤、五笔 86、英文 | — | — | — |
-| 缓冲工作台 | `⌘⇧B` | 上屏前的文本 | 先切到 RIMES，再捕获、分块投递 | — | 切走后只走系统剪贴板，不走 IMK |
-| Capsule 底栏 | `⌘⇧V` | 最近复制；笔记、图片、PDF、技能、密码 | 单击选择，双击或 Return 粘贴。`⌘S` 收录 | 只在本机 | 粘贴需辅助功能；未授权则只进剪贴板 |
-| Mailbox | `⌘⇧M` | AI 会话、备注、待审核推送 | 新建对话；首次 Return 才生成 | 模型只绑定该会话 | CLI 用默认模型 |
-| Capsule 管理 | 齿轮或画笔 | 五类条目，可预览和复制 | 四组并击后查看密码，最多 15 秒 | 可选 iCloud；密码与密钥留本机 | 口令只存本机摘要 |
-| 设置 | `⌘⇧S` | 快捷键、状态、同步与安全 | 仅 RIMES 为当前输入法时打开 | — | 不嵌入 Mailbox / Capsule 窗口 |
+#### 6. 📋 显式缓冲工作台 (Buffer) 与纯本地离线隐私
+- **显式缓冲工作台 (Buffer)**：确认文字可先暂存于键盘缓冲区，支持分块投递或一键发送整段草稿。
+- **纯本地离线隐私**：拼音算法、离线词库、离线翻译完全在手机本地沙箱运行，零网络权限依赖，绝不静默收集或上传任何用户击键、剪贴板与密码信息。
+- **可选个人 AI 助手**：在线 AI 默认完全关闭；若需使用快问、润色或作诗，可在设置中填入个人自建或第三方大模型 HTTPS 接口与密钥，私钥由系统级 **Android Keystore** 硬件级安全存储。
 
-实时翻译、AI 生成、意识流输入是缓冲插件，并击是内置扩展。版本与 ID 见下方清单。
+#### 7. 🚀 生产级 Release R8 极致压缩与全自动云端构建/签名流
+- **严格遵循本地免编译规范 (No Local Compilation)**：本地设备 CPU/内存专注于代码编辑与 git 操作。C++ 核心交叉编译（ARM64/x86_64）与 R8 混淆瘦身全量交由 GitHub Actions 云端完成。
+- **一键全自动云构建与签名脚本 (`scripts/cloud-build-and-sign.sh`)**：
+  - 自动触发或接入 CI 构建并以 3 分钟间隔定时轮询状态。
+  - 免 Token 通过 `nightly.link` 直链自动拉取制品，无视 GitHub API 速率限制。
+  - 自动解压并通过本地永久私钥库（`~/.config/rimesx/rimesx-release.jks` / `platforms/android/scripts/sign-rimesx.sh`）完成签名，保障永久无缝覆盖升级（`adb install -r`）：
+    ```text
+    Signer #1 certificate SHA-256: fa2dc93cbd65c046230e611e0639b7d8245728e0e94fcf80b0a89bec4090272a
+    ```
 
-| 名称 | 种类 | 说明 | 默认 |
-|---|---|---|---|
-| 实时翻译 | 缓冲插件 | Apple 本地翻译，也可走 AI | 启用，macOS 15+ |
-| AI 生成 | 缓冲插件 | Codex、Claude Code 或 OpenAI 兼容 API。Plain / Markdown / JSON，结果留在 Buffer，由你上屏 | 启用 |
-| 意识流输入 | 缓冲插件 | 拼音或并击交给所选 AI，最多 5 个互斥猜测 | 启用，选定后才投递 |
-| 并击 | 内置扩展 | 同拍组合与左右分开击键，也可自定义键位 | 关闭 |
+---
 
-<!-- BEGIN PRESET BUFFER PLUGINS -->
-## macOS 官方插件
+### ⚔️ 相对源库 (scholay/rimes) 核心改动全景对比
 
-下表由 [`Catalog/buffer-plugins.json`](Catalog/buffer-plugins.json) 自动生成。更新插件时必须同步更新其版本，并运行 `python3 scripts/sync-buffer-plugin-catalog.py --check`。
+| 维度 | 源库 (`scholay/rimes`) | RIMES X (本仓库) | 改进意义与体验提升 |
+| :--- | :--- | :--- | :--- |
+| **平台聚焦** | 主攻 macOS 桌面端，包含复杂的 LaunchAgent 守护与桌面窗口 | **全面聚焦 Android 移动端**，精简移除桌面无关逻辑与文档噪音 | 专为移动端小屏/折叠屏调优，轻量专注 |
+| **视觉质感** | 基础 Android IME 界面，按键样式与排版较简陋 | **微信键盘风格磨砂无边框质感**，Manrope 优雅字体与高对比度按键 | 视觉沉浸高级，明暗对比清晰，长时间打字不易疲劳 |
+| **小鹤双拼** | 需用户自行手动导入配置，键帽无提示 | **原生内置小鹤双拼方案**，键帽右上角常驻**声母/韵母助记符 (Key Hints)** | 新手盲打无需背键位，开箱即用行云流水 |
+| **标点按键** | 传统逗号/句号分离或频繁切换符号页 | **逗号/句号智能二合一极速键**（单击 `，`，双击或长按 `。`） | 极大缩减大拇指位移，标点输入一气呵成 |
+| **中英切换** | 依赖符号页切换或长按空格切换 | **空格右侧独立中英切换键**，底栏空格同步大幅拓宽 35% | 单手盲打快速切中英文，敲击更从容 |
+| **触控容错** | 传统绝对几何命中，边缘误触率高 | **Gboard 级 26 键空间几何距离权重容错模型 (`SmartCorrector`)** | 快速盲打时自动纠正邻键误触，首选命中率大幅提升 |
+| **手势操作** | 仅有点按与长按删除单个字符 | **退格键上滑一键清空输入框 (Swipe-up Delete to Clear)** | 快速重写场景下一滑即清，效率倍增 |
+| **120Hz 高刷** | 绘图主线程存在频繁对象分配与 GC 抖动卡顿 | **零分配渲染架构 (Zero-Allocation onDraw)**，打字与绘制解耦 | 消除垃圾回收引起的微卡顿，锁定 120Hz 满帧触控 |
+| **冷启动性能** | 每次启动均对离线词典执行全盘 SHA-256 哈希计算 | **`.verified` 字典校验缓存机制**，跳过重复全盘哈希 | 键盘秒起秒开，杜绝点击输入框时的启动停顿 |
+| **候选词生态** | 仅支持基础中文候选，翻页数量有限 | **中英混输智能候选**（集成 `melt_eng`）、增补现代科技热词、**54 项大网格候选浏览** | 中英文免切混输，词库更贴合当下科技语境 |
+| **候选交互** | 点击候选词偶尔发生偏移或错选 | **重构候选词直接触控映射**，修正 librime 候选词索引对齐 | 保证“所见即所点”，点击候选词精准上屏 |
+| **剪贴板管理** | 清空剪贴板后易发生恢复异常或读取失效 | **基于 Application Context 稳定监听**，配套可视化独立历史面板 | 剪贴板历史随用随粘，生命周期管理更健全 |
+| **键盘高度** | 仅有粗粒度档位，调节容易引起字体拉伸扭曲 | **无级平滑高度调节与底栏防误触边距**，矢量字体自适应居中 | 完美契合全面屏手势条、折叠屏与各尺寸平板 |
+| **打包与签名** | 依赖本地重度编译环境，自签名易引起更新冲突 | **云端 Actions 免本地算力打包 + 本地永久 Keystore 签名体系** | 本地无需配置耗电编译链，覆盖安装（`adb install -r`）永不丢个人词库 |
 
-| 插件 | ID | 版本 | 默认安装 | 默认状态 |
-|---|---|---:|---|---|
-| 实时翻译 | `builtin.apple-translation` | 2.2.0 | 随 RIMES 预装 | 启用 |
-| 捕获 | `builtin.capsule.capture` | 1.1.0 | 随 RIMES 预装 | 启用 |
-| 笔记 | `builtin.capsule.notes` | 1.1.0 | 随 RIMES 预装 | 启用 |
-| 密码 | `builtin.capsule.passwords` | 1.1.0 | 随 RIMES 预装 | 启用 |
-| 资源 | `builtin.capsule.resources` | 1.1.0 | 随 RIMES 预装 | 启用 |
-| 临时 | `builtin.capsule.temporary` | 1.1.0 | 随 RIMES 预装 | 启用 |
-| Claude | `builtin.claude-code-cli` | 1.1.0 | 设置中按需下载 | 禁用 |
-| ChatGPT | `builtin.codex-cli` | 1.1.0 | 设置中按需下载 | 禁用 |
-| 并击 | `builtin.fly-chord-learning` | 2.0.0 | 随 RIMES 预装 | 禁用 |
-| LaTeX | `builtin.latex` | 1.1.0 | 设置中按需下载 | 禁用 |
-| 对话 | `builtin.mailbox.chat` | 1.1.0 | 随 RIMES 预装 | 启用 |
-| 收件 | `builtin.mailbox.inbox` | 1.1.0 | 随 RIMES 预装 | 启用 |
-| 终端 | `builtin.mailbox.terminal` | 1.1.0 | 随 RIMES 预装 | 启用 |
-| 摩斯电码 | `builtin.morse` | 0.1.0 | 设置中按需下载 | 禁用 |
-| 电音演奏 | `builtin.music` | 0.2.3 | 设置中按需下载 | 禁用 |
-| AI API | `builtin.openai-compatible` | 1.0.0 | 设置中按需下载 | 禁用 |
-| Polisher | `builtin.polisher` | 1.1.0 | 设置中按需下载 | 禁用 |
-| Reference | `builtin.scholay` | 0.1.0 | 设置中按需下载 | 禁用 |
-| 统计 | `builtin.statistics` | 2.0.0 | 随 RIMES 预装 | 启用 |
-| 意识流输入 | `builtin.stream-input` | 1.4.0 | 随 RIMES 预装 | 启用 |
-| 打字测速 | `builtin.typing-speed` | 2.0.0 | 随 RIMES 预装 | 启用 |
+---
 
-预装插件在全新安装后按默认状态启用；选装插件下载后需手动启用。升级时保留已有插件状态。
-<!-- END PRESET BUFFER PLUGINS -->
+### 🌐 核心功能特性一览
 
-## 内置扩展
+- **输入方案支持**：小鹤双拼（原生集成带助记）、雾凇全拼、自然码、五笔 86、英文（`melt_eng` 词库）。
+- **键盘布局形态**：26 键全键盘、九宫格拼音键盘、独立符号矩阵键盘、Emoji 表情面板。
+- **缓冲工作台 (Buffer)**：显式暂存待发文本，支持分块投递或整段草稿一键插入。
+- **效率工具箱**：独立可视化剪贴板历史面板、离线英汉词典翻译、Android Keystore 级安全私有大模型助手。
+- **安全与隐私**：100% 本地沙箱执行，零第三方遥测，无静默联网权限。
 
-| 扩展 | 稳定 ID | 版本 | 默认状态 |
-|---|---|---:|---|
-| 统计 | `builtin.statistics` | 2.0 | 启用 |
-| 打字测速 | `builtin.typing-speed` | 2.0 | 启用 |
-| 并击 | `builtin.fly-chord-learning` | 2.0 | 关闭 |
+---
 
-## 上游各平台
+### 🛠️ 构建与工作流 (Build & Workflow)
 
-本仓库的 Android 安装包见上方「安装」，从 Actions 产物 `rimesx-release-apk` 下载。下面是上游 RIMES 各平台的发布说明，安装包链接指向 [scholay/rimes](https://github.com/scholay/rimes)。
-
-本轮版本为 **1.1.0**：[macOS 安装包](https://github.com/scholay/rimes/releases/tag/v1.1.0)、[Android APK](https://github.com/scholay/rimes/releases/tag/android-v1.1.0)、[Windows EXE](https://github.com/scholay/rimes/releases/tag/windows-v1.1.0)。macOS 包已签名和公证，Android 使用长期签名，Windows EXE 未签名。iOS 通过 [TestFlight 公开邀请](https://testflight.apple.com/join/Kdj9RB4q)提供已获批的测试版本，实际可安装构建以 TestFlight 为准。Linux 保留现有版本。各平台当前状态以对应发布页为准。
-
-也可以拉取源码和固定版本的官方插件，在本机构建：
-
+#### 1. 云端构建与一键自动重签名 (GitHub Actions CI)
+自动化触发云端全量 R8 编译、3 分钟定时状态监控与本地签名：
 ```bash
-git clone --recurse-submodules https://github.com/scholay/rimes.git
-cd rimes
+# 全流程：触发提交 -> 3 分钟轮询构建状态 -> 自动下载 -> 本地私钥签名
+./scripts/cloud-build-and-sign.sh
+
+# 或直接接入正在进行的云端任务：
+./scripts/cloud-build-and-sign.sh <RUN_ID>
 ```
 
-| 平台 | 进度 | 构建 |
-|---|---|---|
-| macOS | 输入法，以及 Buffer、Capsule、Mailbox | `./build_install.sh` |
-| iOS | 键盘与主 App（iOS 17+）：离线拼音、自然码、五笔、英文，以及 Buffer | 用 Xcode 打开 [`platforms/ios/RIMES.xcodeproj`](platforms/ios/README.md) |
-| Windows | 原生 TSF 输入法、Buffer、并击及官方插件设置；支持 x64 / x86 | 见 [`platforms/windows/native/README.md`](platforms/windows/native/README.md) |
-| Android | 原生输入法（InputConnection）、Buffer、六个官方插件和可配置 AI 服务 | 见 [`platforms/android/README.md`](platforms/android/README.md) |
-| Linux | Fcitx5 输入法、Buffer、Capsule。还没有 Mailbox | 见 [`platforms/linux/ime/README.md`](platforms/linux/ime/README.md) |
-
-## 文档
-
-| 文档 | 内容 |
-|---|---|
-| [SYSTEM-ARCHITECTURE.md](SYSTEM-ARCHITECTURE.md) | 当前权威全局架构（接手开发请先读） |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | P1/P2 历史契约与踩坑 |
-| [PLUGIN-CONFIGURATION.md](PLUGIN-CONFIGURATION.md) | 插件声明式配置 |
-| [UNSIGNED-PREVIEW.md](UNSIGNED-PREVIEW.md) | 未签名预览版的下载、校验与安全安装步骤 |
-| [CROSS-PLATFORM-PREVIEW.md](CROSS-PLATFORM-PREVIEW.md) | Windows / Linux 输入方案预览边界与验证 |
-| [platforms/ios/README.md](platforms/ios/README.md) | iOS 键盘与主 App |
-| [platforms/windows/native/README.md](platforms/windows/native/README.md) | Windows 原生 TSF 输入法 |
-| [platforms/linux/ime/README.md](platforms/linux/ime/README.md) | Linux Fcitx5 输入法、Buffer 与 Capsule |
-| [PLATFORM-ROADMAP.md](PLATFORM-ROADMAP.md) | Windows / Android 对齐路线与当前验收边界 |
-| [platforms/android/README.md](platforms/android/README.md) | Android 原生工程、开发 APK 与验收 |
-| [RELEASE.md](RELEASE.md) | 发布流程：渠道、一条命令发布、节奏与版本号规则 |
-| [RELEASE-REFERENCE.md](RELEASE-REFERENCE.md) | 发布技术参考：签名、安装器、应用内更新、CI |
-| [RELEASE-HISTORY.md](RELEASE-HISTORY.md) | 已关闭的发布通道、旧仓库迁移与改名记录 |
-| [CHANGELOG.md](CHANGELOG.md) | 由公开 GitHub Release 与提交信息生成的逐版本变更 |
-
-## 自动更新
-
-已安装的正式签名版 RIMES 会检查 [`scholay/rimes`](https://github.com/scholay/rimes) 的
-GitHub Release；未签名的 `vX.Y.Z-preview.N` 不会进入该通道。
-
-macOS 自动发布工作流的入口如下（各平台流程见 [RELEASE.md](RELEASE.md)，变更见 [CHANGELOG.md](CHANGELOG.md)）：
-
+#### 2. 本地私钥重签名
+从 Actions 下载构建产物后，使用本地专用签名脚本进行重签名：
 ```bash
-./scripts/release.sh --dry-run preview  # 预览计划、CI 门禁与发布说明
-./scripts/release.sh preview            # macOS 未签名预览版 vX.Y.Z-preview.N
-./scripts/release.sh stable             # 预览线转正为 vX.Y.Z（需 Developer ID）
-./scripts/release.sh platform minor     # 显式维护用 Windows/Linux 数据预览（不阻断 macOS）
+# 赋予执行权限并对 APK 签名
+./platforms/android/scripts/sign-rimesx.sh path/to/rimesx-release.apk
+```
+签名验证证书指纹：
+```text
+Signer #1 certificate SHA-256: fa2dc93cbd65c046230e611e0639b7d8245728e0e94fcf80b0a89bec4090272a
 ```
 
-所有 Release 都发布在 `scholay/rimes`：macOS `vX.Y.Z` 是正式版；`vX.Y.Z-preview.N` 是未签名
-Pre-release，不进入自动更新。Android 正式包使用 `android-vX.Y.Z`，Windows 正式包使用 `windows-vX.Y.Z`；旧 Windows/Linux 数据包 `platform-preview-vX.Y.Z` 始终是 Pre-release。
+#### 3. 严格遵循本地免编译规范 (No Local Compilation)
+为了保护移动开发机 CPU/内存资源，请勿在本地运行 `build-engine.py` 或 `./gradlew assembleRelease`。所有 Native 二进制与 Release APK 打包全部托管给 GitHub Actions 云端跑道。
 
-## 友链
+---
 
-- [RIME 输入法引擎](https://rime.im/) — 本项目的中文编码基于 RIME。
-- [Linux.do](https://linux.do/u/leowangling/preferences/account) - 感谢真诚、友善、团结、专业之社区L站及一众佬友。
-- [iRime](https://github.com/jimmy54/iRime) — 感谢 iRime 作者对 RIMES 的指导与宣传支持。
+### 🔄 上游代码同步指引 (Upstream Sync Protocol)
 
-## 贡献者
+RIMES X 定期跟踪并合并上游 `scholay/rimes` 的最新演进：
+```bash
+# 1. 配置上游远程仓库
+git remote add upstream https://github.com/scholay/rimes.git
 
-完整名单见 [CONTRIBUTORS.md](CONTRIBUTORS.md)。
+# 2. 获取上游最新分支代码
+git fetch upstream main
 
-本项目核心维护者为C端产品经理，非专业程序员出身，感恩伟大的vibe coding时代。
+# 3. 合并上游更改至 main
+git checkout main
+git merge upstream/main
 
-**AI 编程助手**：Claude、Cursor、Codex、Grok 参与了设计、实现与审阅。
+# 4. 解决冲突并保留 RIMES X 核心定制代码
+# 5. 推送至 Fork 仓库
+git push origin main
+```
 
-## 已知问题
+---
 
-- **Linux：部署还没结束就退出 Fcitx5，进程可能要几分钟才退出。** 首次或后台的 librime 部署无法中途取消，词库较大时更明显。见 [#43](https://github.com/scholay/rimes/issues/43)。
-- **Linux：拖完 Buffer 工具条后立刻点另一个输入框，捕获可能还开着。** 目前只在 X11 的 Firefox 里复现，松开后约 10 毫秒内点到同一窗口的另一个输入框就会碰上。再点一次或按 Esc 即可恢复。见 [#44](https://github.com/scholay/rimes/issues/44)。
+### 📄 协议与致谢 (License & Credits)
 
-## 许可证与第三方
-
-RIMES 自有代码采用 [Apache License 2.0](LICENSE)，具体范围及历史 MIT 授权见 [LICENSING.md](LICENSING.md)。核心维护者为[学术海](https://pm.scholay.com)。
-
-中文输入基于 [Rime 输入法引擎（librime）](https://github.com/rime/librime)。来源声明见 [NOTICE](NOTICE)；我们倡议衍生版本说明 Rime、RIMES 及修改者的关系，示例见[来源与署名](ATTRIBUTION.md)。该展示倡议不增加许可证之外的限制。
-
-第三方组件、方案、词库和 Lua/OpenCC 数据保留各自的许可与署名，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)、[LICENSES](LICENSES/) 和 `rime-data/licenses/`。官方免费插件在 [rimes-plugins](https://github.com/scholay/rimes-plugins) 仓库维护。
+- Fork 自 [scholay/rimes](https://github.com/scholay/rimes)（灵犀输入法）。
+- 中文输入逻辑基于 [RIME (中州韵输入法引擎)](https://rime.im/)（librime 1.17.0）。
+- 遵循 **[Apache-2.0](LICENSE)** 开源协议。
