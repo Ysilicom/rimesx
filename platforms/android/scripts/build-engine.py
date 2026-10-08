@@ -53,6 +53,40 @@ def mixed_schema(text, schema, dictionary):
         '    - "xform/^.+$//"\n'
     )
     return text
+def english_schema():
+    # Same identity speller as the melt_eng table build, so the prism matches typed letters.
+    return (
+        '# English candidates for the 中/英 key. GPL-3.0-only Rime Ice melt_eng table.\n'
+        'schema:\n'
+        '  schema_id: rimes_english\n'
+        '  name: RIMES English\n'
+        '  version: "1"\n'
+        'engine:\n'
+        '  processors: [ascii_composer, speller, punctuator, selector, navigator, express_editor]\n'
+        '  segmentors: [ascii_segmentor, abc_segmentor, punct_segmentor, fallback_segmentor]\n'
+        '  translators: [punct_translator, table_translator]\n'
+        'speller:\n'
+        '  alphabet: zyxwvutsrqponmlkjihgfedcbaZYXWVUTSRQPONMLKJIHGFEDCBA\n'
+        '  delimiter: " \'"\n'
+        'translator:\n'
+        '  dictionary: melt_eng\n'
+        '  prism: rimes_english\n'
+        '  enable_sentence: false\n'
+        '  enable_user_dict: false\n'
+        '  enable_completion: true\n'
+        '  spelling_hints: 0\n'
+        '  comment_format:\n'
+        '    - "xform/.*//"\n'
+        'punctuator:\n'
+        '  half_shape:\n'
+        '    ",": ","\n'
+        '    ".": "."\n'
+        '    "?": "?"\n'
+        '    "!": "!"\n'
+        '    ":": ":"\n'
+        '    ";": ";"\n'
+        "    \"'\": \"'\"\n"
+    )
 def table_schema(dictionary):
     return (
         '# Build-only table. Not a selectable input scheme.\n'
@@ -236,6 +270,8 @@ def prepare_data():
     for schema, _dictionary in MIXED:
         run(deployer,'--compile',stage/(schema+'_mix.schema.yaml'),stage,stage,stage/'build')
         run(deployer,'--compile',stage/(schema+'_mix_private.schema.yaml'),stage,stage,stage/'build')
+    (stage/'rimes_english.schema.yaml').write_text(english_schema())
+    run(deployer,'--compile',stage/'rimes_english.schema.yaml',stage,stage,stage/'build')
     dest = ANDROID/'app/build/generated/rime/assets/rime'
     if dest.exists(): shutil.rmtree(dest)
     (dest/'build').mkdir(parents=True)

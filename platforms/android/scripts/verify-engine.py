@@ -29,6 +29,10 @@ for schema, dictionary in (('rimes_pinyin','cn_en'),('rimes_flypy','cn_en_flypy'
         assert ('enable_user_dict: false' if suffix.endswith('_private') else 'enable_user_dict: true') in text
     assert (data/'build'/(dictionary+'.table.bin')).is_file(), dictionary
 assert (data/'build'/'melt_eng.table.bin').is_file()
+english=(data/'build'/'rimes_english.schema.yaml').read_text()
+assert 'page_size: 9' in english and 'dictionary: melt_eng' in english and 'prism: rimes_english' in english
+assert 'enable_completion: true' in english and 'enable_user_dict: false' in english
+assert (data/'build'/'rimes_english.prism.bin').is_file()
 syllables=json.loads((data/'nine-key-syllables.json').read_text())
 assert len(syllables)>400 and 'ni' in syllables and 'hao' in syllables
 nine_source=(ROOT/'resources/rimes_pinyin9.schema.yaml').read_text()

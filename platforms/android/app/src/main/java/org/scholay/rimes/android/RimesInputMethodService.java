@@ -112,7 +112,8 @@ public final class RimesInputMethodService extends InputMethodService {
     private LinearLayout candidateStrip;
     private ChordPreview chordReadout;
     private ChordGesture.Preview heldPreview;
-    private String renderedRaw="";
+    /** Visible candidate words. The same list keeps its horizontal scroll. */
+    private String renderedCandidates="";
     private int renderedPage=-1;
     private Button bufferButton, retryButton, previous, next, insertNext;
     private final List<KeyButton> candidates=new ArrayList<>();
@@ -203,6 +204,8 @@ public final class RimesInputMethodService extends InputMethodService {
         else main.post(this::captureClipboard);
     }
     private String effectiveSchema() {
+        // The 中/英 key uses the English table. Password and other direct fields stay on the Chinese schema and never query it.
+        if(english && !directOnly) return "rimes_english";
         String base=chordLayout()?"rimes_ziranma":nineKeyEngine()?"rimes_pinyin9":schema;
         if(mixedEnglish && ("rimes_pinyin".equals(base) || "rimes_ziranma".equals(base) || "rimes_flypy".equals(base))) base+="_mix";
         if(privateField || !learningEnabled) base+="_private";
@@ -425,11 +428,20 @@ public final class RimesInputMethodService extends InputMethodService {
             if(!applyResult(result)) { retainedResults.add(result); retained="pending"; notice(buffer.isEnabled()?R.string.buffer_limit:R.string.delivery_pending); }
             render(); return;
         }
-        final boolean chinese=!directOnly && !english && !numeric && !emoji;
+        final boolean compose=!directOnly && !numeric && !emoji;
+        final boolean composeEnglish=compose && english;
         dispatch(() -> {
-            if(!chinese || session==0 || text.codePointAt(0)>127 || Character.isUpperCase(text.codePointAt(0))) return literal(text);
+            if(!compose || session==0 || text.codePointAt(0)>127 || Character.isUpperCase(text.codePointAt(0))) return literal(text);
             RimeEngine.Snapshot before=state();
             if(before.raw.length()>=128 && !" ".equals(text)) return Result.state(before);
+            if(composeEnglish && " ".equals(text) && before.composing()) {
+                // Commit the first listed word, or the typed spelling when it is not in the table, then a space.
+                lastTypedChar=0;
+                if(before.candidates.isEmpty()) return literal(" ");
+                RimeEngine.Snapshot chosen=expandSnapshot(engine.selectCandidate(session,before.pageStart));
+                String committed=chosen.commit;
+                return new Result(chosen,committed.isEmpty()?committed:committed+" ",!committed.isEmpty(),0);
+            }
             if(" ".equals(text) && before.composing() && !before.candidates.isEmpty()) {
                 lastTypedChar=0;
                 return Result.state(expandSnapshot(engine.selectCandidate(session,before.pageStart)));
@@ -442,7 +454,7 @@ public final class RimesInputMethodService extends InputMethodService {
             }
 
             // Gboard-level Spatial Touch Error Correction (strictly disabled for Shuangpin / Wubi)
-            boolean allowCorrection=settings.isCorrectionEnabled() && "rimes_pinyin".equals(schema) && !nineKeyVisible();
+            boolean allowCorrection=!composeEnglish && settings.isCorrectionEnabled() && "rimes_pinyin".equals(schema) && !nineKeyVisible();
             if(allowCorrection && text.length()==1 && SmartCorrector.isSupportedLetter((char)codePoint)) {
                 if((!before.composing() || !before.candidates.isEmpty()) && after.composing() && after.candidates.isEmpty()) {
                     char ch=(char)codePoint;
@@ -1106,7 +1118,7 @@ public final class RimesInputMethodService extends InputMethodService {
     @Override public View onCreateInputView() {
         keyboard=new KeyboardRoot(this); keyboard.setOrientation(LinearLayout.VERTICAL);
         if(Build.VERSION.SDK_INT>=29) keyboard.setForceDarkAllowed(false);
-        keyboard.setLayoutDirection(View.LAYOUT_DIRECTION_LTR); chromeButtons.clear(); chordControls.clear(); renderedKeyStamp="";
+        keyboard.setLayoutDirection(View.LAYOUT_DIRECTION_LTR); chromeButtons.clear(); chordControls.clear(); renderedKeyStamp=""; renderedCandidates="";
         keyboard.setPadding(dp(5),dp(5),dp(5),dp(5+bottomInset));
         keyboard.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob) -> { if(r-l!=or-ol) render(); });
         keyboard.setOnApplyWindowInsetsListener((view,insets) -> {
@@ -1449,8 +1461,14 @@ public final class RimesInputMethodService extends InputMethodService {
             }
             item.setEnabled(exists && chordPreview.isEmpty());
         }
-        if(!renderedRaw.equals(snapshot.raw)) {
-            candidateScroll.scrollTo(0,0); renderedRaw=snapshot.raw;
+        // Confirming one segment of a phrase keeps the same raw spelling, so follow the words on screen.
+        StringBuilder shown=new StringBuilder();
+        shown.append(snapshot.preedit).append('\n').append(count);
+        for(int i=0;i<count;i++) shown.append('\n').append(candidates.get(i).getText());
+        String nextShown=shown.toString();
+        if(!nextShown.equals(renderedCandidates)) {
+            candidateScroll.scrollTo(0,0);
+            renderedCandidates=nextShown;
         }
         boolean composing=snapshot.composing() || !snapshot.candidates.isEmpty() || marks || !status.isEmpty();
         layoutButton.setVisibility(composing?View.GONE:View.VISIBLE);
