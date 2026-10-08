@@ -90,7 +90,13 @@ public final class RimesInputMethodService extends InputMethodService {
     private int heightPercent=100;
     private int bottomInset=0;
     private long lastSpaceTime=0;
-    private boolean visiblePassword;
+    private boolean visiblePassword, noSuggestions, asciiOnly, emailField, englishBeforeField, capNextEnglish;
+    /** Letters already in the box that an English suggestion may replace. */
+    private String englishDraft="";
+    private KeyButton emailAtButton, emailComButton;
+    private static final int DRAFT_NONE=0, DRAFT_APPEND=1, DRAFT_CLEAR=2, DRAFT_BACKSPACE=3, DRAFT_REPLACE=4;
+    /** EditorInfo.IME_FLAG_FORCE_ASCII. The field asked for Latin letters only. */
+    private static final int IME_FLAG_FORCE_ASCII=0x80000000;
     private boolean symbols,emoji,appearanceOpen,spellingOpen,punctuationOpen,clipboardOpen,candidateGridOpen;
     private ClipboardPanel clipboardPanel;
     private CandidateGridPanel candidateGridPanel;
@@ -187,6 +193,15 @@ public final class RimesInputMethodService extends InputMethodService {
         directOnly=numeric || isPassword(info) || kind!=InputType.TYPE_CLASS_TEXT;
         textFieldLive=!directOnly;
         privateField=!allowsBuffer(info) || visiblePassword;
+        int textFlags=info.inputType&InputType.TYPE_MASK_FLAGS;
+        noSuggestions=kind==InputType.TYPE_CLASS_TEXT && (textFlags&InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS)!=0;
+        asciiOnly=(info.imeOptions&IME_FLAG_FORCE_ASCII)!=0;
+        boolean nextEmail=isEmailOrUri(info);
+        if(nextEmail && !emailField) { englishBeforeField=english; english=true; }
+        else if(!nextEmail && emailField) english=englishBeforeField;
+        emailField=nextEmail;
+        if(asciiOnly) english=true;
+        englishDraft=""; capNextEnglish=false;
         uppercase=false; symbols=false; emoji=false; appearanceOpen=false; spellingOpen=false; punctuationOpen=false; clipboardOpen=false; candidateGridOpen=false;
         selection=info.initialSelEnd; selectionStart=info.initialSelStart;
         buffer.beginTarget(target!=null && allowsBuffer(info));
@@ -207,8 +222,8 @@ public final class RimesInputMethodService extends InputMethodService {
         else main.post(this::captureClipboard);
     }
     private String effectiveSchema() {
-        // The 中/英 key uses the English table. Password and other direct fields stay on the Chinese schema and never query it.
-        if(english && !directOnly) return "rimes_english";
+        // Suggestions use the English table. Direct English, including Haven Secure, never queries it.
+        if(englishComposingField()) return "rimes_english";
         String base=chordLayout()?"rimes_ziranma":nineKeyEngine()?"rimes_pinyin9":schema;
         if(mixedEnglish && ("rimes_pinyin".equals(base) || "rimes_ziranma".equals(base) || "rimes_flypy".equals(base))) base+="_mix";
         if(privateField || !learningEnabled) base+="_private";
@@ -335,8 +350,25 @@ public final class RimesInputMethodService extends InputMethodService {
         if(target!=null && target==getCurrentInputConnection() && hostComposing) { target.setComposingText("",1); target.finishComposingText(); }
         cancelChord(); appearanceOpen=false; pluginSettingsOpen=false; clipboardOpen=false; candidateGridOpen=false; activePlugin=null; spellingOpen=false; punctuationOpen=false;
         hostPreedit=""; target=null; hostComposing=false; composingStart=-1; selection=-1; selectionStart=-1;
-        epoch.revoke(); pending=0; expectedSelections.clear(); snapshot=RimeEngine.Snapshot.EMPTY; retained=""; retainedResults.clear();
+        epoch.revoke(); pending=0; expectedSelections.clear(); snapshot=RimeEngine.Snapshot.EMPTY; retained=""; retainedResults.clear(); englishDraft=""; capNextEnglish=false;
         buffer.finishTarget(); if(metrics!=null) { metrics.setText(""); metrics.setContentDescription(null); } if(bufferRail!=null) bufferRail.clearProjection(); if(pluginOutput!=null) pluginOutput.clearProjection(); resetEngine(); render();
+    }
+    private boolean englishComposingField() {
+        return english && !directOnly && !visiblePassword && !numeric && !emoji && !noSuggestions && !asciiOnly && !emailField;
+    }
+    private boolean englishSuggesting() {
+        // Letters are already in the box. The strip only offers a replacement for the current word.
+        return englishComposingField() && (buffer==null || !buffer.isEnabled());
+    }
+    private boolean englishImmediate() {
+        return english && !englishSuggesting() && (visiblePassword || noSuggestions || asciiOnly || emailField);
+    }
+    static boolean isEmailOrUri(EditorInfo info) {
+        if(info==null || (info.inputType&InputType.TYPE_MASK_CLASS)!=InputType.TYPE_CLASS_TEXT) return false;
+        int variation=info.inputType&InputType.TYPE_MASK_VARIATION;
+        return variation==InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+                || variation==InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS
+                || variation==InputType.TYPE_TEXT_VARIATION_URI;
     }
     static boolean isPassword(EditorInfo info) {
         int kind=info.inputType&InputType.TYPE_MASK_CLASS, variation=info.inputType&InputType.TYPE_MASK_VARIATION;
@@ -375,7 +407,11 @@ public final class RimesInputMethodService extends InputMethodService {
         final String text;
         final boolean block;
         final int action; // 0 text/snapshot, 1 host delete, 2 host Return
-        Result(RimeEngine.Snapshot state,String text,boolean block,int action) { this.state=state; this.text=text; this.block=block; this.action=action; }
+        final int draft;
+        Result(RimeEngine.Snapshot state,String text,boolean block,int action) { this(state,text,block,action,DRAFT_NONE); }
+        Result(RimeEngine.Snapshot state,String text,boolean block,int action,int draft) {
+            this.state=state; this.text=text; this.block=block; this.action=action; this.draft=draft;
+        }
         static Result state(RimeEngine.Snapshot state) { return new Result(state,state.commit,true,0); }
     }
     private void dispatch(Operation operation) {
@@ -407,10 +443,20 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private boolean applyResult(Result result) {
         if(buffer.isEnabled() && (!result.text.isEmpty() || result.state.composing() && !snapshot.composing())) invalidatePlugin();
-        if(!result.text.isEmpty() && !deliver(result.text,result.block)) return false;
+        String committed=result.text;
+        if(result.draft==DRAFT_REPLACE) {
+            committed=matchDraftCase(committed);
+            if(!deleteDraft()) return false;
+            englishDraft="";
+        }
+        if(!committed.isEmpty() && !deliver(committed,result.block)) return false;
+        if(result.draft==DRAFT_APPEND) englishDraft+=committed;
+        else if(result.draft==DRAFT_CLEAR) englishDraft="";
+        if(english) noteSentence(committed);
         snapshot=result.state;
         if(result.action==1) deleteHostOrBuffer();
         if(result.action==2) returnHostOrBuffer();
+        if(result.draft==DRAFT_BACKSPACE && !englishDraft.isEmpty()) englishDraft=englishDraft.substring(0,englishDraft.offsetByCodePoints(englishDraft.length(),-1));
         updateComposition(); return true;
     }
     private RimeEngine.Snapshot state() { return session==0 ? RimeEngine.Snapshot.EMPTY : engine.snapshot(session); }
@@ -419,6 +465,51 @@ public final class RimesInputMethodService extends InputMethodService {
         RimeEngine.Snapshot before=state();
         if(before.composing()) engine.clearComposition(session);
         return new Result(RimeEngine.Snapshot.EMPTY,before.raw+text,false,0);
+    }
+    private String shapeEnglishLetter(String text) {
+        if(!english || text.length()!=1 || !Character.isLetter(text.charAt(0)) || text.charAt(0)>127) return text;
+        if(!uppercase && !capNextEnglish) return text;
+        if(capNextEnglish && !uppercase) capNextEnglish=false;
+        return text.toUpperCase(Locale.ROOT);
+    }
+    private String matchDraftCase(String text) {
+        if(englishDraft.isEmpty() || text.isEmpty()) return text;
+        if(!Character.isUpperCase(englishDraft.charAt(0)) || !Character.isLowerCase(text.charAt(0))) return text;
+        return Character.toUpperCase(text.charAt(0))+text.substring(1);
+    }
+    private void noteSentence(String text) {
+        if(!english || text==null || text.isEmpty()) return;
+        char end=text.charAt(text.length()-1);
+        if(end=='.' || end=='!' || end=='?' || end=='。' || end=='！' || end=='？') capNextEnglish=true;
+    }
+    private boolean deleteDraft() {
+        if(englishDraft.isEmpty() || !ownsTarget()) return englishDraft.isEmpty();
+        int units=englishDraft.length();
+        expect(selection>units?selection-units:0);
+        try { return target.deleteSurroundingText(units,0); }
+        catch(Throwable ignored) { return false; }
+    }
+    /** Commit the typed letter now, and keep English words only as replacements. */
+    private Result suggestEnglish(String text) {
+        boolean letter=text.length()==1 && Character.isLetter(text.charAt(0)) && text.charAt(0)<128;
+        if(letter) {
+            RimeEngine.Snapshot after=engine.processKey(session,Character.toLowerCase(text.charAt(0)));
+            if(!after.composing()) return new Result(RimeEngine.Snapshot.EMPTY,text,false,0,DRAFT_CLEAR);
+            return new Result(expandSnapshot(after),text,false,0,DRAFT_APPEND);
+        }
+        if(" ".equals(text) && state().composing()) {
+            RimeEngine.Snapshot before=state();
+            if(before.candidates.isEmpty()) {
+                engine.clearComposition(session);
+                return new Result(RimeEngine.Snapshot.EMPTY," ",false,0,DRAFT_CLEAR);
+            }
+            RimeEngine.Snapshot chosen=expandSnapshot(engine.selectCandidate(session,before.pageStart));
+            String word=chosen.commit.isEmpty()?before.candidates.get(0):chosen.commit;
+            if(state().composing()) engine.clearComposition(session);
+            return new Result(RimeEngine.Snapshot.EMPTY,word+" ",false,0,DRAFT_REPLACE);
+        }
+        if(state().composing()) engine.clearComposition(session);
+        return new Result(RimeEngine.Snapshot.EMPTY,text,false,0,DRAFT_CLEAR);
     }
     private RimeEngine.Snapshot expandSnapshot(RimeEngine.Snapshot snapshot) {
         if(session==0 || snapshot==null || !snapshot.composing() || snapshot.candidates.isEmpty() || snapshot.candidates.size()>=18 || snapshot.lastPage) return snapshot;
@@ -450,19 +541,15 @@ public final class RimesInputMethodService extends InputMethodService {
             render(); return;
         }
         final boolean compose=!directOnly && !numeric && !emoji;
-        final boolean composeEnglish=compose && english;
+        final boolean suggest=englishSuggesting();
+        final boolean immediate=englishImmediate();
+        final String shaped=shapeEnglishLetter(text);
         dispatch(() -> {
-            if(!compose || session==0 || text.codePointAt(0)>127 || Character.isUpperCase(text.codePointAt(0))) return literal(text);
+            if(suggest) return suggestEnglish(shaped);
+            // Haven Secure, no-suggestion fields, email, URI, and ASCII-only fields commit English at once.
+            if(immediate || !compose || session==0 || text.codePointAt(0)>127 || Character.isUpperCase(text.codePointAt(0))) return literal(shaped);
             RimeEngine.Snapshot before=state();
             if(before.raw.length()>=128 && !" ".equals(text)) return Result.state(before);
-            if(composeEnglish && " ".equals(text) && before.composing()) {
-                // Commit the first listed word, or the typed spelling when it is not in the table, then a space.
-                lastTypedChar=0;
-                if(before.candidates.isEmpty()) return literal(" ");
-                RimeEngine.Snapshot chosen=expandSnapshot(engine.selectCandidate(session,before.pageStart));
-                String committed=chosen.commit;
-                return new Result(chosen,committed.isEmpty()?committed:committed+" ",!committed.isEmpty(),0);
-            }
             if(" ".equals(text) && before.composing() && !before.candidates.isEmpty()) {
                 lastTypedChar=0;
                 return Result.state(expandSnapshot(engine.selectCandidate(session,before.pageStart)));
@@ -475,7 +562,7 @@ public final class RimesInputMethodService extends InputMethodService {
             }
 
             // Gboard-level Spatial Touch Error Correction (strictly disabled for Shuangpin / Wubi)
-            boolean allowCorrection=!composeEnglish && settings.isCorrectionEnabled() && "rimes_pinyin".equals(schema) && !nineKeyVisible();
+            boolean allowCorrection=!english && settings.isCorrectionEnabled() && "rimes_pinyin".equals(schema) && !nineKeyVisible();
             if(allowCorrection && text.length()==1 && SmartCorrector.isSupportedLetter((char)codePoint)) {
                 if((!before.composing() || !before.candidates.isEmpty()) && after.composing() && after.candidates.isEmpty()) {
                     char ch=(char)codePoint;
@@ -637,9 +724,9 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private void updateComposition() {
         if(!ownsTarget() || buffer.isEnabled() || directOnly) return;
-        if(visiblePassword) {
-            // Terminals using VISIBLE_PASSWORD eager-commit deltas if setComposingText is called.
-            // Avoid setting host composition to prevent premature shell pollution; preedit renders in our preedit view.
+        if(visiblePassword || !englishDraft.isEmpty()) {
+            // Visible-password terminals eager-commit composing text into the shell.
+            // English suggestions are already committed, so the spelling must not be written again.
             return;
         }
         if(snapshot.composing()) {
@@ -665,7 +752,7 @@ public final class RimesInputMethodService extends InputMethodService {
         if(hostComposing && newStart==newEnd && newEnd==candidatesEnd) return;
         // A host/user selection change revokes pending work, including keys still in the worker queue.
         cancelPlugin(); pluginSession.clear();
-        cancelChord(); epoch.revoke(); pending=0; expectedSelections.clear(); snapshot=RimeEngine.Snapshot.EMPTY; retained=""; retainedResults.clear();
+        cancelChord(); epoch.revoke(); pending=0; expectedSelections.clear(); snapshot=RimeEngine.Snapshot.EMPTY; retained=""; retainedResults.clear(); englishDraft="";
         if(hostComposing) { target.setComposingText("",1); target.finishComposingText(); }
         hostComposing=false; composingStart=-1; selection=newEnd; selectionStart=newStart;
         activePlugin=null; pluginSettingsOpen=false; buffer.beginTarget(buffer.isPermitted()); if(bufferRail!=null) bufferRail.clearProjection(); if(pluginOutput!=null) pluginOutput.clearProjection(); resetEngine(); render();
@@ -700,6 +787,15 @@ public final class RimesInputMethodService extends InputMethodService {
         invalidatePlugin();
         if(!retained.isEmpty()) { if(buffer.isEnabled()) { buffer.deleteLastBlock(); retryRetained(); } return; }
         if(!ready) { deleteHostOrBuffer(); render(); return; }
+        if(!englishDraft.isEmpty()) {
+            dispatch(() -> {
+                RimeEngine.Snapshot after=state().composing()?engine.processKey(session,0xff08):RimeEngine.Snapshot.EMPTY;
+                if(!after.composing()) after=RimeEngine.Snapshot.EMPTY;
+                else after=expandSnapshot(after);
+                return new Result(after,"",false,1,DRAFT_BACKSPACE);
+            });
+            return;
+        }
         final boolean nine=nineKeyVisible();
         dispatch(() -> {
             lastTypedChar=0;
@@ -798,6 +894,13 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private void enter() {
         if(!ready) { returnHostOrBuffer(); return; }
+        if(!englishDraft.isEmpty()) {
+            dispatch(() -> {
+                if(state().composing()) engine.clearComposition(session);
+                return new Result(RimeEngine.Snapshot.EMPTY,"",false,2,DRAFT_CLEAR);
+            });
+            return;
+        }
         dispatch(() -> {
             lastTypedChar=0;
             return state().composing() ? literal("") : new Result(RimeEngine.Snapshot.EMPTY,"",false,2);
@@ -814,7 +917,12 @@ public final class RimesInputMethodService extends InputMethodService {
         if(!ready) { change.run(); render(); return; }
         if(!ownsTarget() && !adoptCurrentConnection()) return;
         // Route settlement before applying the new mode; subsequent keys queue after it.
-        dispatch(() -> literal(""));
+        final boolean dropDraft=!englishDraft.isEmpty();
+        dispatch(() -> {
+            if(!dropDraft) return literal("");
+            if(state().composing()) engine.clearComposition(session);
+            return new Result(RimeEngine.Snapshot.EMPTY,"",false,0,DRAFT_CLEAR);
+        });
         change.run();
         final String selected=effectiveSchema();
         EngineWorker.QUEUE.execute(() -> { if(session!=0) engine.selectSchema(session,selected); });
@@ -824,6 +932,14 @@ public final class RimesInputMethodService extends InputMethodService {
         if(chords!=null && chords.isChordActive()) return;
         if(!ready || index>=snapshot.candidates.size()) return;
         candidateGridOpen=false;
+        if(!englishDraft.isEmpty()) {
+            final String word=snapshot.candidates.get(index);
+            dispatch(() -> {
+                if(state().composing()) engine.clearComposition(session);
+                return new Result(RimeEngine.Snapshot.EMPTY,word,false,0,DRAFT_REPLACE);
+            });
+            return;
+        }
         final int absolute=snapshot.pageStart+index;
         dispatch(() -> {
             lastTypedChar=0;
@@ -923,7 +1039,7 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private void pressSpace() {
         long now=System.currentTimeMillis();
-        if((english || directOnly) && !snapshot.composing() && now-lastSpaceTime<600) {
+        if((english || directOnly) && !visiblePassword && englishDraft.isEmpty() && !snapshot.composing() && now-lastSpaceTime<600) {
             lastSpaceTime=0;
             delete();
             deliver(". ",false);
@@ -951,7 +1067,7 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private void toggleLanguage() {
         if(!ownsTarget() && !adoptCurrentConnection()) return;
-        if(directOnly) return;
+        if(directOnly || asciiOnly) return;
         // A failed write used to swallow this key. Retry it, then switch.
         if(!retained.isEmpty()) {
             retryRetained();
@@ -998,14 +1114,14 @@ public final class RimesInputMethodService extends InputMethodService {
                     if(nineKeyVisible()) return new String[]{"ABC","DEF","GHI","JKL","MNO","PQRS","TUV","WXYZ"}[Integer.parseInt(key.text)-2];
                     if(emoji) return key.text;
                     if(numeric) return shapedMark(key.text);
-                    return uppercase?key.text.toUpperCase(Locale.ROOT):key.text;
+                    return uppercase || capNextEnglish && english?key.text.toUpperCase(Locale.ROOT):key.text;
                 case SHIFT: return uppercase?"⇪":"⇧";
                 case DELETE: return "⌫";
                 case RETURN: return returnLabel();
                 case NUMBERS: return numeric?letterReturnLabel():"123";
                 case SYMBOLS: return numeric && symbols?"123":"#+=";
                 case LANGUAGE:
-                    if(english || directOnly) return "英";
+                    if(english || directOnly || asciiOnly) return "英";
                     return (schema.equals("rimes_flypy") || schema.equals("rimes_ziranma"))?"双":"中";
                 case EMOJI: return emoji?letterReturnLabel():"☺";
                 case SPACE: return english || directOnly?"space":"空格";
@@ -1033,13 +1149,13 @@ public final class RimesInputMethodService extends InputMethodService {
             }
         }
         @Override public boolean enabled(KeyboardLayout.Key key) {
-            if(key.action==KeyboardLayout.Action.LANGUAGE) return !directOnly;
+            if(key.action==KeyboardLayout.Action.LANGUAGE) return !directOnly && !asciiOnly;
             if(key.action==KeyboardLayout.Action.SPELLING) return pending==0 && !spellingChoices.isEmpty();
             if(key.action==KeyboardLayout.Action.SEPARATOR) return pending==0 && snapshot.composing() && !snapshot.raw.endsWith("'");
             return true;
         }
         @Override public boolean selected(KeyboardLayout.Key key) {
-            return key.action==KeyboardLayout.Action.SHIFT && uppercase || key.action==KeyboardLayout.Action.SPELLING && spellingOpen
+            return key.action==KeyboardLayout.Action.SHIFT && (uppercase || capNextEnglish && english) || key.action==KeyboardLayout.Action.SPELLING && spellingOpen
                     || key.action==KeyboardLayout.Action.RETURN && returnSelected();
         }
         @Override public boolean longPress(KeyboardLayout.Key key) {
@@ -1067,7 +1183,9 @@ public final class RimesInputMethodService extends InputMethodService {
                 case TEXT:
                     String text=uppercase && !numeric && !emoji?key.text.toUpperCase(Locale.ROOT):key.text;
                     type(shapedMark(text),biasX,biasY); break;
-                case SHIFT: settleAndSwitch(() -> uppercase=!uppercase); break;
+                case SHIFT:
+                    if(capNextEnglish) { capNextEnglish=false; render(); break; }
+                    settleAndSwitch(() -> uppercase=!uppercase); break;
                 case DELETE: delete(); break;
                 case RETURN: enter(); break;
                 case NUMBERS: toggleNumbers(); break;
@@ -1203,6 +1321,8 @@ public final class RimesInputMethodService extends InputMethodService {
         next=button(candidateRow,"›",() -> candidatePage(true),0); fixedWidth(next,32); ((KeyButton)next).plain(true); next.setContentDescription("下一页候选"); ((KeyButton)next).icon(KeyboardIcon.CHEVRON_RIGHT,16);
         next.setVisibility(View.GONE);
         candidateGridButton=button(candidateRow,"⌄",this::toggleCandidateGrid,0); fixedWidth(candidateGridButton,32); gapLeft(candidateGridButton,2); ((KeyButton)candidateGridButton).plain(true); candidateGridButton.setContentDescription("展开候选");
+        emailAtButton=button(candidateRow,"@",() -> type("@"),0); fixedWidth(emailAtButton,36); gapLeft(emailAtButton,2); emailAtButton.setContentDescription("at"); emailAtButton.setVisibility(View.GONE);
+        emailComButton=button(candidateRow,".com",() -> type(".com"),0); fixedWidth(emailComButton,52); gapLeft(emailComButton,2); emailComButton.setContentDescription(".com"); emailComButton.setVisibility(View.GONE);
         bufferButton=button(candidateRow,"▤",() -> { if(pending==0 && !snapshot.composing() && retained.isEmpty()) { cancelChord(); buffer.setEnabled(!buffer.isEnabled()); if(!buffer.isEnabled()) { cancelPlugin(); pluginSession.clear(); activePlugin=null; pluginSettingsOpen=false; } render(); } },0);
         fixedWidth(bufferButton,32); gapLeft(bufferButton,4); ((KeyButton)bufferButton).appearance(false,false,true); ((KeyButton)bufferButton).icon(KeyboardIcon.STACK_LAYERS);
         spellingRow=row(keyboard,34); spellingButtons.clear();
@@ -1423,7 +1543,7 @@ public final class RimesInputMethodService extends InputMethodService {
         boolean spellingKey=pending==0 && !spellingChoices.isEmpty();
         boolean separatorKey=pending==0 && snapshot.composing() && !snapshot.raw.endsWith("'");
         int night=getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK;
-        return visibleMode().name()+"|"+uppercase+"|"+english+"|"+directOnly+"|"+numeric+"|"+symbols+"|"+emoji
+        return visibleMode().name()+"|"+uppercase+"|"+capNextEnglish+"|"+english+"|"+directOnly+"|"+asciiOnly+"|"+emailField+"|"+numeric+"|"+symbols+"|"+emoji
                 +"|"+schema+"|"+returnLabel()+"|"+returnSelected()
                 +"|"+spellingKey+"|"+separatorKey+"|"+spellingOpen
                 +"|"+theme.id+"|"+night+"|"+Math.round(heightFactor*1000f)+"|"+landscape()+"|"+ready;
@@ -1447,7 +1567,7 @@ public final class RimesInputMethodService extends InputMethodService {
 
         String status=failed?getString(R.string.engine_failed):!ready?getString(R.string.engine_loading):"";
         if(!retained.isEmpty()) status=getString(R.string.delivery_pending);
-        else if(status.isEmpty() && snapshot.composing()) {
+        else if(status.isEmpty() && snapshot.composing() && englishDraft.isEmpty()) {
             status=!snapshot.preedit.isEmpty()?snapshot.preedit:snapshot.raw;
         } else if(status.isEmpty() && punctuationOpen) {
             status="中文标点";
@@ -1510,6 +1630,11 @@ public final class RimesInputMethodService extends InputMethodService {
         if(candidateGridButton!=null) {
             candidateGridButton.setVisibility(composing && !snapshot.candidates.isEmpty()?View.VISIBLE:View.GONE);
             candidateGridButton.setEnabled(!snapshot.candidates.isEmpty());
+        }
+        if(emailAtButton!=null) {
+            int mail=emailField && !emoji?View.VISIBLE:View.GONE;
+            emailAtButton.setVisibility(mail);
+            emailComButton.setVisibility(mail);
         }
         bufferRow.setVisibility(buffer.isEnabled()?View.VISIBLE:View.GONE);
         boolean plugin=buffer.isEnabled() && activePlugin!=null;
