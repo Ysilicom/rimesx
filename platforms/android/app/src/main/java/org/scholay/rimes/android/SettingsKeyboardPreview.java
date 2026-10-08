@@ -92,7 +92,7 @@ final class SettingsKeyboardPreview extends View {
         boolean chinese=getResources().getConfiguration().getLocales().get(0).getLanguage().equals("zh");
         switch(key.action) {
             case TEXT: if(nine) return NINE_LABELS[Integer.parseInt(key.text)]; return key.text;
-            case NUMBERS:return "123";case SYMBOLS:return "#+=";case LANGUAGE:return "中/En";
+            case NUMBERS:return "123";case SYMBOLS:return "符号";case LANGUAGE:return "中/En";
             case RETURN:return chinese?"换行":"return";case SPACE:return chinese?"空格":"space";
             case PUNCTUATION:return nine?"，。?!":chinese?"，。":",.";case SEPARATOR:return "分词";case SPELLING:return "拼音";default:return "";
         }

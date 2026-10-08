@@ -50,16 +50,17 @@ public final class KeyboardLayout {
             if(mode==Mode.EMOJI) {
                 for(int i=0;i<EMOJIS.length;i++) letter(result,EMOJIS[i],i%10,i/10,unit,row,capUnit,capHeight,gap,rowGap);
             } else if(mode==Mode.SYMBOLS) {
-                symbols(result,width,row,capHeight,gap,rowGap);
+                symbolPage(result,width,row,capHeight,gap,rowGap);
+            } else if(mode==Mode.NUMERIC) {
+                numberPage(result,width,row,capUnit,capHeight,gap,rowGap);
             } else {
-                String[] rows=mode==Mode.QWERTY?new String[]{"qwertyuiop","asdfghjkl","zxcvbnm"}
-                        :new String[]{"1234567890","-/:;()$&@\"",".,?!'"};
+                String[] rows=new String[]{"qwertyuiop","asdfghjkl","zxcvbnm"};
                 for(int r=0;r<3;r++) {
                     String letters=rows[r]; float start=(10-letters.length())/2f;
                     for(int i=0;i<letters.length();i++) letter(result,letters.substring(i,i+1),start+i,r,unit,row,capUnit,capHeight,gap,rowGap);
                 }
                 float sideWidth=Math.max(capUnit,width*0.115f);
-                add(result,mode==Mode.QWERTY?Action.SHIFT:Action.SYMBOLS,"",0,2*row,1.3f*unit,row,
+                add(result,Action.SHIFT,"",0,2*row,1.3f*unit,row,
                         0,2*(capHeight+rowGap),sideWidth,capHeight);
                 add(result,Action.DELETE,"",8.7f*unit,2*row,1.3f*unit,row,
                         width-sideWidth,2*(capHeight+rowGap),sideWidth,capHeight);
@@ -84,19 +85,47 @@ public final class KeyboardLayout {
         }
         return Collections.unmodifiableList(result);
     }
-    /** Eleven columns so the third row can hold ellipsis, dash and middle dot beside the page and delete keys. */
-    private static void symbols(List<Key> keys,float width,float row,float capHeight,float gap,float rowGap) {
-        int columns=11;
-        float unit=width/columns, capUnit=(width-(columns-1)*gap)/columns;
-        String[] rows=new String[]{"[]{}#%^*+=《","_\\|~<>€£¥•》",".,?!'…—·"};
-        for(int r=0;r<3;r++) {
-            String letters=rows[r]; float start=(columns-letters.length())/2f;
-            for(int i=0;i<letters.length();i++) letter(keys,letters.substring(i,i+1),start+i,r,unit,row,capUnit,capHeight,gap,rowGap);
+    /** Digits, then the 16 fixed marks. Row 3 fills the space between 符号 and delete. */
+    private static void numberPage(List<Key> keys,float width,float row,float capUnit,float capHeight,float gap,float rowGap) {
+        float unit=width/10f;
+        for(int i=0;i<10;i++) letter(keys,String.valueOf((i+1)%10),i,0,unit,row,capUnit,capHeight,gap,rowGap);
+        span(keys,Punctuation.NUMBER_ROW,1,width,row,capHeight,gap,rowGap);
+        between(keys,Punctuation.NUMBER_TAIL,width,row,capHeight,gap,rowGap);
+    }
+    /** One full page in place of #+=. The left key returns to 123. */
+    private static void symbolPage(List<Key> keys,float width,float row,float capHeight,float gap,float rowGap) {
+        span(keys,Punctuation.SYMBOL_TOP,0,width,row,capHeight,gap,rowGap);
+        span(keys,Punctuation.SYMBOL_MIDDLE,1,width,row,capHeight,gap,rowGap);
+        between(keys,Punctuation.SYMBOL_BOTTOM,width,row,capHeight,gap,rowGap);
+    }
+    /** Equal keys across the whole row. A mark may be more than one character. */
+    private static void span(List<Key> keys,String[] texts,int r,float width,float row,
+            float capHeight,float gap,float rowGap) {
+        int n=texts.length;
+        float unit=width/n, capUnit=(width-(n-1)*gap)/n;
+        for(int i=0;i<n;i++) add(keys,Action.TEXT,texts[i],i*unit,r*row,unit,row,
+                i*(capUnit+gap),r*(capHeight+rowGap),capUnit,capHeight);
+    }
+    /** Side keys keep the number-page size. The marks between them share the leftover width. */
+    private static void between(List<Key> keys,String[] texts,float width,float row,
+            float capHeight,float gap,float rowGap) {
+        float unit=width/10f, capUnit=(width-9*gap)/10f;
+        float sideTouch=1.3f*unit, sideWidth=Math.max(capUnit,width*0.115f);
+        float y=2*row, capY=2*(capHeight+rowGap);
+        add(keys,Action.SYMBOLS,"",0,y,sideTouch,row,0,capY,sideWidth,capHeight);
+        add(keys,Action.DELETE,"",width-sideTouch,y,sideTouch,row,width-sideWidth,capY,sideWidth,capHeight);
+        int n=texts.length;
+        float left=sideTouch, cell=(width-2*sideTouch)/n;
+        float visualLeft=sideWidth+gap, visualInner=width-2*sideWidth-2*gap;
+        float visualCell=n==1?visualInner:(visualInner-(n-1)*gap)/n;
+        for(int i=0;i<n;i++) {
+            float x=left+i*cell;
+            float capX=visualLeft+i*(visualCell+gap), capW=visualCell;
+            if(capX<x) { capW-=x-capX; capX=x; }
+            if(capX+capW>x+cell) capW=x+cell-capX;
+            if(capW<1f) { capX=x; capW=cell; }
+            add(keys,Action.TEXT,texts[i],x,y,cell,row,capX,capY,capW,capHeight);
         }
-        float sideUnits=1.4f, sideWidth=Math.max(capUnit,width*0.115f);
-        add(keys,Action.SYMBOLS,"",0,2*row,sideUnits*unit,row,0,2*(capHeight+rowGap),sideWidth,capHeight);
-        add(keys,Action.DELETE,"",width-sideUnits*unit,2*row,sideUnits*unit,row,
-                width-sideWidth,2*(capHeight+rowGap),sideWidth,capHeight);
     }
     private static void letter(List<Key> keys,String text,float column,int r,float unit,float row,
             float capUnit,float capHeight,float gap,float rowGap) {

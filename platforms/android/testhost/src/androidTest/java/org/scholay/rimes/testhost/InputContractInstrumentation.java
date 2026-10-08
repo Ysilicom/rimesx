@@ -176,10 +176,11 @@ public final class InputContractInstrumentation extends Instrumentation {
         // Idle candidate space is now the plugin bar. QWERTY punctuation lives on 123;
         // nine-key has its explicit selector, while the chord comma remains a direct key.
         if((value.equals(",") || value.equals(".")) && modern() && find(value,false)==null) {
+            String full=value.equals(",")?"，":"。";
             if(find("q",false)!=null) {
-                click("123"); click(value); click("ABC"); return;
+                click("123"); click(find(value,false)!=null?value:full); click("ABC"); return;
             }
-            if(find("中文标点",false)!=null) { click("中文标点"); click(value); return; }
+            if(find("中文标点",false)!=null) { click("中文标点"); click(find(value,false)!=null?value:full); return; }
         }
         if(value.startsWith("Buffer 插件：")) {
             for(int action:new int[]{AccessibilityNodeInfo.ACTION_SCROLL_FORWARD,AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD}) {

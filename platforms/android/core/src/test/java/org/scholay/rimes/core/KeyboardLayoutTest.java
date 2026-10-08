@@ -75,6 +75,55 @@ public class KeyboardLayoutTest {
     private static KeyboardLayout.Key find(List<KeyboardLayout.Key> keys,KeyboardLayout.Action action) {
         return keys.stream().filter(key -> key.action==action).findFirst().orElseThrow();
     }
+    @Test public void numberPageIsDigitsPlusTheSixteenFixedMarks() {
+        List<KeyboardLayout.Key> keys=KeyboardLayout.keys(360,false,KeyboardLayout.Mode.NUMERIC);
+        assertRows(texts(keys,0),new String[]{"1","2","3","4","5","6","7","8","9","0"});
+        assertRows(texts(keys,1),Punctuation.NUMBER_ROW);
+        assertRows(texts(keys,2),Punctuation.NUMBER_TAIL);
+        assertTrue(find(keys,KeyboardLayout.Action.SPACE).width>=360*0.4f);
+        assertNotNull(find(keys,KeyboardLayout.Action.LANGUAGE));
+        assertNotNull(find(keys,KeyboardLayout.Action.RETURN));
+        assertEquals(0,texts(keys,1).get(0).x,0.01);
+        assertEquals(360,texts(keys,1).get(9).x+texts(keys,1).get(9).width,0.01);
+        KeyboardLayout.Key symbols=find(keys,KeyboardLayout.Action.SYMBOLS);
+        KeyboardLayout.Key delete=find(keys,KeyboardLayout.Action.DELETE);
+        assertEquals(0,symbols.x,0.01);
+        assertEquals(360,delete.x+delete.width,0.01);
+        List<KeyboardLayout.Key> tail=texts(keys,2);
+        assertEquals(symbols.x+symbols.width,tail.get(0).x,0.01);
+        assertEquals(delete.x,tail.get(tail.size()-1).x+tail.get(tail.size()-1).width,0.01);
+        assertEquals("……",Punctuation.NUMBER_ROW[5]);
+        assertEquals("——",Punctuation.NUMBER_ROW[8]);
+    }
+    @Test public void symbolPageIsOneFullGridWithoutASecondScreen() {
+        List<KeyboardLayout.Key> keys=KeyboardLayout.keys(360,false,KeyboardLayout.Mode.SYMBOLS);
+        assertRows(texts(keys,0),Punctuation.SYMBOL_TOP);
+        assertRows(texts(keys,1),Punctuation.SYMBOL_MIDDLE);
+        assertRows(texts(keys,2),Punctuation.SYMBOL_BOTTOM);
+        assertEquals(10,texts(keys,0).size());
+        assertEquals(7,texts(keys,2).size());
+        assertEquals(0,texts(keys,0).get(0).x,0.01);
+        assertEquals(360,texts(keys,0).get(9).x+texts(keys,0).get(9).width,0.01);
+        assertNotNull(find(keys,KeyboardLayout.Action.SPACE));
+        assertNotNull(find(keys,KeyboardLayout.Action.LANGUAGE));
+        assertNotNull(find(keys,KeyboardLayout.Action.RETURN));
+        for(KeyboardLayout.Key key:keys) {
+            assertFalse(key.text.contains("€"));
+            assertFalse(key.text.contains("×"));
+            assertFalse(key.text.contains("①"));
+        }
+    }
+    private static List<KeyboardLayout.Key> texts(List<KeyboardLayout.Key> keys,int row) {
+        float y=KeyboardLayout.height(false)/4f*row;
+        List<KeyboardLayout.Key> found=new java.util.ArrayList<>();
+        for(KeyboardLayout.Key key:keys) if(key.action==KeyboardLayout.Action.TEXT && Math.abs(key.y-y)<0.01) found.add(key);
+        found.sort((a,b) -> Float.compare(a.x,b.x));
+        return found;
+    }
+    private static void assertRows(List<KeyboardLayout.Key> keys,String[] expected) {
+        assertEquals(expected.length,keys.size());
+        for(int i=0;i<expected.length;i++) assertEquals(expected[i],keys.get(i).text);
+    }
     @Test public void spellingChoicesConstrainOnlyTheFirstPendingSyllable() {
         NineKeyPinyin spelling=new NineKeyPinyin(List.of("ni","mi","hao","gao","ha","n","foo!"));
         assertEquals("64426",NineKeyPinyin.digits("nihao"));
