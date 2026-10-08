@@ -118,6 +118,8 @@ public final class RimesInputMethodService extends InputMethodService {
     private Button bufferButton, retryButton, previous, next, insertNext;
     private final List<KeyButton> candidates=new ArrayList<>();
     private boolean uppercase, numeric, directOnly, privateField, english, ready, failed, destroyed;
+    /** The bound field can switch 中/英. A typeless restart must not turn that off. */
+    private boolean textFieldLive;
     private boolean hostComposing;
     private int pending, selection=-1, selectionStart=-1, composingStart=-1;
     private String schema="rimes_pinyin", retained="";
@@ -174,7 +176,7 @@ public final class RimesInputMethodService extends InputMethodService {
         super.onStartInput(info,restarting);
         endTarget();
         target=getCurrentInputConnection();
-        configure(info);
+        bindInput(info,restarting);
     }
     private void configure(EditorInfo info) {
         restoreSettings();
@@ -183,6 +185,7 @@ public final class RimesInputMethodService extends InputMethodService {
         visiblePassword=kind==InputType.TYPE_CLASS_TEXT
                 && (info.inputType&InputType.TYPE_MASK_VARIATION)==InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD;
         directOnly=numeric || isPassword(info) || kind!=InputType.TYPE_CLASS_TEXT;
+        textFieldLive=!directOnly;
         privateField=!allowsBuffer(info) || visiblePassword;
         uppercase=false; symbols=false; emoji=false; appearanceOpen=false; spellingOpen=false; punctuationOpen=false; clipboardOpen=false; candidateGridOpen=false;
         selection=info.initialSelEnd; selectionStart=info.initialSelStart;
@@ -191,7 +194,7 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     @Override public void onStartInputView(EditorInfo info,boolean restarting) {
         super.onStartInputView(info,restarting);
-        if(target==null) { target=getCurrentInputConnection(); configure(info); }
+        if(target==null) { target=getCurrentInputConnection(); bindInput(info,restarting || textFieldLive); }
         captureClipboard();
         render();
     }
@@ -226,8 +229,8 @@ public final class RimesInputMethodService extends InputMethodService {
     private void engineFailure() { if(!destroyed) { failed=true; ready=false; render(); } }
     @Override public boolean onEvaluateFullscreenMode() { return false; }
     @Override public void onFinishInputView(boolean finishingInput) { endTarget(); super.onFinishInputView(finishingInput); }
-    @Override public void onFinishInput() { endTarget(); super.onFinishInput(); }
-    @Override public void onUnbindInput() { endTarget(); super.onUnbindInput(); }
+    @Override public void onFinishInput() { textFieldLive=false; endTarget(); super.onFinishInput(); }
+    @Override public void onUnbindInput() { textFieldLive=false; endTarget(); super.onUnbindInput(); }
     @Override public void onDestroy() {
         if(clipboardManager!=null) clipboardManager.removePrimaryClipChangedListener(clipboardListener);
         preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener);
@@ -347,6 +350,24 @@ public final class RimesInputMethodService extends InputMethodService {
                 && (info.imeOptions&EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING)==0;
     }
     private boolean ownsTarget() { return !destroyed && target!=null && target==getCurrentInputConnection(); }
+    private static boolean typeless(EditorInfo info) {
+        return info==null || (info.inputType&InputType.TYPE_MASK_CLASS)==InputType.TYPE_NULL;
+    }
+    /** Attach the current editor. A typeless restart keeps the last text field, so 中/英 stays available. */
+    private void bindInput(EditorInfo info,boolean allowKeep) {
+        if(allowKeep && typeless(info) && textFieldLive) { resetEngine(); render(); return; }
+        if(info==null) { resetEngine(); render(); return; }
+        configure(info);
+    }
+    /** Haven replaces the connection while the keyboard stays up. Adopt it instead of dropping the session. */
+    private boolean adoptCurrentConnection() {
+        if(destroyed) return false;
+        InputConnection current=getCurrentInputConnection();
+        if(current==null || current==target) return false;
+        target=current;
+        bindInput(getCurrentInputEditorInfo(),true);
+        return ownsTarget();
+    }
 
     private interface Operation { Result run(); }
     private static final class Result {
@@ -361,7 +382,7 @@ public final class RimesInputMethodService extends InputMethodService {
         dispatch(operation,false);
     }
     private void dispatch(Operation operation,boolean policyChange) {
-        if(!ownsTarget()) { endTarget(); return; }
+        if(!ownsTarget() && !adoptCurrentConnection()) return;
         if(!policyChange && !retained.isEmpty()) { notice(R.string.delivery_pending); return; }
         InputEpoch.Ticket ticket=epoch.issue(); InputConnection connection=target;
         pending++;
@@ -420,7 +441,7 @@ public final class RimesInputMethodService extends InputMethodService {
         type(text,0f,0f);
     }
     private void type(String text,float biasX,float biasY) {
-        if(!ownsTarget()) return;
+        if(!ownsTarget() && !adoptCurrentConnection()) return;
         invalidatePlugin();
         if(!ready) {
             if(!retained.isEmpty()) { notice(R.string.delivery_pending); return; }
@@ -791,6 +812,7 @@ public final class RimesInputMethodService extends InputMethodService {
         cancelChord();
         if(!retained.isEmpty()) return;
         if(!ready) { change.run(); render(); return; }
+        if(!ownsTarget() && !adoptCurrentConnection()) return;
         // Route settlement before applying the new mode; subsequent keys queue after it.
         dispatch(() -> literal(""));
         change.run();
@@ -911,7 +933,8 @@ public final class RimesInputMethodService extends InputMethodService {
         type(" ");
     }
     private void typeChord(String code) {
-        if(code.isEmpty() || !ownsTarget() || !ready) return;
+        if(code.isEmpty() || !ready) return;
+        if(!ownsTarget() && !adoptCurrentConnection()) return;
         invalidatePlugin();
         final boolean chinese=!english && !directOnly && !uppercase;
         final String literalCode=uppercase?code.toUpperCase(Locale.ROOT):code;
@@ -927,6 +950,13 @@ public final class RimesInputMethodService extends InputMethodService {
         });
     }
     private void toggleLanguage() {
+        if(!ownsTarget() && !adoptCurrentConnection()) return;
+        if(directOnly) return;
+        // A failed write used to swallow this key. Retry it, then switch.
+        if(!retained.isEmpty()) {
+            retryRetained();
+            if(!retained.isEmpty()) { notice(buffer.isEnabled()?R.string.buffer_limit:R.string.delivery_pending); return; }
+        }
         settleAndSwitch(() -> { english=!english; uppercase=false; spellingOpen=false; punctuationOpen=false; });
     }
     private void toggleNumbers() {
