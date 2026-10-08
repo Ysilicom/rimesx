@@ -29,6 +29,7 @@ enum KeyboardIcon {
     APPEARANCE(R.drawable.rimes_icon_appearance),
     SPACE(R.drawable.rimes_icon_space),
     KEYBOARD(R.drawable.rimes_icon_keyboard),
+    HIDE_KEYBOARD(R.drawable.rimes_icon_hide_keyboard),
     CLEAR(R.drawable.rimes_icon_clear),
     WRITE(R.drawable.rimes_icon_write);
 

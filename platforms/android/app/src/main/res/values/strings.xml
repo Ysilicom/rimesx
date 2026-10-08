@@ -16,6 +16,7 @@
     <string name="space">Space</string>
     <string name="enter">Enter</string>
     <string name="switch_keyboard">Switch keyboard</string>
+    <string name="hide_keyboard">Hide keyboard</string>
     <string name="buffer_limit">Buffer is full. Insert or clear it first.</string>
     <string name="learning">Learn words on this device</string>
     <string name="learning_detail">Candidate selections improve your local dictionary. Turning this off preserves existing learning. Private fields never learn. No full typing history is stored.</string>

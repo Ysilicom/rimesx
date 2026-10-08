@@ -16,6 +16,7 @@
     <string name="space">空格</string>
     <string name="enter">回车</string>
     <string name="switch_keyboard">切换键盘</string>
+    <string name="hide_keyboard">收起键盘</string>
     <string name="buffer_limit">Buffer 已满，请先插入或清空。</string>
     <string name="learning">本机词库学习</string>
     <string name="learning_detail">选词可改善本机词库。关闭学习保留已有数据，私密字段始终不学习，不保存完整输入历史。</string>

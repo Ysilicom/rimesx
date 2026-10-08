@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import org.scholay.rimes.core.BufferSession;
+import org.scholay.rimes.core.EditorKind;
 import org.scholay.rimes.core.InputEpoch;
 import org.scholay.rimes.core.PluginSession;
 import org.scholay.rimes.core.RimeEngine;
@@ -83,7 +84,7 @@ public final class RimesInputMethodService extends InputMethodService {
     private LinearLayout bufferTop,bufferBottom;
     private KeyButton bufferSettings,pluginButton,pluginRunButton;
     private FrameLayout surfaceContainer;
-    private KeyButton themeButton,layoutButton;
+    private KeyButton themeButton,layoutButton,hideKeyboardButton;
     private final List<KeyButton> chromeButtons=new ArrayList<>();
     private KeyboardTheme theme=KeyboardTheme.ALL[0];
     private String layout="qwerty";
@@ -91,12 +92,10 @@ public final class RimesInputMethodService extends InputMethodService {
     private int heightPercent=100;
     private int bottomInset=0;
     private long lastSpaceTime=0;
-    private boolean visiblePassword, noSuggestions, asciiOnly, emailField, englishBeforeField;
+    private boolean visiblePassword, noSuggestions, asciiOnly, emailField, englishBeforeField, noLearning;
     /** Letters already in the box that an English suggestion may replace. */
     private String englishDraft="";
     private static final int DRAFT_NONE=0, DRAFT_APPEND=1, DRAFT_CLEAR=2, DRAFT_BACKSPACE=3, DRAFT_REPLACE=4;
-    /** EditorInfo.IME_FLAG_FORCE_ASCII. The field asked for Latin letters only. */
-    private static final int IME_FLAG_FORCE_ASCII=0x80000000;
     private boolean symbols,emoji,appearanceOpen,spellingOpen,punctuationOpen,clipboardOpen,candidateGridOpen;
     private ClipboardPanel clipboardPanel;
     private CandidateGridPanel candidateGridPanel;
@@ -141,7 +140,7 @@ public final class RimesInputMethodService extends InputMethodService {
     private Button bufferButton, retryButton, previous, next, insertNext;
     private final List<KeyButton> candidates=new ArrayList<>();
     private boolean uppercase, numeric, directOnly, privateField, english, ready, failed, destroyed;
-    /** The bound field can switch 中/英. A typeless restart must not turn that off. */
+    /** The bound field can switch 中/英. A typeless restart keeps this, and keeps a password lock. */
     private boolean textFieldLive;
     private boolean hostComposing;
     private int pending, selection=-1, selectionStart=-1, composingStart=-1;
@@ -208,17 +207,18 @@ public final class RimesInputMethodService extends InputMethodService {
         numeric=kind==InputType.TYPE_CLASS_NUMBER || kind==InputType.TYPE_CLASS_PHONE || kind==InputType.TYPE_CLASS_DATETIME;
         visiblePassword=kind==InputType.TYPE_CLASS_TEXT
                 && (info.inputType&InputType.TYPE_MASK_VARIATION)==InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD;
-        directOnly=numeric || isPassword(info) || kind!=InputType.TYPE_CLASS_TEXT;
+        directOnly=EditorKind.directOnly(info.inputType);
         textFieldLive=!directOnly;
+        noLearning=(info.imeOptions&EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING)!=0;
         privateField=!allowsBuffer(info) || visiblePassword;
         int textFlags=info.inputType&InputType.TYPE_MASK_FLAGS;
         noSuggestions=kind==InputType.TYPE_CLASS_TEXT && (textFlags&InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS)!=0;
-        asciiOnly=(info.imeOptions&IME_FLAG_FORCE_ASCII)!=0;
         boolean nextEmail=isEmailOrUri(info);
         if(nextEmail && !emailField) { englishBeforeField=english; english=true; }
         else if(!nextEmail && emailField) english=englishBeforeField;
         emailField=nextEmail;
-        if(asciiOnly) english=true;
+        if(EditorKind.enterAscii(asciiOnly,info.imeOptions)) english=true;
+        asciiOnly=EditorKind.asciiRequested(info.imeOptions);
         englishDraft="";
         uppercase=false; symbols=false; emoji=false; appearanceOpen=false; spellingOpen=false; punctuationOpen=false; clipboardOpen=false; candidateGridOpen=false;
         selection=info.initialSelEnd; selectionStart=info.initialSelStart;
@@ -244,7 +244,7 @@ public final class RimesInputMethodService extends InputMethodService {
         if(englishComposingField()) return "rimes_english";
         String base=chordLayout()?"rimes_ziranma":nineKeyEngine()?"rimes_pinyin9":schema;
         if(mixedEnglish && ("rimes_pinyin".equals(base) || "rimes_ziranma".equals(base) || "rimes_flypy".equals(base))) base+="_mix";
-        if(privateField || !learningEnabled) base+="_private";
+        if(privateField || noLearning || !learningEnabled) base+="_private";
         return base;
     }
     private void resetEngine() {
@@ -262,8 +262,8 @@ public final class RimesInputMethodService extends InputMethodService {
     private void engineFailure() { if(!destroyed) { failed=true; ready=false; render(); } }
     @Override public boolean onEvaluateFullscreenMode() { return false; }
     @Override public void onFinishInputView(boolean finishingInput) { endTarget(); super.onFinishInputView(finishingInput); }
-    @Override public void onFinishInput() { textFieldLive=false; endTarget(); super.onFinishInput(); }
-    @Override public void onUnbindInput() { textFieldLive=false; endTarget(); super.onUnbindInput(); }
+    @Override public void onFinishInput() { textFieldLive=false; asciiOnly=false; endTarget(); super.onFinishInput(); }
+    @Override public void onUnbindInput() { textFieldLive=false; asciiOnly=false; endTarget(); super.onUnbindInput(); }
     @Override public void onDestroy() {
         if(clipboardManager!=null) clipboardManager.removePrimaryClipChangedListener(clipboardListener);
         preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener);
@@ -343,7 +343,7 @@ public final class RimesInputMethodService extends InputMethodService {
             if(saved.learning==learningEnabled) return;
             learningEnabled=saved.learning;
             // A private field already uses the private schema, so this switch does not change it.
-            if(!ready || !ownsTarget() || privateField) return;
+            if(!ready || !ownsTarget() || privateField || noLearning) return;
             switchInputSchema();
             return;
         }
@@ -389,23 +389,16 @@ public final class RimesInputMethodService extends InputMethodService {
                 || variation==InputType.TYPE_TEXT_VARIATION_URI;
     }
     static boolean isPassword(EditorInfo info) {
-        int kind=info.inputType&InputType.TYPE_MASK_CLASS, variation=info.inputType&InputType.TYPE_MASK_VARIATION;
-        return kind==InputType.TYPE_CLASS_NUMBER && variation==InputType.TYPE_NUMBER_VARIATION_PASSWORD
-                || kind==InputType.TYPE_CLASS_TEXT && (variation==InputType.TYPE_TEXT_VARIATION_PASSWORD
-                || variation==InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD);
+        return EditorKind.password(info.inputType);
     }
     static boolean allowsBuffer(EditorInfo info) {
-        return (info.inputType&InputType.TYPE_MASK_CLASS)==InputType.TYPE_CLASS_TEXT && !isPassword(info)
-                && (info.inputType&InputType.TYPE_MASK_VARIATION)!=InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-                && (info.imeOptions&EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING)==0;
+        return EditorKind.showsTools(info.inputType,info.imeOptions);
     }
     private boolean ownsTarget() { return !destroyed && target!=null && target==getCurrentInputConnection(); }
-    private static boolean typeless(EditorInfo info) {
-        return info==null || (info.inputType&InputType.TYPE_MASK_CLASS)==InputType.TYPE_NULL;
-    }
-    /** Attach the current editor. A typeless restart keeps the last text field, so 中/英 stays available. */
+    /** Attach the current editor. A typeless restart keeps the field already bound. */
     private void bindInput(EditorInfo info,boolean allowKeep) {
-        if(allowKeep && typeless(info) && textFieldLive) { resetEngine(); render(); return; }
+        int type=info==null?EditorKind.TYPE_NULL:info.inputType;
+        if(EditorKind.keepTypelessRestart(allowKeep,type,textFieldLive,directOnly)) { resetEngine(); render(); return; }
         if(info==null) { resetEngine(); render(); return; }
         configure(info);
     }
@@ -1078,7 +1071,7 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private void toggleLanguage() {
         if(!ownsTarget() && !adoptCurrentConnection()) return;
-        if(directOnly || asciiOnly) return;
+        if(directOnly) return;
         // A failed write used to swallow this key. Retry it, then switch.
         if(!retained.isEmpty()) {
             retryRetained();
@@ -1132,7 +1125,7 @@ public final class RimesInputMethodService extends InputMethodService {
                 case NUMBERS: return numeric?letterReturnLabel():"123";
                 case SYMBOLS: return numeric && symbols?"123":"符号";
                 case LANGUAGE:
-                    if(english || directOnly || asciiOnly) return "英";
+                    if(english || directOnly) return "英";
                     return (schema.equals("rimes_flypy") || schema.equals("rimes_ziranma"))?"双":"中";
                 case EMOJI: return emoji?letterReturnLabel():"☺";
                 case SPACE: return english || directOnly?"space":"空格";
@@ -1160,7 +1153,7 @@ public final class RimesInputMethodService extends InputMethodService {
             }
         }
         @Override public boolean enabled(KeyboardLayout.Key key) {
-            if(key.action==KeyboardLayout.Action.LANGUAGE) return !directOnly && !asciiOnly;
+            if(key.action==KeyboardLayout.Action.LANGUAGE) return !directOnly;
             if(key.action==KeyboardLayout.Action.SPELLING) return pending==0 && !spellingChoices.isEmpty();
             if(key.action==KeyboardLayout.Action.SEPARATOR) return pending==0 && snapshot.composing() && !snapshot.raw.endsWith("'");
             return true;
@@ -1305,6 +1298,8 @@ public final class RimesInputMethodService extends InputMethodService {
         pluginRunButton=button(details,"执行",this::runOrCancelPlugin,0); fixedWidth(pluginRunButton,32); gapLeft(pluginRunButton,4); pluginRunButton.icon(KeyboardIcon.PLAY);
         pluginButton=button(details,"插件",() -> openPluginSettings(activePlugin),0); fixedWidth(pluginButton,32); gapLeft(pluginButton,4); pluginButton.icon(KeyboardIcon.GRID_9); pluginButton.setContentDescription("Buffer 插件设置");
         candidateRow=row(keyboard,landscape()?50:64);
+        hideKeyboardButton=button(candidateRow,"",this::hideKeyboard,0); fixedWidth(hideKeyboardButton,32); gapRight(hideKeyboardButton,4);
+        hideKeyboardButton.icon(KeyboardIcon.HIDE_KEYBOARD); hideKeyboardButton.setContentDescription(getString(R.string.hide_keyboard));
         layoutButton=button(candidateRow,"⚙",this::toggleAppearance,0); fixedWidth(layoutButton,32); gapRight(layoutButton,4); layoutButton.setContentDescription("键位布局"); layoutButton.icon(KeyboardIcon.SETTINGS);
         previous=button(candidateRow,"‹",() -> candidatePage(false),0); fixedWidth(previous,32); ((KeyButton)previous).plain(true); previous.setContentDescription("上一页候选"); ((KeyButton)previous).icon(KeyboardIcon.CHEVRON_LEFT,16);
         previous.setVisibility(View.GONE);
@@ -1543,13 +1538,15 @@ public final class RimesInputMethodService extends InputMethodService {
         if(spellingOpen) { spellingPage=Math.max(0,Math.min(((spellingChoices.size()-1)/9)*9,spellingPage+(forward?9:-9))); render(); }
         else page(forward);
     }
-    /** Ten marks on screen, the same width as the digit keys. Six more sit to the right. */
+    /** Ten marks fit in the strip. The dismiss key keeps its own column on the left. */
     private int weightCellWidth() {
-        int span=candidateRow==null?0:candidateRow.getWidth();
+        int span=candidateScroll!=null?candidateScroll.getWidth():0;
+        if(span<=0 && candidateRow!=null) span=candidateRow.getWidth();
         if(span<=0 && keyboard!=null) span=keyboard.getWidth()-keyboard.getPaddingLeft()-keyboard.getPaddingRight();
         if(span<=0) span=getResources().getDisplayMetrics().widthPixels;
         return Math.max(1,span/10);
     }
+    private void hideKeyboard() { requestHideSelf(0); }
     private void applyStripCell(KeyButton item,boolean weight,int cell) {
         LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)item.getLayoutParams();
         int width=weight?cell:LinearLayout.LayoutParams.WRAP_CONTENT;
@@ -1667,6 +1664,7 @@ public final class RimesInputMethodService extends InputMethodService {
         bufferButton.setVisibility(composing?View.GONE:View.VISIBLE);
         toolbarSlot(layoutButton,shortcuts);
         toolbarSlot(bufferButton,shortcuts);
+        toolbarSlot(hideKeyboardButton,shortcuts);
         previous.setVisibility(View.GONE);
         next.setVisibility(View.GONE);
         if(candidateGridButton!=null) {
