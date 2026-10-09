@@ -42,17 +42,12 @@ public final class EditorKind {
         return restarting && (inputType&MASK_CLASS)==TYPE_NULL && (textFieldLive || directOnly);
     }
     /**
-     * Clipboard and AI stay on an editor that names no class.
-     * A hidden password, a visible password, a phone or date, and a text field that
-     * refuses learning stay without those tools.
+     * Clipboard and AI stay off a hidden password.
+     * A phone, a date, a visible password, and a field that names no class still show them.
+     * A no-learning flag does not hide the tools.
      */
     public static boolean showsTools(int inputType,int imeOptions) {
-        int kind=inputType&MASK_CLASS;
-        if(password(inputType)) return false;
-        if((inputType&MASK_VARIATION)==TEXT_VISIBLE_PASSWORD) return false;
-        if(kind==TYPE_NULL) return true;
-        if(kind!=CLASS_TEXT) return false;
-        return (imeOptions&NO_PERSONALIZED_LEARNING)==0;
+        return !password(inputType);
     }
     public static boolean asciiRequested(int imeOptions) { return (imeOptions&FORCE_ASCII)!=0; }
     /** True only on the visit that newly asks for Latin, so a restart keeps the user's 中/英 choice. */

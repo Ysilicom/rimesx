@@ -92,7 +92,7 @@ public final class RimesInputMethodService extends InputMethodService {
     private int heightPercent=100;
     private int bottomInset=0;
     private long lastSpaceTime=0;
-    private boolean visiblePassword, noSuggestions, asciiOnly, emailField, englishBeforeField, noLearning;
+    private boolean visiblePassword, noSuggestions, asciiOnly, emailField, englishBeforeField, noLearning, passwordField;
     /** Letters already in the box that an English suggestion may replace. */
     private String englishDraft="";
     private static final int DRAFT_NONE=0, DRAFT_APPEND=1, DRAFT_CLEAR=2, DRAFT_BACKSPACE=3, DRAFT_REPLACE=4;
@@ -123,10 +123,10 @@ public final class RimesInputMethodService extends InputMethodService {
             default: return mark;
         }
     }
-    /** Count the mark that lands, then type it. Letter comma still goes through the punctuator. */
+    /** Count the mark that lands, then type it. A hidden password does not move the weight row. */
     private void typePunctuation(String engineText,String counted) {
         if(!ownsTarget() && !adoptCurrentConnection()) return;
-        if(punctuationWeights!=null) punctuationWeights.note(counted,halfwidthMarks());
+        if(punctuationWeights!=null && !passwordField) punctuationWeights.note(counted,halfwidthMarks());
         type(engineText);
     }
     private TextView preedit;
@@ -210,7 +210,8 @@ public final class RimesInputMethodService extends InputMethodService {
         directOnly=EditorKind.directOnly(info.inputType);
         textFieldLive=!directOnly;
         noLearning=(info.imeOptions&EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING)!=0;
-        privateField=!allowsBuffer(info) || visiblePassword;
+        passwordField=EditorKind.password(info.inputType);
+        privateField=!allowsBuffer(info);
         int textFlags=info.inputType&InputType.TYPE_MASK_FLAGS;
         noSuggestions=kind==InputType.TYPE_CLASS_TEXT && (textFlags&InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS)!=0;
         boolean nextEmail=isEmailOrUri(info);
@@ -262,8 +263,8 @@ public final class RimesInputMethodService extends InputMethodService {
     private void engineFailure() { if(!destroyed) { failed=true; ready=false; render(); } }
     @Override public boolean onEvaluateFullscreenMode() { return false; }
     @Override public void onFinishInputView(boolean finishingInput) { endTarget(); super.onFinishInputView(finishingInput); }
-    @Override public void onFinishInput() { textFieldLive=false; asciiOnly=false; endTarget(); super.onFinishInput(); }
-    @Override public void onUnbindInput() { textFieldLive=false; asciiOnly=false; endTarget(); super.onUnbindInput(); }
+    @Override public void onFinishInput() { textFieldLive=false; asciiOnly=false; passwordField=false; endTarget(); super.onFinishInput(); }
+    @Override public void onUnbindInput() { textFieldLive=false; asciiOnly=false; passwordField=false; endTarget(); super.onUnbindInput(); }
     @Override public void onDestroy() {
         if(clipboardManager!=null) clipboardManager.removePrimaryClipChangedListener(clipboardListener);
         preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener);
@@ -1619,7 +1620,7 @@ public final class RimesInputMethodService extends InputMethodService {
         boolean idle=!snapshot.composing() && snapshot.candidates.isEmpty() && heldPreview==null && chordPreview.isEmpty() && !chords.isChordActive() && !showWeight && status.isEmpty();
         // Keep one height with or without candidates. Shrinking the idle row
         // resizes the keyboard and jumps the editor on every syllable.
-        boolean shortcuts=idle && !privateField && !directOnly;
+        boolean shortcuts=idle && !privateField;
         int desiredRowHeight=dp(landscape()?50:64);
         if(candidateRow.getLayoutParams().height!=desiredRowHeight) {
             candidateRow.getLayoutParams().height=desiredRowHeight;

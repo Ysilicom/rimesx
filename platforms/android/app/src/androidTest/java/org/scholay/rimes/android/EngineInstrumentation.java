@@ -102,15 +102,20 @@ public final class EngineInstrumentation extends Instrumentation {
             }).get(10,java.util.concurrent.TimeUnit.SECONDS);
             android.view.inputmethod.EditorInfo info=new android.view.inputmethod.EditorInfo();
             for(int type:new int[]{android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD,
-                    android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
                     android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
                     android.text.InputType.TYPE_CLASS_NUMBER|android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD}) {
                 info.inputType=type;
                 if(!RimesInputMethodService.isPassword(info) || RimesInputMethodService.allowsBuffer(info)) throw new AssertionError("password policy");
             }
+            info.inputType=android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD;
+            info.imeOptions=0;
+            if(RimesInputMethodService.isPassword(info) || !RimesInputMethodService.allowsBuffer(info)) throw new AssertionError("visible password policy");
             info.inputType=android.text.InputType.TYPE_CLASS_TEXT;
             info.imeOptions=android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING;
-            if(RimesInputMethodService.isPassword(info) || RimesInputMethodService.allowsBuffer(info)) throw new AssertionError("private field policy");
+            if(RimesInputMethodService.isPassword(info) || !RimesInputMethodService.allowsBuffer(info)) throw new AssertionError("private field policy");
+            info.inputType=android.text.InputType.TYPE_CLASS_PHONE;
+            info.imeOptions=0;
+            if(RimesInputMethodService.isPassword(info) || !RimesInputMethodService.allowsBuffer(info)) throw new AssertionError("phone policy");
             result.putString("stream","PASS 18 keycap palettes in light/dark/pressed states and scrolled text; Buffer text/chips/large viewport; JNI Chinese/non-BMP/NUL round trips, UTF-16 preedit caret, resources, nine-key normal/private schemas and platform password/private policies\n"+bufferRenderingResult); finish(-1,result);
         } catch(Throwable error) { result.putString("stream","FAIL "+android.util.Log.getStackTraceString(error)); finish(0,result); }
     }

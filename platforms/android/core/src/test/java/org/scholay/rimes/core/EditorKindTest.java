@@ -31,11 +31,13 @@ public class EditorKindTest {
         assertTrue(EditorKind.showsTools(EditorKind.TYPE_NULL,0));
         assertTrue(EditorKind.showsTools(EditorKind.TYPE_NULL,EditorKind.NO_PERSONALIZED_LEARNING));
         assertTrue(EditorKind.showsTools(EditorKind.CLASS_TEXT,0));
-        assertFalse(EditorKind.showsTools(EditorKind.CLASS_TEXT,EditorKind.NO_PERSONALIZED_LEARNING));
+        assertTrue(EditorKind.showsTools(EditorKind.CLASS_TEXT,EditorKind.NO_PERSONALIZED_LEARNING));
         assertFalse(EditorKind.showsTools(EditorKind.CLASS_TEXT|EditorKind.TEXT_PASSWORD,0));
-        assertFalse(EditorKind.showsTools(EditorKind.CLASS_TEXT|EditorKind.TEXT_VISIBLE_PASSWORD,0));
-        assertFalse(EditorKind.showsTools(EditorKind.CLASS_PHONE,0));
-        assertFalse(EditorKind.showsTools(EditorKind.CLASS_DATETIME,0));
+        assertFalse(EditorKind.showsTools(EditorKind.CLASS_TEXT|EditorKind.TEXT_WEB_PASSWORD,0));
+        assertFalse(EditorKind.showsTools(EditorKind.CLASS_NUMBER|EditorKind.NUMBER_PASSWORD,0));
+        assertTrue(EditorKind.showsTools(EditorKind.CLASS_TEXT|EditorKind.TEXT_VISIBLE_PASSWORD,0));
+        assertTrue(EditorKind.showsTools(EditorKind.CLASS_PHONE,0));
+        assertTrue(EditorKind.showsTools(EditorKind.CLASS_DATETIME,0));
     }
     @Test public void asciiRequestStartsEnglishOnce() {
         assertTrue(EditorKind.enterAscii(false,EditorKind.FORCE_ASCII));
