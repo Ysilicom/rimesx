@@ -8,7 +8,6 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import java.util.List;
-import java.util.function.Consumer;
 import org.scholay.rimes.core.KeyboardLayout;
 
 /** Measured geometry owns every key width. Candidate refreshes never rebuild the touch surface. */
@@ -22,6 +21,11 @@ final class KeyboardSurface extends ViewGroup {
         default void press(KeyboardLayout.Key key, float biasX, float biasY) { press(key); }
         default boolean longPress(KeyboardLayout.Key key) { return false; }
         default void slideCursor(int steps) {}
+        /** Negative is the previous line. */
+        default void slideCursorLine(int lines) {}
+        /** Space hold or sideways drag. The key area becomes the cursor pad until release. */
+        default void beginCursorPad() {}
+        default void endCursorPad() {}
         /** Swipe up on delete. A tap still deletes one character. */
         default void clearAll() {}
         default String hint(KeyboardLayout.Key key) { return hintForLetter(key.text); }
@@ -43,7 +47,7 @@ final class KeyboardSurface extends ViewGroup {
                 if(key.action==KeyboardLayout.Action.DELETE) {
                     setupDeleteRepeat(button,() -> handler.press(key));
                 } else if(key.action==KeyboardLayout.Action.SPACE) {
-                    setupSpaceCursorSlide(button,steps -> handler.slideCursor(steps));
+                    setupSpaceCursorSlide(button);
                 }
                 addView(button);
             }
@@ -135,40 +139,74 @@ final class KeyboardSurface extends ViewGroup {
             }
         });
     }
-    private void setupSpaceCursorSlide(KeyButton button,Consumer<Integer> onSlide) {
-        final float stepPx=16f*getResources().getDisplayMetrics().density;
+    private void setupSpaceCursorSlide(KeyButton button) {
+        final float density=getResources().getDisplayMetrics().density;
+        final float stepPx=16f*density,linePx=24f*density;
+        final android.os.Handler mainHandler=new android.os.Handler(Looper.getMainLooper());
         button.setOnTouchListener(new OnTouchListener() {
-            private float downX,downY,lastStepX;
-            private boolean sliding=false;
+            private float downX,downY,lastX,lastY,stepX,stepY;
+            private boolean pad,fingerDown;
+            private final Runnable hold=new Runnable() {
+                @Override public void run() {
+                    if(!fingerDown || pad || !button.isAttachedToWindow()) return;
+                    openPad();
+                    track(lastX,lastY);
+                }
+            };
+            private void openPad() {
+                if(pad) return;
+                pad=true;
+                mainHandler.removeCallbacks(hold);
+                button.cancelLongPress();
+                button.setPressed(false);
+                button.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK);
+                handler.beginCursorPad();
+            }
+            private void track(float x,float y) {
+                float dx=x-stepX;
+                if(Math.abs(dx)>=stepPx) {
+                    int steps=(int)(dx/stepPx);
+                    stepX+=steps*stepPx;
+                    if(steps!=0) handler.slideCursor(steps);
+                }
+                float dy=y-stepY;
+                if(Math.abs(dy)>=linePx) {
+                    int lines=(int)(dy/linePx);
+                    stepY+=lines*linePx;
+                    if(lines!=0) handler.slideCursorLine(lines);
+                }
+            }
             @Override public boolean onTouch(View v,MotionEvent event) {
                 switch(event.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
-                        downX=event.getRawX(); downY=event.getRawY(); lastStepX=downX; sliding=false;
+                        downX=lastX=stepX=event.getRawX();
+                        downY=lastY=stepY=event.getRawY();
+                        pad=false; fingerDown=true;
+                        mainHandler.removeCallbacks(hold);
+                        mainHandler.postDelayed(hold,300);
                         return false;
                     case MotionEvent.ACTION_MOVE:
-                        float dx=event.getRawX()-downX,dy=event.getRawY()-downY;
-                        if(!sliding && Math.abs(dx)>stepPx && Math.abs(dx)>Math.abs(dy)*1.2f) {
-                            sliding=true; v.setPressed(false);
+                        if(!fingerDown) return false;
+                        lastX=event.getRawX(); lastY=event.getRawY();
+                        if(!pad) {
+                            float dx=lastX-downX,dy=lastY-downY;
+                            if(Math.abs(dx)>stepPx && Math.abs(dx)>Math.abs(dy)*1.2f) openPad();
                         }
-                        if(sliding) {
-                            float delta=event.getRawX()-lastStepX;
-                            if(Math.abs(delta)>=stepPx) {
-                                int steps=(int)(delta/stepPx);
-                                lastStepX+=steps*stepPx;
-                                onSlide.accept(steps);
-                            }
-                            return true;
-                        }
+                        if(pad) { track(lastX,lastY); return true; }
                         return false;
                     case MotionEvent.ACTION_UP:
                     case MotionEvent.ACTION_CANCEL:
-                        if(sliding) {
-                            sliding=false; v.setPressed(false);
+                        fingerDown=false;
+                        mainHandler.removeCallbacks(hold);
+                        if(pad) {
+                            pad=false;
+                            button.setPressed(false);
+                            handler.endCursorPad();
                             return true;
                         }
                         return false;
+                    default: return false;
                 }
-                return false;
             }
         });
     }

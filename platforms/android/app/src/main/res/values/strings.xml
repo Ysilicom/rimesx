@@ -14,6 +14,7 @@
     <string name="backspace">Delete</string>
     <string name="backspace_clear">Delete. Swipe up to clear all</string>
     <string name="space">Space</string>
+    <string name="cursor_pad">Slide to move the cursor</string>
     <string name="enter">Enter</string>
     <string name="switch_keyboard">Switch keyboard</string>
     <string name="hide_keyboard">Hide keyboard</string>

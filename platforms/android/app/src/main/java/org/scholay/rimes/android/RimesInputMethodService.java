@@ -99,6 +99,8 @@ public final class RimesInputMethodService extends InputMethodService {
     private boolean symbols,emoji,appearanceOpen,spellingOpen,punctuationOpen,clipboardOpen,candidateGridOpen;
     private ClipboardPanel clipboardPanel;
     private CandidateGridPanel candidateGridPanel;
+    private CursorPad cursorPad;
+    private boolean cursorPadOpen;
     private Button candidateGridButton;
     private ClipboardStore clipboardStore;
     private int spellingPage;
@@ -393,7 +395,7 @@ public final class RimesInputMethodService extends InputMethodService {
         cancelPlugin(); pluginSession.clear();
         // Clear the old composition before revoking its connection, never through the new target.
         if(target!=null && target==getCurrentInputConnection() && hostComposing) { target.setComposingText("",1); target.finishComposingText(); }
-        cancelChord(); appearanceOpen=false; pluginSettingsOpen=false; clipboardOpen=false; candidateGridOpen=false; activePlugin=null; spellingOpen=false; punctuationOpen=false;
+        cancelChord(); appearanceOpen=false; pluginSettingsOpen=false; clipboardOpen=false; candidateGridOpen=false; cursorPadOpen=false; activePlugin=null; spellingOpen=false; punctuationOpen=false;
         hostPreedit=""; target=null; hostComposing=false; composingStart=-1; selection=-1; selectionStart=-1;
         epoch.revoke(); pending=0; expectedSelections.clear(); snapshot=RimeEngine.Snapshot.EMPTY; retained=""; retainedResults.clear(); englishDraft="";
         buffer.finishTarget(); if(metrics!=null) { metrics.setText(""); metrics.setContentDescription(null); } if(bufferRail!=null) bufferRail.clearProjection(); if(pluginOutput!=null) pluginOutput.clearProjection(); resetEngine(); render();
@@ -1069,16 +1071,57 @@ public final class RimesInputMethodService extends InputMethodService {
         CharSequence side=steps>0?target.getTextAfterCursor(want,0):target.getTextBeforeCursor(want,0);
         int room=side==null?0:Math.min(want,side.length());
         if(room<=0) return;
+        placeCursor(steps>0?room:-room);
+    }
+    /** Up or down from the cursor pad. Each line stops when that side has no further line. */
+    private void moveCursorLine(int lines) {
+        if(!ownsTarget() || lines==0) return;
+        int dir=lines>0?1:-1;
+        for(int i=0;i<Math.abs(lines);i++) if(!moveOneLine(dir)) return;
+    }
+    private boolean moveOneLine(int dir) {
+        if(!ownsTarget()) return false;
+        CharSequence before=target.getTextBeforeCursor(CursorLines.CURSOR_LOOK,0);
+        CharSequence after=target.getTextAfterCursor(CursorLines.CURSOR_LOOK,0);
+        if(before==null || after==null) return false;
+        String left=before.toString(), right=after.toString();
+        // The line start is outside the fetch, but a following line is visible. One down arrow keeps the editor's column.
+        if(dir>0 && right.indexOf('\n')>=0 && left.lastIndexOf('\n')<0 && left.length()>=CursorLines.CURSOR_LOOK) {
+            sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_DOWN);
+            return false;
+        }
+        int delta=CursorLines.lineDelta(left,right,dir>0);
+        return delta!=0 && placeCursor(delta);
+    }
+    /** delta is a character count already limited to text on that side. */
+    private boolean placeCursor(int delta) {
+        if(!ownsTarget() || delta==0) return false;
+        int room=Math.abs(delta);
+        CharSequence side=delta>0?target.getTextAfterCursor(room,0):target.getTextBeforeCursor(room,0);
+        int available=side==null?0:Math.min(room,side.length());
+        if(available<=0) return false;
+        int signed=delta>0?available:-available;
         int current=selection>=0?selection:composingStart>=0?composingStart:-1;
         if(current<0) {
-            int key=steps<0?KeyEvent.KEYCODE_DPAD_LEFT:KeyEvent.KEYCODE_DPAD_RIGHT;
-            for(int i=0;i<room;i++) sendDownUpKeyEvents(key);
-            return;
+            int key=signed<0?KeyEvent.KEYCODE_DPAD_LEFT:KeyEvent.KEYCODE_DPAD_RIGHT;
+            for(int i=0;i<available;i++) sendDownUpKeyEvents(key);
+            return available==room;
         }
-        int next=steps>0?current+room:current-room;
-        if(next<0) return;
-        target.setSelection(next,next);
-        expect(next);
+        if(current+signed<0) return false;
+        target.setSelection(current+signed,current+signed);
+        expect(current+signed);
+        return available==room;
+    }
+    private void showCursorPad() {
+        cursorPadOpen=true;
+        if(cursorPad==null) return;
+        cursorPad.render(theme);
+        cursorPad.setVisibility(View.VISIBLE);
+        cursorPad.bringToFront();
+    }
+    private void hideCursorPad() {
+        cursorPadOpen=false;
+        if(cursorPad!=null) cursorPad.setVisibility(View.GONE);
     }
     private void pressSpace() {
         long now=System.currentTimeMillis();
@@ -1215,6 +1258,9 @@ public final class RimesInputMethodService extends InputMethodService {
         @Override public void slideCursor(int steps) {
             moveCursor(steps);
         }
+        @Override public void slideCursorLine(int lines) { moveCursorLine(lines); }
+        @Override public void beginCursorPad() { showCursorPad(); }
+        @Override public void endCursorPad() { hideCursorPad(); }
         @Override public void clearAll() { RimesInputMethodService.this.clearAll(); }
         @Override public void press(KeyboardLayout.Key key) {
             press(key,0f,0f);
@@ -1375,6 +1421,7 @@ public final class RimesInputMethodService extends InputMethodService {
         retryButton.setOnClickListener(v -> { if(failed) initialize(); else retryRetained(); }); keyboard.addView(retryButton,new LinearLayout.LayoutParams(-1,dp(44)));
         surfaceContainer=new FrameLayout(this);
         keys=new KeyboardSurface(this,keyHandler); surfaceContainer.addView(keys,new FrameLayout.LayoutParams(-1,-1));
+        cursorPad=new CursorPad(this); cursorPadOpen=false; surfaceContainer.addView(cursorPad,new FrameLayout.LayoutParams(-1,-1));
         chords=new ChordSurface(this,new ChordSurface.Handler() {
             public void onChord(String code) { chordPreview=""; typeChord(code); }
             public void onKey(String text) { type(uppercase?text.toUpperCase(Locale.ROOT):text); }
@@ -1805,6 +1852,10 @@ public final class RimesInputMethodService extends InputMethodService {
                 String gridPreedit=!snapshot.preedit.isEmpty()?snapshot.preedit:snapshot.raw;
                 candidateGridPanel.render(snapshot.candidates,snapshot.comments,theme,snapshot.pageStart>0,!snapshot.lastPage,gridPreedit);
             }
+        }
+        if(cursorPad!=null) {
+            cursorPad.setVisibility(cursorPadOpen?View.VISIBLE:View.GONE);
+            if(cursorPadOpen) cursorPad.render(theme);
         }
     }
     private static void setText(TextView view,String value) {
