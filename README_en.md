@@ -27,7 +27,7 @@
 
 While upstream `scholay/rimes` focuses primarily on the macOS desktop ecosystem (with LaunchAgent guards, system-wide hotkeys, and floating desktop windows), **RIMES X pivots 100% to the Android mobile experience**.
 
-RIMES X enhances the upstream codebase with **WeChat-Keyboard matte tactile aesthetics**, **native Xiaohe Shuangpin (Flypy) with visual keycap hints**, **Gboard-level 26-key spatial touch error correction**, **120Hz locked-framerate zero-allocation rendering**, **mixed Chinese-English candidate generation**, and an **automated GitHub Actions cloud CI pipeline with persistent local release re-signing**.
+RIMES X enhances the upstream codebase with **WeChat-Keyboard matte tactile aesthetics**, **native Xiaohe Shuangpin (Flypy) with visual keycap hints**, **Gboard-level 26-key spatial touch error correction**, **120Hz locked-framerate zero-allocation rendering**, **mixed Chinese-English candidate generation**, **symmetric 123/symbol pages with an adaptive punctuation weight row**, **context-aware field routing (email/password/URI)**, and an **automated GitHub Actions cloud CI pipeline with persistent local release re-signing**.
 
 ---
 
@@ -37,6 +37,7 @@ RIMES X enhances the upstream codebase with **WeChat-Keyboard matte tactile aest
 - **Matte Borderless Keycap Aesthetic**: Re-engineered `KeyButton` drawing pipeline with geometrically balanced **Manrope** typography, ensuring crisp contrast and clear visual feedback for press and long-press states.
 - **Smart 2-in-1 Combo Punctuation Key**: The comma key handles rapid double-tap (≤500ms) and long-press gestures: single tap inserts comma `，` (half-width `,` in English mode); double tap or long-press inserts period `。` (half-width `.` in English mode), drastically reducing thumb travel.
 - **Dedicated Language Toggle & Widened Space**: Emoji key moved to the top utility row, expanding spacebar width by 35%. A dedicated language toggle sits directly adjacent to space for rapid one-handed switching between Chinese and English.
+- **One-Tap Keyboard Dismissal Glyph**: A dedicated miniature keyboard glyph on the left of the candidate row allows immediate keyboard dismissal without relying on system back navigation gestures.
 - **Stepless Height & Inset Adjustment**: Smooth keyboard height scaling via the gear panel, naturally adapting to compact phones, foldables, and tablets.
 
 ### 2. 🕊️ Native Xiaohe Shuangpin (Flypy) & Visual Key Hints
@@ -47,16 +48,18 @@ RIMES X enhances the upstream codebase with **WeChat-Keyboard matte tactile aest
 ### 3. 🛡️ Gboard-Level Spatial Touch Correction & Gestures
 - **Spatial Touch Correction (`SmartCorrector`)**: Captures exact coordinate displacement `(biasX, biasY)` relative to keycap center on touch down. Applies 2D Euclidean distance weighting to rescue dead-end inputs via 2-level neighbor prediction, ensuring high candidate accuracy even during rapid misclicks.
 - **Swipe-Up Delete to Clear**: Single tap deletes one character; swiping upward on the backspace key clears the entire text field and uncommitted pinyin (or the entire Buffer draft).
+- **Persistent Input Connection**: Seamlessly adopts replaced input connections across host application rebinds without dropping the session.
 
 ### 4. ⚡ 120Hz Ultra-Smooth Pipeline & Zero-Jank Rendering
 - **Zero-Allocation `onDraw` Architecture**: Re-architected `KeyboardSurface.onDraw()` path, stripping out per-frame transient objects (`FontMetrics`, `StringBuilder`), eliminating main-thread Android GC hitches and locking a continuous 120Hz refresh rate.
 - **Decoupled State Pipeline**: Typing state updates are completely separated from key face rendering, delivering instantaneous touch responsiveness.
 - **`.verified` State Cache**: Tracks verification states for bundled dictionary assets, bypassing heavy SHA-256 recalculation on every cold launch.
 
-### 5. 🔤 Mixed Chinese-English Candidates & Modern Lexicon
-- **Mixed Chinese-English Input**: Intelligently interleaves English words (using `melt_eng`) and mixed-language expressions into candidate lists while typing Pinyin.
-- **Contemporary Vocabulary Expansion**: Enriched with terms from modern tech, gaming, AI, and hardware (e.g. "帧数" / FPS, "掉帧" / frame drop, "显存" / VRAM, "算力" / compute).
-- **Expanded Browsing & Direct Tap Commit**: Expandable up to a 54-item candidate grid with Chinese priority guarantee; fixed librime traversal offsets so candidates commit precisely upon tap.
+### 5. 🔤 Context-Aware Fields, Mixed Candidates & Symmetrical Symbol Matrix
+- **Context-Aware Field Routing**: Normal text fields display smooth English suggestions; visible-password, URI, email, and ASCII-only fields commit English directly. Email fields automatically present `@` and `.com` chips and restore the previous language state upon exit.
+- **Symmetric 123 & Symbol Matrix**: The symbol page aligns perfectly with the 123 numeric page (two rows of 10 keys with 6 marks between functional keys).
+- **Adaptive Punctuation Weight Row**: When idle, the candidate row displays 10 high-frequency marks sized to digit key width, sharing unified metrics across Chinese and English. Enriched with ellipsis (`……`), dash (`——`), middle dot (`·`), and book quotes (`《》`).
+- **Mixed Chinese-English Lexicon**: Intelligently interleaves English words (via `melt_eng`) and modern tech terms ("帧数" / FPS, "掉帧" / frame drop, "显存" / VRAM, "算力" / compute), with expandable 54-item grid browsing.
 
 ### 6. 📋 Explicit Staging Buffer & 100% Offline Privacy
 - **Explicit Staging Buffer**: Confirmed text can remain staged on the keyboard workbench before block delivery or full insertion.
@@ -83,7 +86,10 @@ RIMES X enhances the upstream codebase with **WeChat-Keyboard matte tactile aest
 | **Visual Aesthetics** | Basic Android IME layout with utilitarian styling | **WeChat-Keyboard matte borderless aesthetics**, Manrope typography | Refined visual immersion, crisp high-contrast legibility |
 | **Xiaohe Shuangpin** | Requires manual scheme import, blank keycaps | **Built-in out-of-the-box Flypy scheme**, permanent **Key Hints** on keycaps | Beginners touch-type without memorizing key mappings |
 | **Punctuation Key** | Separate keys or frequent navigation to symbol pages | **Smart 2-in-1 combo comma/period key** (tap `,`, double-tap/long-press `.`) | Drastically reduces thumb travel during sentence composition |
+| **Symbol/Number Layout**| Asymmetric symbol pages with disparate grids | **Symmetric 123 & symbol pages** + **10-mark adaptive weight row** | Muscle memory carries across numeric and symbol inputs |
 | **Language Toggle** | Hidden behind symbol page or spacebar long-press | **Dedicated Chinese/English key right of spacebar**; widened spacebar | Instantaneous one-handed language toggling |
+| **Field Adaptation** | Generic handling across all input fields | **Context-aware routing**: direct English for URI/passwords, email `@`/`.com` chips | Fluid specialized input experience in browsers and forms |
+| **Keyboard Dismiss** | Relies entirely on system back navigation | **Dedicated miniature keyboard hide glyph** on candidate bar | Fast, intentional one-tap keyboard dismissal |
 | **Touch Correction** | Strict geometric bounding box; frequent edge misclicks | **Gboard-level 26-key 2D spatial distance weighting model (`SmartCorrector`)** | Intelligently rescues dead-end words from neighboring misclicks |
 | **Gesture Controls** | Single tap / long-press delete only | **Swipe-up on delete to clear entire field (or Buffer)** | Instantly resets text input field with a single swipe gesture |
 | **120Hz High-Refresh** | Heavy object allocation in `onDraw`, GC jank | **Zero-Allocation `onDraw` architecture**, decoupled rendering | Eliminates garbage collection pauses, locking a smooth 120 FPS |
