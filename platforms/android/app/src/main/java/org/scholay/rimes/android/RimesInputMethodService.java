@@ -152,6 +152,8 @@ public final class RimesInputMethodService extends InputMethodService {
     // Worker-owned state. Access only inside EngineWorker.QUEUE.
     private RimeEngine engine;
     private long session;
+    /** Schema id loaded in the live session. Empty until the first successful select. */
+    private String loadedSchema="";
     private int lastTypedChar;
     private float lastBiasX, lastBiasY;
     private static final String[] SCHEMAS={"rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi"};
@@ -229,13 +231,12 @@ public final class RimesInputMethodService extends InputMethodService {
     @Override public void onStartInputView(EditorInfo info,boolean restarting) {
         super.onStartInputView(info,restarting);
         if(target==null) { target=getCurrentInputConnection(); bindInput(info,restarting || textFieldLive); }
-        captureClipboard();
         render();
     }
     @Override public void onWindowShown() {
         super.onWindowShown();
-        // onStartInputView runs before this window is the active IME. A read
-        // there is often empty; read again once the window is on screen.
+        // Read after the window is up. Reading during onStartInputView blocks the
+        // first frames, and that early read is often empty anyway.
         android.view.Window window=getWindow()==null?null:getWindow().getWindow();
         if(window!=null) window.getDecorView().post(this::captureClipboard);
         else main.post(this::captureClipboard);
@@ -248,6 +249,10 @@ public final class RimesInputMethodService extends InputMethodService {
         if(privateField || noLearning || !learningEnabled) base+="_private";
         return base;
     }
+    /**
+     * Drop unfinished spelling. Reload the dictionary only when its id changed,
+     * so opening another field does not select the same schema again.
+     */
     private void resetEngine() {
         if(!ready) return;
         final String selected=effectiveSchema();
@@ -255,9 +260,29 @@ public final class RimesInputMethodService extends InputMethodService {
         final InputEpoch.Ticket ticket=epoch.issue();
         EngineWorker.QUEUE.execute(() -> {
             lastTypedChar=0;
+            if(!active) {
+                if(session!=0) engine.clearComposition(session);
+                return;
+            }
+            if(session!=0 && selected.equals(loadedSchema)) {
+                engine.clearComposition(session);
+                return;
+            }
             if(session!=0) engine.destroySession(session);
-            session=active ? engine.createSession() : 0;
-            if(active && (session==0 || !engine.selectSchema(session,selected))) main.post(() -> { if(epoch.current(ticket)) engineFailure(); });
+            session=engine.createSession();
+            loadedSchema="";
+            if(session==0 || !engine.selectSchema(session,selected)) {
+                main.post(() -> { if(epoch.current(ticket)) engineFailure(); });
+                return;
+            }
+            loadedSchema=selected;
+        });
+    }
+    /** Release the session when the process is going away. Field changes keep it. */
+    private void releaseEngine() {
+        EngineWorker.QUEUE.execute(() -> {
+            if(session!=0 && engine!=null) engine.destroySession(session);
+            session=0; loadedSchema="";
         });
     }
     private void engineFailure() { if(!destroyed) { failed=true; ready=false; render(); } }
@@ -269,7 +294,7 @@ public final class RimesInputMethodService extends InputMethodService {
         if(clipboardManager!=null) clipboardManager.removePrimaryClipChangedListener(clipboardListener);
         preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener);
         officialPluginPreferences.unregisterOnSharedPreferenceChangeListener(officialPluginListener);
-        endTarget(); destroyed=true; pluginExecutor.close(); super.onDestroy();
+        endTarget(); destroyed=true; releaseEngine(); pluginExecutor.close(); super.onDestroy();
     }
     private void restoreSettings() {
         KeyboardSettings.Snapshot saved=settings.snapshot();
@@ -359,6 +384,7 @@ public final class RimesInputMethodService extends InputMethodService {
         dispatch(() -> {
             Result settled=literal("");
             if(session!=0 && !engine.selectSchema(session,selected)) throw new IllegalStateException("Cannot change input schema");
+            if(session!=0) loadedSchema=selected;
             return settled;
         },true);
     }
@@ -756,11 +782,15 @@ public final class RimesInputMethodService extends InputMethodService {
         if(newStart==oldStart && newEnd==oldEnd) return;
         if(hostComposing && newStart==newEnd && newEnd==candidatesEnd) return;
         // A host/user selection change revokes pending work, including keys still in the worker queue.
+        // A field that just opened only reports its cursor. That is not a new dictionary.
+        boolean spelling=hostComposing || snapshot.composing() || pending!=0;
         cancelPlugin(); pluginSession.clear();
         cancelChord(); epoch.revoke(); pending=0; expectedSelections.clear(); snapshot=RimeEngine.Snapshot.EMPTY; retained=""; retainedResults.clear(); englishDraft="";
         if(hostComposing) { target.setComposingText("",1); target.finishComposingText(); }
         hostComposing=false; composingStart=-1; selection=newEnd; selectionStart=newStart;
-        activePlugin=null; pluginSettingsOpen=false; buffer.beginTarget(buffer.isPermitted()); if(bufferRail!=null) bufferRail.clearProjection(); if(pluginOutput!=null) pluginOutput.clearProjection(); resetEngine(); render();
+        activePlugin=null; pluginSettingsOpen=false; buffer.beginTarget(buffer.isPermitted()); if(bufferRail!=null) bufferRail.clearProjection(); if(pluginOutput!=null) pluginOutput.clearProjection();
+        if(spelling) resetEngine();
+        render();
     }
     private void insert(boolean all) {
         if(chords!=null && chords.isChordActive()) return;
@@ -930,7 +960,7 @@ public final class RimesInputMethodService extends InputMethodService {
         });
         change.run();
         final String selected=effectiveSchema();
-        EngineWorker.QUEUE.execute(() -> { if(session!=0) engine.selectSchema(session,selected); });
+        EngineWorker.QUEUE.execute(() -> { if(session!=0 && engine.selectSchema(session,selected)) loadedSchema=selected; });
         render();
     }
     private void select(int index) {
@@ -1665,7 +1695,8 @@ public final class RimesInputMethodService extends InputMethodService {
         bufferButton.setVisibility(composing?View.GONE:View.VISIBLE);
         toolbarSlot(layoutButton,shortcuts);
         toolbarSlot(bufferButton,shortcuts);
-        toolbarSlot(hideKeyboardButton,shortcuts);
+        // Dismiss stays on the shortcut-chip size. Growing it while a word is open slides the glyph.
+        toolbarSlot(hideKeyboardButton,true);
         previous.setVisibility(View.GONE);
         next.setVisibility(View.GONE);
         if(candidateGridButton!=null) {
