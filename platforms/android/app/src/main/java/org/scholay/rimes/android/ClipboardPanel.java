@@ -12,11 +12,12 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import java.util.List;
 
-/** Scrollable clipboard history panel allowing user to select, paste, and pin clips. */
+/** Scrollable clipboard history panel allowing user to select, paste, pin, and delete clips. */
 final class ClipboardPanel extends ScrollView {
     interface Listener {
         void onPasteItem(String text);
         void onTogglePin(String text);
+        void onDelete(String text);
         void onClear(boolean all);
         void onClose();
     }
@@ -154,6 +155,16 @@ final class ClipboardPanel extends ScrollView {
             pinToggle.setPadding(dp(6), dp(4), dp(4), dp(4));
             pinToggle.setOnClickListener(v -> listener.onTogglePin(text));
             card.addView(pinToggle, new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
+
+            TextView delete = new TextView(getContext());
+            delete.setText("删除");
+            delete.setTextSize(11);
+            delete.setTextColor(palette.ink);
+            delete.setPadding(dp(6), dp(4), dp(2), dp(4));
+            delete.setContentDescription("删除这条");
+            delete.setOnClickListener(v -> listener.onDelete(text));
+            delete.setOnLongClickListener(v -> true);
+            card.addView(delete, new LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
 
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
             params.bottomMargin = dp(6);

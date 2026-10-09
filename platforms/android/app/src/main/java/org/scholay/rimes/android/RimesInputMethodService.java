@@ -1059,18 +1059,26 @@ public final class RimesInputMethodService extends InputMethodService {
         candidateGridOpen=!candidateGridOpen;
         render();
     }
+    /**
+     * Space-bar swipe. Stop at the text edge.
+     * A position past the last character makes Xiaomi Notes leave the field and hide the keyboard.
+     */
     private void moveCursor(int steps) {
-        if(!ownsTarget()) return;
-        int currentSel=selection>=0?selection:composingStart>=0?composingStart:-1;
-        if(currentSel>=0) {
-            int newSel=Math.max(0,currentSel+steps);
-            target.setSelection(newSel,newSel);
-            expect(newSel);
-        } else {
-            int keyCode=steps<0?KeyEvent.KEYCODE_DPAD_LEFT:KeyEvent.KEYCODE_DPAD_RIGHT;
-            int count=Math.abs(steps);
-            for(int i=0;i<count;i++) sendDownUpKeyEvents(keyCode);
+        if(!ownsTarget() || steps==0) return;
+        int want=Math.abs(steps);
+        CharSequence side=steps>0?target.getTextAfterCursor(want,0):target.getTextBeforeCursor(want,0);
+        int room=side==null?0:Math.min(want,side.length());
+        if(room<=0) return;
+        int current=selection>=0?selection:composingStart>=0?composingStart:-1;
+        if(current<0) {
+            int key=steps<0?KeyEvent.KEYCODE_DPAD_LEFT:KeyEvent.KEYCODE_DPAD_RIGHT;
+            for(int i=0;i<room;i++) sendDownUpKeyEvents(key);
+            return;
         }
+        int next=steps>0?current+room:current-room;
+        if(next<0) return;
+        target.setSelection(next,next);
+        expect(next);
     }
     private void pressSpace() {
         long now=System.currentTimeMillis();
@@ -1399,6 +1407,13 @@ public final class RimesInputMethodService extends InputMethodService {
                 if(clipboardStore!=null) clipboardStore.togglePin(text);
                 render();
             }
+            public void onDelete(String text) {
+                if(clipboardStore!=null) clipboardStore.remove(text);
+                // Opening the panel reads the system clip again. Drop that clip too,
+                // or the deleted row comes back on the next open.
+                if(text!=null && text.equals(clipText(primaryClip()))) clearSystemClipboard();
+                render();
+            }
             public void onClear(boolean all) {
                 clearSystemClipboard();
                 if(clipboardStore!=null) {
@@ -1693,8 +1708,9 @@ public final class RimesInputMethodService extends InputMethodService {
         boolean composing=snapshot.composing() || !snapshot.candidates.isEmpty() || showWeight || !status.isEmpty();
         layoutButton.setVisibility(composing?View.GONE:View.VISIBLE);
         bufferButton.setVisibility(composing?View.GONE:View.VISIBLE);
-        toolbarSlot(layoutButton,shortcuts);
-        toolbarSlot(bufferButton,shortcuts);
+        // A password hides the shortcut chips. Gear and Buffer stay on that chip size, with dismiss.
+        toolbarSlot(layoutButton,shortcuts || privateField);
+        toolbarSlot(bufferButton,shortcuts || privateField);
         // Dismiss stays on the shortcut-chip size. Growing it while a word is open slides the glyph.
         toolbarSlot(hideKeyboardButton,true);
         previous.setVisibility(View.GONE);
@@ -1803,7 +1819,7 @@ public final class RimesInputMethodService extends InputMethodService {
         button.setOnClickListener(v -> action.run()); row.addView(button,new LinearLayout.LayoutParams(0,-1,weight)); chromeButtons.add(button); return button;
     }
     private void fixedWidth(View view,int width) { view.setLayoutParams(new LinearLayout.LayoutParams(dp(width),-1)); }
-    /** Idle gear and Buffer match the 30dp shortcut chips and sit on the keys. */
+    /** 30dp at the bottom of the row, aligned with the shortcut chips. */
     private void toolbarSlot(View view,boolean compact) {
         LinearLayout.LayoutParams params=(LinearLayout.LayoutParams)view.getLayoutParams();
         int height=compact?dp(30):LinearLayout.LayoutParams.MATCH_PARENT;
