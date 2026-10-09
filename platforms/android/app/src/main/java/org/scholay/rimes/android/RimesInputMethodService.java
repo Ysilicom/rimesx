@@ -602,8 +602,10 @@ public final class RimesInputMethodService extends InputMethodService {
                 return new Result(after,text,false,0);
             }
 
-            // Gboard-level Spatial Touch Error Correction (strictly disabled for Shuangpin / Wubi)
-            boolean allowCorrection=!english && settings.isCorrectionEnabled() && "rimes_pinyin".equals(schema) && !nineKeyVisible();
+            // Same-row neighbor rescue. 26-key full Pinyin, Xiaohe, Natural Code, and Wubi.
+            // Nine-key and English stay exact. Only runs when this key left no candidates.
+            boolean correctableSchema="rimes_pinyin".equals(schema) || "rimes_ziranma".equals(schema) || "rimes_flypy".equals(schema) || "rimes_wubi".equals(schema);
+            boolean allowCorrection=!english && settings.isCorrectionEnabled() && correctableSchema && !nineKeyVisible();
             if(allowCorrection && text.length()==1 && SmartCorrector.isSupportedLetter((char)codePoint)) {
                 if((!before.composing() || !before.candidates.isEmpty()) && after.composing() && after.candidates.isEmpty()) {
                     char ch=(char)codePoint;

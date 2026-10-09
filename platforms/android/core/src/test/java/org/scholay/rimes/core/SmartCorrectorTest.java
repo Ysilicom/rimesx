@@ -31,10 +31,13 @@ public class SmartCorrectorTest {
     }
 
     @Test
-    public void testTouchBiasUpOnS_RanksTopRowAboveBottomRow() {
-        // Tapping on 's' leaning upwards towards 'w'
+    public void testVerticalBiasOnS_StaysOnTheSameRow() {
+        // A touch toward the key above still only offers a and d.
         List<Character> neighbors = SmartCorrector.getPrioritizedNeighbors('s', -0.2f, -0.6f);
-        assertEquals(Character.valueOf('w'), neighbors.get(0));
+        assertEquals(Character.valueOf('a'), neighbors.get(0));
+        assertFalse(neighbors.contains('w'));
+        assertFalse(neighbors.contains('x'));
+        assertEquals(2, neighbors.size());
     }
 
     @Test

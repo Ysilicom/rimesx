@@ -7,9 +7,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Gboard-level spatial touch error correction model for QWERTY keyboards.
- * Evaluates geometric key proximity and touch offset bias (dx, dy) to rescue
- * invalid syllables, fat-finger typos, and dead-end candidate states.
+ * Same-row touch correction for a 26-key keyboard.
+ * A slip on this layout is the key to the left or right. Keys on the row
+ * above or below are not neighbors. Horizontal touch bias still decides
+ * which side is tried first.
  */
 public final class SmartCorrector {
     private static final Map<Character, float[]> KEY_CENTERS = new HashMap<>();
@@ -32,43 +33,42 @@ public final class SmartCorrector {
             KEY_CENTERS.put(row2[i], new float[]{2.0f + i, 2.5f});
         }
 
-        NEIGHBORS.put('q', new char[]{'w', 'a', 's'});
-        NEIGHBORS.put('w', new char[]{'q', 'e', 'a', 's', 'd'});
-        NEIGHBORS.put('e', new char[]{'w', 'r', 's', 'd', 'f'});
-        NEIGHBORS.put('r', new char[]{'e', 't', 'd', 'f', 'g'});
-        NEIGHBORS.put('t', new char[]{'r', 'y', 'f', 'g', 'h'});
-        NEIGHBORS.put('y', new char[]{'t', 'u', 'g', 'h', 'j'});
-        NEIGHBORS.put('u', new char[]{'y', 'i', 'h', 'j', 'k'});
-        NEIGHBORS.put('i', new char[]{'u', 'o', 'j', 'k', 'l'});
-        NEIGHBORS.put('o', new char[]{'i', 'p', 'k', 'l'});
-        NEIGHBORS.put('p', new char[]{'o', 'l'});
+        NEIGHBORS.put('q', new char[]{'w'});
+        NEIGHBORS.put('w', new char[]{'q', 'e'});
+        NEIGHBORS.put('e', new char[]{'w', 'r'});
+        NEIGHBORS.put('r', new char[]{'e', 't'});
+        NEIGHBORS.put('t', new char[]{'r', 'y'});
+        NEIGHBORS.put('y', new char[]{'t', 'u'});
+        NEIGHBORS.put('u', new char[]{'y', 'i'});
+        NEIGHBORS.put('i', new char[]{'u', 'o'});
+        NEIGHBORS.put('o', new char[]{'i', 'p'});
+        NEIGHBORS.put('p', new char[]{'o'});
 
-        NEIGHBORS.put('a', new char[]{'s', 'q', 'w', 'z'});
-        NEIGHBORS.put('s', new char[]{'a', 'd', 'w', 'e', 'z', 'x'});
-        NEIGHBORS.put('d', new char[]{'s', 'f', 'e', 'r', 'x', 'c'});
-        NEIGHBORS.put('f', new char[]{'d', 'g', 'r', 't', 'c', 'v'});
-        NEIGHBORS.put('g', new char[]{'f', 'h', 't', 'y', 'v', 'b'});
-        NEIGHBORS.put('h', new char[]{'g', 'j', 'y', 'u', 'b', 'n'});
-        NEIGHBORS.put('j', new char[]{'h', 'k', 'u', 'i', 'n', 'm'});
-        NEIGHBORS.put('k', new char[]{'j', 'l', 'i', 'o', 'm'});
-        NEIGHBORS.put('l', new char[]{'k', 'o', 'p'});
+        NEIGHBORS.put('a', new char[]{'s'});
+        NEIGHBORS.put('s', new char[]{'a', 'd'});
+        NEIGHBORS.put('d', new char[]{'s', 'f'});
+        NEIGHBORS.put('f', new char[]{'d', 'g'});
+        NEIGHBORS.put('g', new char[]{'f', 'h'});
+        NEIGHBORS.put('h', new char[]{'g', 'j'});
+        NEIGHBORS.put('j', new char[]{'h', 'k'});
+        NEIGHBORS.put('k', new char[]{'j', 'l'});
+        NEIGHBORS.put('l', new char[]{'k'});
 
-        NEIGHBORS.put('z', new char[]{'x', 'a', 's'});
-        NEIGHBORS.put('x', new char[]{'z', 'c', 's', 'd'});
-        NEIGHBORS.put('c', new char[]{'x', 'v', 'd', 'f'});
-        NEIGHBORS.put('v', new char[]{'c', 'b', 'f', 'g'});
-        NEIGHBORS.put('b', new char[]{'v', 'n', 'g', 'h'});
-        NEIGHBORS.put('n', new char[]{'b', 'm', 'h', 'j'});
-        NEIGHBORS.put('m', new char[]{'n', 'j', 'k'});
+        NEIGHBORS.put('z', new char[]{'x'});
+        NEIGHBORS.put('x', new char[]{'z', 'c'});
+        NEIGHBORS.put('c', new char[]{'x', 'v'});
+        NEIGHBORS.put('v', new char[]{'c', 'b'});
+        NEIGHBORS.put('b', new char[]{'v', 'n'});
+        NEIGHBORS.put('n', new char[]{'b', 'm'});
+        NEIGHBORS.put('m', new char[]{'n'});
     }
 
     private SmartCorrector() {}
 
     /**
-     * Returns a prioritized list of adjacent keys based on touch offset bias.
+     * Returns the same-row neighbors, nearer side first.
      * biasX ranges from -1.0 (left edge) to +1.0 (right edge).
-     * biasY ranges from -1.0 (top edge) to +1.0 (bottom edge).
-     * Keys closest to the calculated physical touch coordinate appear first.
+     * biasY is ignored for choosing a key: the row above and below are not neighbors.
      */
     public static List<Character> getPrioritizedNeighbors(char key, float biasX, float biasY) {
         char lower = Character.toLowerCase(key);
