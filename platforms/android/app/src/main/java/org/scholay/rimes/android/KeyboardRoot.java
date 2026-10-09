@@ -10,25 +10,41 @@ import android.widget.LinearLayout;
 final class KeyboardRoot extends LinearLayout {
     private boolean activeStream;
     private long streamDownTime=-1,retiredDownTime=-1;
+    /** Cursor pad. A relayout must not cancel the finger; only a real lift ends it. */
+    private boolean retainStream;
+    private Runnable padRelease;
 
     KeyboardRoot(Context context) { super(context); }
 
+    void retainStream(boolean retain,Runnable onRelease) {
+        retainStream=retain;
+        padRelease=retain?onRelease:null;
+    }
+
     @Override public boolean dispatchTouchEvent(MotionEvent event) {
         int action=event.getActionMasked();
+        if(action==MotionEvent.ACTION_CANCEL && retainStream) return true;
         if(action==MotionEvent.ACTION_DOWN) {
+            if(retainStream) {
+                retainStream=false;
+                Runnable release=padRelease;
+                padRelease=null;
+                if(release!=null) release.run();
+            }
             if(event.getDownTime()==retiredDownTime) return true;
             if(activeStream) cancelPendingInputEvents();
             activeStream=true; streamDownTime=event.getDownTime();
         } else if(!activeStream || event.getDownTime()!=streamDownTime) return true;
         try { return super.dispatchTouchEvent(event); }
         finally {
-            if(action==MotionEvent.ACTION_UP || action==MotionEvent.ACTION_CANCEL) {
+            if(action==MotionEvent.ACTION_UP || (action==MotionEvent.ACTION_CANCEL && !retainStream)) {
                 activeStream=false; streamDownTime=-1;
             }
         }
     }
 
     @Override public void onCancelPendingInputEvents() {
+        if(retainStream) return;
         super.onCancelPendingInputEvents();
         long down=streamDownTime;
         if(activeStream) retiredDownTime=down;

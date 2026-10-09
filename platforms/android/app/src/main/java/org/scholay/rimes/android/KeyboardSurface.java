@@ -159,6 +159,11 @@ final class KeyboardSurface extends ViewGroup {
                 mainHandler.removeCallbacks(hold);
                 button.cancelLongPress();
                 button.setPressed(false);
+                android.view.ViewParent parent=button.getParent();
+                while(parent!=null) {
+                    parent.requestDisallowInterceptTouchEvent(true);
+                    parent=parent.getParent();
+                }
                 button.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK);
                 handler.beginCursorPad();
             }
@@ -195,7 +200,6 @@ final class KeyboardSurface extends ViewGroup {
                         if(pad) { track(lastX,lastY); return true; }
                         return false;
                     case MotionEvent.ACTION_UP:
-                    case MotionEvent.ACTION_CANCEL:
                         fingerDown=false;
                         mainHandler.removeCallbacks(hold);
                         if(pad) {
@@ -205,6 +209,10 @@ final class KeyboardSurface extends ViewGroup {
                             return true;
                         }
                         return false;
+                    case MotionEvent.ACTION_CANCEL:
+                        // The editor may restart while the finger is still down. That is not a lift.
+                        if(!pad) { fingerDown=false; mainHandler.removeCallbacks(hold); return false; }
+                        return true;
                     default: return false;
                 }
             }

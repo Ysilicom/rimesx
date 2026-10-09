@@ -101,6 +101,8 @@ public final class RimesInputMethodService extends InputMethodService {
     private CandidateGridPanel candidateGridPanel;
     private CursorPad cursorPad;
     private boolean cursorPadOpen;
+    /** True from pad open until the finger lifts. Restarts must not clear it. */
+    private boolean cursorPadHeld;
     private Button candidateGridButton;
     private ClipboardStore clipboardStore;
     private int spellingPage;
@@ -289,14 +291,17 @@ public final class RimesInputMethodService extends InputMethodService {
     }
     private void engineFailure() { if(!destroyed) { failed=true; ready=false; render(); } }
     @Override public boolean onEvaluateFullscreenMode() { return false; }
-    @Override public void onFinishInputView(boolean finishingInput) { endTarget(); super.onFinishInputView(finishingInput); }
-    @Override public void onFinishInput() { textFieldLive=false; asciiOnly=false; passwordField=false; endTarget(); super.onFinishInput(); }
-    @Override public void onUnbindInput() { textFieldLive=false; asciiOnly=false; passwordField=false; endTarget(); super.onUnbindInput(); }
+    @Override public void onFinishInputView(boolean finishingInput) {
+        if(finishingInput) cursorPadHeld=false;
+        endTarget(); super.onFinishInputView(finishingInput);
+    }
+    @Override public void onFinishInput() { cursorPadHeld=false; textFieldLive=false; asciiOnly=false; passwordField=false; endTarget(); super.onFinishInput(); }
+    @Override public void onUnbindInput() { cursorPadHeld=false; textFieldLive=false; asciiOnly=false; passwordField=false; endTarget(); super.onUnbindInput(); }
     @Override public void onDestroy() {
         if(clipboardManager!=null) clipboardManager.removePrimaryClipChangedListener(clipboardListener);
         preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener);
         officialPluginPreferences.unregisterOnSharedPreferenceChangeListener(officialPluginListener);
-        endTarget(); destroyed=true; releaseEngine(); pluginExecutor.close(); super.onDestroy();
+        cursorPadHeld=false; endTarget(); destroyed=true; releaseEngine(); pluginExecutor.close(); super.onDestroy();
     }
     private void restoreSettings() {
         KeyboardSettings.Snapshot saved=settings.snapshot();
@@ -391,6 +396,8 @@ public final class RimesInputMethodService extends InputMethodService {
         },true);
     }
     private void endTarget() {
+        // A selection restart while the finger is down must leave the cursor pad up.
+        if(cursorPadHeld) { showCursorPad(); return; }
         deferredSettingsPair=null;
         cancelPlugin(); pluginSession.clear();
         // Clear the old composition before revoking its connection, never through the new target.
@@ -426,6 +433,7 @@ public final class RimesInputMethodService extends InputMethodService {
     private boolean ownsTarget() { return !destroyed && target!=null && target==getCurrentInputConnection(); }
     /** Attach the current editor. A typeless restart keeps the field already bound. */
     private void bindInput(EditorInfo info,boolean allowKeep) {
+        if(cursorPadHeld) return;
         int type=info==null?EditorKind.TYPE_NULL:info.inputType;
         if(EditorKind.keepTypelessRestart(allowKeep,type,textFieldLive,directOnly)) { resetEngine(); render(); return; }
         if(info==null) { resetEngine(); render(); return; }
@@ -1113,14 +1121,19 @@ public final class RimesInputMethodService extends InputMethodService {
         return available==room;
     }
     private void showCursorPad() {
+        cursorPadHeld=true;
         cursorPadOpen=true;
+        if(keyboard!=null) keyboard.retainStream(true,this::hideCursorPad);
         if(cursorPad==null) return;
         cursorPad.render(theme);
         cursorPad.setVisibility(View.VISIBLE);
         cursorPad.bringToFront();
     }
     private void hideCursorPad() {
+        if(!cursorPadHeld && !cursorPadOpen) return;
+        cursorPadHeld=false;
         cursorPadOpen=false;
+        if(keyboard!=null) keyboard.retainStream(false,null);
         if(cursorPad!=null) cursorPad.setVisibility(View.GONE);
     }
     private void pressSpace() {
@@ -1421,7 +1434,7 @@ public final class RimesInputMethodService extends InputMethodService {
         retryButton.setOnClickListener(v -> { if(failed) initialize(); else retryRetained(); }); keyboard.addView(retryButton,new LinearLayout.LayoutParams(-1,dp(44)));
         surfaceContainer=new FrameLayout(this);
         keys=new KeyboardSurface(this,keyHandler); surfaceContainer.addView(keys,new FrameLayout.LayoutParams(-1,-1));
-        cursorPad=new CursorPad(this); cursorPadOpen=false; surfaceContainer.addView(cursorPad,new FrameLayout.LayoutParams(-1,-1));
+        cursorPadHeld=false; cursorPad=new CursorPad(this); cursorPadOpen=false; surfaceContainer.addView(cursorPad,new FrameLayout.LayoutParams(-1,-1));
         chords=new ChordSurface(this,new ChordSurface.Handler() {
             public void onChord(String code) { chordPreview=""; typeChord(code); }
             public void onKey(String text) { type(uppercase?text.toUpperCase(Locale.ROOT):text); }
@@ -1815,11 +1828,12 @@ public final class RimesInputMethodService extends InputMethodService {
         }
         keys.setHeightFactor(heightFactor);
         String keyStamp=keyStamp();
-        if(!keyStamp.equals(renderedKeyStamp)) {
+        // Rebuilding keys drops the finger that is holding the cursor pad.
+        if(!cursorPadHeld && !keyStamp.equals(renderedKeyStamp)) {
             keys.render(visibleMode(),theme);
             renderedKeyStamp=keyStamp;
         }
-        keys.setVisibility(panelOpen || chord?View.GONE:View.VISIBLE);
+        keys.setVisibility(!cursorPadHeld && (panelOpen || chord)?View.GONE:View.VISIBLE);
         if(chord) chords.render("splitOrthogonal".equals(layout),!english && !uppercase,uppercase,theme);
         chords.setVisibility(panelOpen || !chord?View.GONE:View.VISIBLE);
         chordFooter.setVisibility(!panelOpen && chord?View.VISIBLE:View.GONE);
@@ -1854,8 +1868,9 @@ public final class RimesInputMethodService extends InputMethodService {
             }
         }
         if(cursorPad!=null) {
+            if(cursorPadHeld) cursorPadOpen=true;
             cursorPad.setVisibility(cursorPadOpen?View.VISIBLE:View.GONE);
-            if(cursorPadOpen) cursorPad.render(theme);
+            if(cursorPadOpen) { cursorPad.render(theme); cursorPad.bringToFront(); }
         }
     }
     private static void setText(TextView view,String value) {
