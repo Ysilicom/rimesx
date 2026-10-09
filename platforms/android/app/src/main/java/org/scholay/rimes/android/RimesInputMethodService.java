@@ -848,7 +848,7 @@ public final class RimesInputMethodService extends InputMethodService {
                     : new Result(RimeEngine.Snapshot.EMPTY,"",false,1);
         });
     }
-    /** Swipe up on delete. Clears the same place a tap would delete: the whole editor, or the whole Buffer draft. */
+    /** Swipe up on delete. Drops text before the cursor, and the whole Buffer draft when Buffer is on. Text after the cursor stays. */
     private void clearAll() {
         if(!ownsTarget()) return;
         if(chords!=null && chords.isChordActive()) return;
@@ -858,7 +858,8 @@ public final class RimesInputMethodService extends InputMethodService {
         if(drafting) buffer.clear();
         invalidatePlugin();
         snapshot=RimeEngine.Snapshot.EMPTY;
-        // A key still in flight must not commit again after the field is wiped.
+        englishDraft="";
+        // A key still in flight must not commit again after the prefix is wiped.
         epoch.revoke(); pending=0; expectedSelections.clear();
         if(!drafting) clearEditorText();
         if(ready) resetEngine();
@@ -874,27 +875,21 @@ public final class RimesInputMethodService extends InputMethodService {
         }
         EditorInfo info=getCurrentInputEditorInfo();
         boolean terminal=info==null || info.inputType==InputType.TYPE_NULL || visiblePassword;
-        if(terminal) {
-            target.performContextMenuAction(android.R.id.selectAll);
-            sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL);
-            return;
-        }
-        CharSequence selected=target.getSelectedText(0);
-        if(selected!=null && selected.length()>0) {
-            expect(Math.max(0,Math.min(selectionStart,selection)));
-            target.commitText("",1);
-        }
         for(int pass=0;pass<64;pass++) {
             CharSequence before=target.getTextBeforeCursor(4096,0);
-            CharSequence after=target.getTextAfterCursor(4096,0);
-            int behind=before==null?0:before.length();
-            int ahead=after==null?0:after.length();
-            if(behind==0 && ahead==0) break;
+            if(before==null || before.length()==0) break;
+            int behind=before.length();
             if(selection>=0) expect(Math.max(0,selection-behind));
-            boolean deleted;
-            try { deleted=target.deleteSurroundingText(behind,ahead); }
-            catch(Throwable ignored) { break; }
-            if(!deleted) break;
+            boolean deleted=false;
+            try { deleted=target.deleteSurroundingText(behind,0); }
+            catch(Throwable ignored) { deleted=false; }
+            if(deleted) continue;
+            // Some terminals ignore deleteSurroundingText. DEL only walks backward, so the suffix stays.
+            if(terminal) {
+                int points=Character.codePointCount(before,0,behind);
+                for(int i=0;i<points;i++) sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL);
+            }
+            break;
         }
     }
     private void deleteHostOrBuffer() {

@@ -12,7 +12,7 @@
     <string name="insert_all">全部插入</string>
     <string name="clear">清空</string>
     <string name="backspace">删除</string>
-    <string name="backspace_clear">删除，上滑清空</string>
+    <string name="backspace_clear">删除，上滑删除光标前</string>
     <string name="space">空格</string>
     <string name="cursor_pad">滑动移动光标</string>
     <string name="enter">回车</string>

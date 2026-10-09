@@ -12,7 +12,7 @@
     <string name="insert_all">Insert all</string>
     <string name="clear">Clear</string>
     <string name="backspace">Delete</string>
-    <string name="backspace_clear">Delete. Swipe up to clear all</string>
+    <string name="backspace_clear">Delete. Swipe up to clear before the cursor</string>
     <string name="space">Space</string>
     <string name="cursor_pad">Slide to move the cursor</string>
     <string name="enter">Enter</string>
