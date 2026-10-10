@@ -1,6 +1,7 @@
 package org.scholay.rimes.core;
 
 import org.junit.Test;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -49,24 +50,102 @@ public class CorrectionRankTest {
     }
 
     @Test
-    public void continueStemsKeepsTheTypedSpellingThenHeavierOnes() {
-        CorrectionRank.Offer heavy=new CorrectionRank.Offer("甲","", "right", 0, 5);
-        CorrectionRank.Offer mid=new CorrectionRank.Offer("乙","", "side", 0, 2);
-        CorrectionRank.Offer typed=new CorrectionRank.Offer("丙","", "typed", 0, 1);
-        assertEquals(Arrays.asList("typed","right","side"),
-                CorrectionRank.continueStems("typed","typed", Arrays.asList(heavy,mid,typed), 8));
+    public void middleTapKeepsThePressedWordAheadOfAHeavierNeighbor() {
+        CorrectionRank.Spelling pressed=new CorrectionRank.Spelling("bihc",
+                Arrays.asList("比","毕","币","闭","壁"), Arrays.asList("","","","",""), new double[]{5,4,3,2,1}, true);
+        CorrectionRank.Spelling neighbor=new CorrectionRank.Spelling("nihc",
+                Collections.singletonList("你好"), Collections.singletonList(""), new double[]{9}, false);
+        List<CorrectionRank.Offer> offers=CorrectionRank.mergeByTouch(Arrays.asList(pressed,neighbor), "bihc");
+        assertEquals("比", offers.get(0).text);
+        assertTrue(offers.get(0).favored);
+        assertEquals("你好", offers.get(CorrectionRank.CENTER_HEAD).text);
+        assertFalse(offers.get(CorrectionRank.CENTER_HEAD).favored);
+        assertEquals("壁", offers.get(offers.size()-1).text);
+    }
+
+    @Test
+    public void seamTapLetsTheHeavierNeighborRankFirst() {
+        CorrectionRank.Spelling pressed=new CorrectionRank.Spelling("bihc",
+                Collections.singletonList("比好"), Collections.singletonList(""), new double[]{1}, true);
+        CorrectionRank.Spelling neighbor=new CorrectionRank.Spelling("nihc",
+                Collections.singletonList("你好"), Collections.singletonList(""), new double[]{9}, true);
+        List<CorrectionRank.Offer> offers=CorrectionRank.mergeByTouch(Arrays.asList(pressed,neighbor), "bihc");
+        assertEquals("你好", offers.get(0).text);
+        assertEquals("nihc", offers.get(0).raw);
+        assertTrue(offers.get(0).favored);
+        assertEquals("比好", offers.get(1).text);
+        assertTrue(offers.get(1).favored);
+    }
+
+    @Test
+    public void centerTapWithNoPressedWordDoesNotFavorTheNeighbor() {
+        CorrectionRank.Spelling neighbor=new CorrectionRank.Spelling("side",
+                Collections.singletonList("旁"), Collections.singletonList(""), new double[]{9}, false);
+        List<CorrectionRank.Offer> offers=CorrectionRank.mergeByTouch(Collections.singletonList(neighbor), "pressed");
+        assertEquals(1, offers.size());
+        assertFalse(offers.get(0).favored);
+    }
+
+    @Test
+    public void fullPressedListStillLeavesRoomForTheNeighbor() {
+        List<String> texts=new ArrayList<>();
+        double[] qualities=new double[60];
+        for(int i=0;i<60;i++) { texts.add("词"+i); qualities[i]=60-i; }
+        CorrectionRank.Spelling pressed=new CorrectionRank.Spelling("b", texts, Collections.emptyList(), qualities, true);
+        CorrectionRank.Spelling neighbor=new CorrectionRank.Spelling("n",
+                Collections.singletonList("你"), Collections.singletonList(""), new double[]{1}, false);
+        List<CorrectionRank.Offer> offers=CorrectionRank.mergeByTouch(Arrays.asList(pressed,neighbor), "b");
+        assertEquals("你", offers.get(CorrectionRank.CENTER_HEAD).text);
+        assertEquals(60, offers.size());
+    }
+
+    @Test
+    public void selectStemsKeepsAHeavyNeighborWhenThePressedSpellingIsLong() {
+        List<CorrectionRank.Probe> probes=new ArrayList<>();
+        probes.add(new CorrectionRank.Probe("pressed", true, true, 1));
+        probes.add(new CorrectionRank.Probe("empty-favored", true, false, Double.NaN));
+        for(int i=0;i<10;i++) probes.add(new CorrectionRank.Probe("weak"+i, false, true, i));
+        probes.add(new CorrectionRank.Probe("heavy", false, true, 100));
+        List<CorrectionRank.Stem> crowded=CorrectionRank.selectStems("pressed", probes, 4);
+        assertEquals(new CorrectionRank.Stem("pressed", true), crowded.get(0));
+        assertTrue(crowded.contains(new CorrectionRank.Stem("heavy", false)));
+        assertFalse(crowded.contains(new CorrectionRank.Stem("weak0", false)));
+        List<CorrectionRank.Stem> room=CorrectionRank.selectStems("pressed", Arrays.asList(
+                new CorrectionRank.Probe("pressed", true, true, 1),
+                new CorrectionRank.Probe("empty-favored", true, false, Double.NaN),
+                new CorrectionRank.Probe("weak", false, true, 1)), 8);
+        assertTrue(room.contains(new CorrectionRank.Stem("empty-favored", true)));
+    }
+
+    @Test
+    public void zoneUsesTheOuterThirdOfTheKey() {
+        assertEquals(CorrectionRank.Side.CENTER, CorrectionRank.zone(0));
+        assertEquals(CorrectionRank.Side.CENTER, CorrectionRank.zone(-0.3f));
+        assertEquals(CorrectionRank.Side.CENTER, CorrectionRank.zone(0.3f));
+        assertEquals(CorrectionRank.Side.LEFT, CorrectionRank.zone(-0.34f));
+        assertEquals(CorrectionRank.Side.RIGHT, CorrectionRank.zone(0.34f));
+        assertEquals('v', SmartCorrector.sideNeighbor('b', true));
+        assertEquals('n', SmartCorrector.sideNeighbor('b', false));
+        assertEquals(0, SmartCorrector.sideNeighbor('q', true));
+        assertEquals(0, SmartCorrector.sideNeighbor('p', false));
     }
 
     @Test
     public void shortenKeepsTheSlippedInitial() {
-        assertEquals(Arrays.asList("bi","ni","bu"),
-                CorrectionRank.shorten(Arrays.asList("bih","nih","buh"), "bi"));
+        assertEquals(Arrays.asList(
+                new CorrectionRank.Stem("bi", true),
+                new CorrectionRank.Stem("ni", true),
+                new CorrectionRank.Stem("bu", false)),
+                CorrectionRank.shorten(Arrays.asList(
+                        new CorrectionRank.Stem("bih", true),
+                        new CorrectionRank.Stem("nih", true),
+                        new CorrectionRank.Stem("buh", false)), "bi"));
     }
 
     @Test
     public void shortenDropsABeamThatDoesNotMatch() {
-        assertNull(CorrectionRank.shorten(Arrays.asList("abcd"), "x"));
-        assertNull(CorrectionRank.shorten(Arrays.asList("bi"), ""));
+        assertNull(CorrectionRank.shorten(Arrays.asList(new CorrectionRank.Stem("abcd", true)), "x"));
+        assertNull(CorrectionRank.shorten(Arrays.asList(new CorrectionRank.Stem("bi", true)), ""));
         assertNull(CorrectionRank.shorten(null, "b"));
     }
 }

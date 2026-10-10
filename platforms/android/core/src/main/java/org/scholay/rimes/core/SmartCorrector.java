@@ -97,6 +97,21 @@ public final class SmartCorrector {
         return result;
     }
 
+    /** The same-row neighbor on one side. Zero when this key is at that edge. */
+    public static char sideNeighbor(char key, boolean left) {
+        char lower=Character.toLowerCase(key);
+        char[] list=NEIGHBORS.get(lower);
+        float[] origin=KEY_CENTERS.get(lower);
+        if(list==null || origin==null) return 0;
+        char found=0;
+        for(char neighbor:list) {
+            float[] center=KEY_CENTERS.get(neighbor);
+            if(center==null) continue;
+            if(left?center[0]<origin[0]:center[0]>origin[0]) found=neighbor;
+        }
+        return found;
+    }
+
     /**
      * Checks if a character is a supported 26-key QWERTY letter.
      */

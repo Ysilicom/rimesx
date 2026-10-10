@@ -26,8 +26,10 @@ import android.widget.TextView;
 import android.widget.Toast;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import org.scholay.rimes.core.BufferSession;
 import org.scholay.rimes.core.EditorKind;
@@ -155,7 +157,7 @@ public final class RimesInputMethodService extends InputMethodService {
     private String renderedKeyStamp="";
     private final ArrayDeque<Result> retainedResults=new ArrayDeque<>();
     private RimeEngine.Snapshot snapshot=RimeEngine.Snapshot.EMPTY;
-    /** Pressed spelling first, then neighbor words by weight. Null when the bar is the live menu. */
+    /** Landing-ranked correction bar. Null when the bar is the live menu. */
     private List<CorrectionRank.Offer> correctionOffers;
     // Worker-owned state. Access only inside EngineWorker.QUEUE.
     private RimeEngine engine;
@@ -164,8 +166,8 @@ public final class RimesInputMethodService extends InputMethodService {
     private String loadedSchema="";
     private int lastTypedChar;
     private float lastBiasX, lastBiasY;
-    /** Spellings still on the bar. The next letter continues each one. Worker only. */
-    private List<String> correctionStems;
+    /** Spellings the next letter continues, apart from the visible bar. Worker only. */
+    private List<CorrectionRank.Stem> correctionStems;
     private void abandonSlip() { lastTypedChar=0; correctionStems=null; }
     private static final String[] SCHEMAS={"rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi"};
     private static final String[] NAMES={"拼音","自然码","小鹤","五笔"};
@@ -612,7 +614,7 @@ public final class RimesInputMethodService extends InputMethodService {
                 return new Result(after,text,false,0);
             }
 
-            // Same-row slip. The spelling stays on the pressed keys. Neighbors only add candidates.
+            // Same-row slip. The spelling on screen stays the pressed keys. The landing point ranks the neighbors.
             boolean correctableSchema="rimes_pinyin".equals(schema) || "rimes_ziranma".equals(schema) || "rimes_flypy".equals(schema) || "rimes_wubi".equals(schema);
             boolean allowCorrection=!english && settings.isCorrectionEnabled() && correctableSchema && !nineKeyVisible();
             if(allowCorrection && text.length()==1 && SmartCorrector.isSupportedLetter((char)codePoint) && after.composing()) {
@@ -630,70 +632,100 @@ public final class RimesInputMethodService extends InputMethodService {
             return Result.state(expandSnapshot(after));
         });
     }
-    /** Spell this key on the pressed prefix and on every spelling still in the list, then rank the words by weight. */
+    /** Spell this key on the pressed prefix and on every spelling still in the list. The landing point decides the rank. */
     private Result mergeSlip(int codePoint,float biasX,float biasY,RimeEngine.Snapshot pressed) {
         String typedRaw=pressed.raw==null?"":pressed.raw;
         String typedPrefix=dropLast(typedRaw);
-        List<CorrectionRank.Spelling> spellings=new ArrayList<>();
-        LinkedHashSet<String> seen=new LinkedHashSet<>();
-        if(pressed.composing() && !pressed.candidates.isEmpty() && seen.add(typedRaw)) {
-            double[] qualities=engine.candidateQualities(session);
-            spellings.add(new CorrectionRank.Spelling(typedRaw,pressed.candidates,pressed.comments,qualities==null?new double[0]:qualities));
-        }
         String key=new String(Character.toChars(codePoint));
-        List<Character> neighbors=SmartCorrector.getPrioritizedNeighbors((char)codePoint,biasX,biasY);
-        for(String prefix:slipPrefixes(typedPrefix)) {
-            if(seen.add(prefix+key)) probeRaw(prefix+key,spellings);
-            for(char neighbor:neighbors) if(seen.add(prefix+neighbor)) probeRaw(prefix+neighbor,spellings);
+        CorrectionRank.Side side=CorrectionRank.zone(biasX);
+        char left=SmartCorrector.sideNeighbor((char)codePoint,true), right=SmartCorrector.sideNeighbor((char)codePoint,false);
+        List<CorrectionRank.Spelling> spellings=new ArrayList<>();
+        List<CorrectionRank.Probe> probes=new ArrayList<>();
+        Map<String,Integer> index=new HashMap<>();
+        if(pressed.composing() && !pressed.candidates.isEmpty()) {
+            double[] qualities=engine.candidateQualities(session);
+            if(qualities==null) qualities=new double[0];
+            spellings.add(new CorrectionRank.Spelling(typedRaw,pressed.candidates,pressed.comments,qualities,true));
+            index.put(typedRaw,0);
+            probes.add(new CorrectionRank.Probe(typedRaw,true,true,CorrectionRank.bestQuality(qualities)));
+        } else { index.put(typedRaw,-1); probes.add(new CorrectionRank.Probe(typedRaw,true,false,Double.NaN)); }
+        for(CorrectionRank.Stem parent:slipParents(typedPrefix)) {
+            absorb(parent.raw+key,parent.favored,spellings,probes,index);
+            if(left!=0) absorb(parent.raw+left,parent.favored && side==CorrectionRank.Side.LEFT,spellings,probes,index);
+            if(right!=0) absorb(parent.raw+right,parent.favored && side==CorrectionRank.Side.RIGHT,spellings,probes,index);
         }
         // This key and its neighbors formed no word. Try the previous letter's left and right with this key.
         if(spellings.isEmpty() && lastTypedChar>0 && SmartCorrector.isSupportedLetter((char)lastTypedChar)) {
             String previous=new String(Character.toChars(lastTypedChar));
             if(typedPrefix.endsWith(previous)) {
                 String older=typedPrefix.substring(0,typedPrefix.length()-previous.length());
-                for(char prevNeighbor:SmartCorrector.getPrioritizedNeighbors((char)lastTypedChar,lastBiasX,lastBiasY)) {
-                    String raw=older+prevNeighbor+key;
-                    if(seen.add(raw)) probeRaw(raw,spellings);
-                }
+                CorrectionRank.Side previousSide=CorrectionRank.zone(lastBiasX);
+                char previousLeft=SmartCorrector.sideNeighbor((char)lastTypedChar,true), previousRight=SmartCorrector.sideNeighbor((char)lastTypedChar,false);
+                if(previousLeft!=0) absorb(older+previousLeft+key,previousSide==CorrectionRank.Side.LEFT,spellings,probes,index);
+                if(previousRight!=0) absorb(older+previousRight+key,previousSide==CorrectionRank.Side.RIGHT,spellings,probes,index);
             }
         }
-        List<CorrectionRank.Offer> offers=CorrectionRank.mergePrefer(spellings,typedRaw);
-        boolean pressedHasWords=false, typedOnly=true;
+        List<CorrectionRank.Offer> offers=CorrectionRank.mergeByTouch(spellings,typedRaw);
+        boolean pressedHasWords=false, neighborWord=false;
         for(CorrectionRank.Offer offer:offers) {
             if(typedRaw.equals(offer.raw)) pressedHasWords=true;
-            else typedOnly=false;
+            else neighborWord=true;
         }
-        if(offers.isEmpty() || pressedHasWords && typedOnly) {
+        // The bar can fill up with the pressed spelling. The stems remember the other spellings anyway.
+        correctionStems=CorrectionRank.selectStems(typedRaw,probes,CorrectionRank.STEM_LIMIT);
+        lastTypedChar=codePoint; lastBiasX=biasX; lastBiasY=biasY;
+        if(!neighborWord) {
             if(!typedRaw.equals(state().raw)) replay(typedRaw);
-            correctionStems=null;
             return null;
         }
-        // The pressed keys stay on screen, even when a neighbor word is heavier or this spelling has no word yet.
+        // The pressed keys stay on screen. A seam tap can still put a heavier neighbor first.
         RimeEngine.Snapshot shown=!typedRaw.equals(state().raw)?replay(typedRaw):pressed;
-        lastTypedChar=codePoint; lastBiasX=biasX; lastBiasY=biasY;
-        correctionStems=CorrectionRank.continueStems(typedRaw,typedRaw,offers,CorrectionRank.STEM_LIMIT);
         String[] texts=new String[offers.size()], comments=new String[offers.size()];
         for(int i=0;i<offers.size();i++) { texts[i]=offers.get(i).text; comments[i]=offers.get(i).comment==null?"":offers.get(i).comment; }
         // Neighbor probes must not commit. A commit the pressed key already produced still goes out.
         String commit=pressedHasWords && pressed.commit!=null ? pressed.commit : "";
         return Result.corrected(new RimeEngine.Snapshot(shown.handled,shown.raw,shown.preedit,shown.caret,commit,texts,comments,0,0,true),offers);
     }
-    private List<String> slipPrefixes(String typedPrefix) {
-        LinkedHashSet<String> prefixes=new LinkedHashSet<>();
-        prefixes.add(typedPrefix==null?"":typedPrefix);
-        if(correctionStems!=null) prefixes.addAll(correctionStems);
-        List<String> list=new ArrayList<>(prefixes.size());
-        for(String prefix:prefixes) { list.add(prefix); if(list.size()==CorrectionRank.STEM_LIMIT) break; }
+    private List<CorrectionRank.Stem> slipParents(String typedPrefix) {
+        LinkedHashMap<String,Boolean> parents=new LinkedHashMap<>();
+        String prefix=typedPrefix==null?"":typedPrefix;
+        parents.put(prefix,Boolean.TRUE);
+        if(correctionStems!=null) for(CorrectionRank.Stem stem:correctionStems) {
+            if(stem==null || stem.raw==null) continue;
+            Boolean previous=parents.get(stem.raw);
+            if(previous==null) parents.put(stem.raw,stem.favored);
+            else if(stem.favored) parents.put(stem.raw,Boolean.TRUE);
+            if(parents.size()==CorrectionRank.STEM_LIMIT) break;
+        }
+        List<CorrectionRank.Stem> list=new ArrayList<>(parents.size());
+        for(Map.Entry<String,Boolean> entry:parents.entrySet()) list.add(new CorrectionRank.Stem(entry.getKey(),entry.getValue()));
         return list;
     }
-    private void probeRaw(String raw,List<CorrectionRank.Spelling> spellings) {
+    private void absorb(String raw,boolean favored,List<CorrectionRank.Spelling> spellings,List<CorrectionRank.Probe> probes,Map<String,Integer> index) {
+        Integer at=index.get(raw);
+        if(at!=null) {
+            boolean words=at>=0;
+            if(words && favored) {
+                CorrectionRank.Spelling old=spellings.get(at);
+                if(!old.favored) spellings.set(at,old.withFavored(true));
+            }
+            probes.add(new CorrectionRank.Probe(raw,favored,words,words?spellings.get(at).bestQuality():Double.NaN));
+            return;
+        }
+        RimeEngine.Snapshot snap=probeRaw(raw);
+        boolean words=snap.composing() && snap.candidates!=null && !snap.candidates.isEmpty();
+        double[] qualities=words?engine.candidateQualities(session):null;
+        if(qualities==null) qualities=new double[0];
+        probes.add(new CorrectionRank.Probe(raw,favored,words,CorrectionRank.bestQuality(qualities)));
+        if(!words) { index.put(raw,-1); return; }
+        spellings.add(new CorrectionRank.Spelling(raw,snap.candidates,snap.comments,qualities,favored));
+        index.put(raw,spellings.size()-1);
+    }
+    private RimeEngine.Snapshot probeRaw(String raw) {
         engine.clearComposition(session);
         RimeEngine.Snapshot snap=RimeEngine.Snapshot.EMPTY;
         for(int key:raw.codePoints().toArray()) snap=engine.processKey(session,key);
-        if(snap.composing() && !snap.candidates.isEmpty()) {
-            double[] qualities=engine.candidateQualities(session);
-            spellings.add(new CorrectionRank.Spelling(snap.raw,snap.candidates,snap.comments,qualities==null?new double[0]:qualities));
-        }
+        return snap;
     }
     private static String dropLast(String raw) {
         if(raw==null || raw.isEmpty()) return "";
@@ -1191,10 +1223,8 @@ public final class RimesInputMethodService extends InputMethodService {
             return;
         }
         lastSpaceTime=now;
-        if(correctionOffers!=null) {
-            String raw=snapshot.raw==null?"":snapshot.raw;
-            for(int i=0;i<correctionOffers.size();i++) if(raw.equals(correctionOffers.get(i).raw)) { select(i); return; }
-        }
+        // A center tap's top word is the pressed spelling. A seam tap's top word may be the neighbor.
+        if(correctionOffers!=null && !correctionOffers.isEmpty() && correctionOffers.get(0).favored) { select(0); return; }
         type(" ");
     }
     private void typeChord(String code) {
