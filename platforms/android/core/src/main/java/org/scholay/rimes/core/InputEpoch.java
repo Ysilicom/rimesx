@@ -12,6 +12,7 @@ public final class InputEpoch {
         return true;
     }
     public boolean current(Ticket ticket) { return ticket.generation==generation; }
+    public long generation() { return generation; }
     public static final class Ticket {
         private final long generation, sequence;
         private Ticket(long generation,long sequence) { this.generation=generation; this.sequence=sequence; }

@@ -64,6 +64,8 @@ public final class CorrectionRank {
 
     /** How many spellings the next letter keeps continuing. */
     public static final int STEM_LIMIT=8;
+    /** Words taken from one neighbor spelling. The pressed spelling is not cut down here. */
+    public static final int PROBE_WIDTH=8;
     /** Pressed words kept in front of a center tap, so a neighbor still fits on the bar. */
     public static final int CENTER_HEAD=4;
     /** Outer third of the key. biasX is -1 at the left edge and +1 at the right edge. */

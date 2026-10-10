@@ -128,6 +128,7 @@ public class CorrectionRankTest {
         assertEquals('n', SmartCorrector.sideNeighbor('b', false));
         assertEquals(0, SmartCorrector.sideNeighbor('q', true));
         assertEquals(0, SmartCorrector.sideNeighbor('p', false));
+        assertEquals(8, CorrectionRank.PROBE_WIDTH);
     }
 
     @Test

@@ -71,7 +71,9 @@ extern "C" JNIEXPORT jboolean JNICALL JNI(selectNative)(JNIEnv*, jclass, jlong s
 }
 extern "C" JNIEXPORT void JNICALL JNI(clearNative)(JNIEnv*, jclass, jlong session) { api()->clear_composition(session); }
 extern "C" JNIEXPORT jstring JNICALL JNI(roundTripNative)(JNIEnv* env, jclass, jstring text) { return string(env,utf8(env,text)); }
-extern "C" JNIEXPORT jobject JNICALL JNI(snapshotNative)(JNIEnv* env, jclass, jlong session, jboolean handled) {
+static jobject snapshot_of(JNIEnv* env, jlong session, jboolean handled, int cap) {
+    if (cap < 1) cap = 1;
+    if (cap > 60) cap = 60;
     std::string raw = api()->get_input(session) ? api()->get_input(session) : "";
     std::string commit, preedit;
     RIME_STRUCT(RimeCommit, committed);
@@ -94,11 +96,12 @@ extern "C" JNIEXPORT jobject JNICALL JNI(snapshotNative)(JNIEnv* env, jclass, jl
     }
     // librime 1.17 leaves the iterator at index -1. candidate_list_next is what
     // yields item 0. Reading before next inserts a blank slot, so the word drawn
-    // at position i is select_candidate(i + 1).
+    // at position i is select_candidate(i + 1). A short cap is how a neighbor
+    // probe avoids building the rest of the menu.
     RimeCandidateListIterator iter = {};
     if (api()->candidate_list_begin && api()->candidate_list_begin(session, &iter)) {
         std::vector<std::string> listed, listedComments;
-        while (listed.size() < 60 && api()->candidate_list_next(&iter)) {
+        while (listed.size() < static_cast<size_t>(cap) && api()->candidate_list_next(&iter)) {
             listed.emplace_back(iter.candidate.text ? iter.candidate.text : "");
             listedComments.emplace_back(iter.candidate.comment ? iter.candidate.comment : "");
         }
@@ -109,7 +112,7 @@ extern "C" JNIEXPORT jobject JNICALL JNI(snapshotNative)(JNIEnv* env, jclass, jl
             // This walk is the whole menu from absolute index 0, not the current
             // page. pageStart must stay 0 or a tap commits pageStart + index.
             start = 0;
-            last = candidates.size() < 60;
+            last = candidates.size() < static_cast<size_t>(cap);
         }
     }
     ensure_classes(env);
@@ -122,9 +125,26 @@ extern "C" JNIEXPORT jobject JNICALL JNI(snapshotNative)(JNIEnv* env, jclass, jl
     }
     return env->NewObject(g_snapshot_class,g_snapshot_init,handled,string(env,raw),string(env,preedit),cursor,string(env,commit),texts,notes,start,highlighted,static_cast<jboolean>(last));
 }
-extern "C" JNIEXPORT jdoubleArray JNICALL JNI(qualitiesNative)(JNIEnv* env, jclass, jlong session_id) {
+extern "C" JNIEXPORT jobject JNICALL JNI(snapshotNative)(JNIEnv* env, jclass, jlong session, jboolean handled) {
+    return snapshot_of(env, session, handled, 60);
+}
+extern "C" JNIEXPORT jobject JNICALL JNI(snapshotCappedNative)(JNIEnv* env, jclass, jlong session, jboolean handled, jint limit) {
+    return snapshot_of(env, session, handled, limit);
+}
+extern "C" JNIEXPORT jstring JNICALL JNI(inputNative)(JNIEnv* env, jclass, jlong session) {
+    if (session == 0 || !api()->get_input) return env->NewStringUTF("");
+    const char* input = api()->get_input(session);
+    return string(env, input ? input : "");
+}
+extern "C" JNIEXPORT void JNICALL JNI(discardCommitNative)(JNIEnv*, jclass, jlong session) {
+    if (session == 0 || !api()->get_commit) return;
+    RIME_STRUCT(RimeCommit, commit);
+    if (api()->get_commit(session, &commit)) api()->free_commit(&commit);
+}
+extern "C" JNIEXPORT jdoubleArray JNICALL JNI(qualitiesNative)(JNIEnv* env, jclass, jlong session_id, jint limit) {
     jdoubleArray empty = env->NewDoubleArray(0);
-    if (session_id == 0) return empty;
+    if (session_id == 0 || limit < 1) return empty;
+    int cap = limit > 60 ? 60 : limit;
     auto held = rime::Service::instance().GetSession(static_cast<rime::SessionId>(session_id));
     if (!held || !held->context()) return empty;
     auto& composition = held->context()->composition();
@@ -134,7 +154,7 @@ extern "C" JNIEXPORT jdoubleArray JNICALL JNI(qualitiesNative)(JNIEnv* env, jcla
     }
     if (!segment) return empty;
     std::vector<jdouble> values;
-    for (size_t i = 0; i < 60; ++i) {
+    for (size_t i = 0; i < static_cast<size_t>(cap); ++i) {
         auto candidate = segment->GetCandidateAt(i);
         if (!candidate) break;
         values.push_back(candidate->quality());

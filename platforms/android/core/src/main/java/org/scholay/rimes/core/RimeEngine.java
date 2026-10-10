@@ -14,6 +14,21 @@ public interface RimeEngine {
     void clearComposition(long session);
     /** Weight of each current candidate, in the same order as {@link Snapshot#candidates}. Empty when unknown. */
     default double[] candidateQualities(long session) { return new double[0]; }
+    /** Same weights, stopping after {@code limit} candidates. */
+    default double[] candidateQualities(long session, int limit) {
+        double[] all=candidateQualities(session);
+        if(all==null || limit>=all.length) return all==null?new double[0]:all;
+        if(limit<=0) return new double[0];
+        return java.util.Arrays.copyOf(all,limit);
+    }
+    /** One key and no candidate list. The default still builds the list. */
+    default boolean processKeyQuiet(long session, int key) { processKey(session,key); return true; }
+    /** At most {@code limit} candidates. The default returns the full snapshot. */
+    default Snapshot snapshotLimited(long session, int limit) { return snapshot(session); }
+    /** Letters currently composed. Empty when the session is idle. */
+    default String compositionRaw(long session) { Snapshot snap=snapshot(session); return snap==null||snap.raw==null?"":snap.raw; }
+    /** Drop a commit produced while trying a neighbor, so it cannot leak out later. */
+    default void discardCommit(long session) {}
 
     final class Snapshot {
         public static final Snapshot EMPTY = new Snapshot(false,"","",0,"",new String[0],new String[0],0,0,true);

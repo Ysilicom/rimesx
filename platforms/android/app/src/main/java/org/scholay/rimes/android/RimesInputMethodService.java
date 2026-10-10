@@ -31,6 +31,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.scholay.rimes.core.BufferSession;
 import org.scholay.rimes.core.EditorKind;
 import org.scholay.rimes.core.InputEpoch;
@@ -168,7 +169,14 @@ public final class RimesInputMethodService extends InputMethodService {
     private float lastBiasX, lastBiasY;
     /** Spellings the next letter continues, apart from the visible bar. Worker only. */
     private List<CorrectionRank.Stem> correctionStems;
-    private void abandonSlip() { lastTypedChar=0; correctionStems=null; }
+    /** Neighbor sessions already composed up to a spelling. The live session stays on the pressed keys. Worker only. */
+    private final ArrayDeque<Long> slipPool=new ArrayDeque<>();
+    private final LinkedHashMap<String,Long> slipAt=new LinkedHashMap<>();
+    private final LinkedHashMap<String,Long> slipFresh=new LinkedHashMap<>();
+    private String slipSchema="";
+    private final AtomicInteger slipGeneration=new AtomicInteger();
+    private static final int SLIP_POOL=8;
+    private void abandonSlip() { lastTypedChar=0; correctionStems=null; releaseSlipSessions(); }
     private static final String[] SCHEMAS={"rimes_pinyin","rimes_ziranma","rimes_flypy","rimes_wubi"};
     private static final String[] NAMES={"拼音","自然码","小鹤","五笔"};
 
@@ -281,6 +289,7 @@ public final class RimesInputMethodService extends InputMethodService {
                 engine.clearComposition(session);
                 return;
             }
+            destroySlipSessions();
             if(session!=0) engine.destroySession(session);
             session=engine.createSession();
             loadedSchema="";
@@ -294,6 +303,7 @@ public final class RimesInputMethodService extends InputMethodService {
     /** Release the session when the process is going away. Field changes keep it. */
     private void releaseEngine() {
         EngineWorker.QUEUE.execute(() -> {
+            destroySlipSessions();
             if(session!=0 && engine!=null) engine.destroySession(session);
             session=0; loadedSchema="";
         });
@@ -585,6 +595,8 @@ public final class RimesInputMethodService extends InputMethodService {
         type(text,0f,0f);
     }
     private void type(String text,float biasX,float biasY) {
+        final long generation=epoch.generation();
+        final int slipSerial=slipGeneration.incrementAndGet();
         if(!ownsTarget() && !adoptCurrentConnection()) return;
         invalidatePlugin();
         if(!ready) {
@@ -618,10 +630,11 @@ public final class RimesInputMethodService extends InputMethodService {
             boolean correctableSchema="rimes_pinyin".equals(schema) || "rimes_ziranma".equals(schema) || "rimes_flypy".equals(schema) || "rimes_wubi".equals(schema);
             boolean allowCorrection=!english && settings.isCorrectionEnabled() && correctableSchema && !nineKeyVisible();
             if(allowCorrection && text.length()==1 && SmartCorrector.isSupportedLetter((char)codePoint) && after.composing()) {
-                Result rescued=mergeSlip(codePoint,biasX,biasY,after);
+                final RimeEngine.Snapshot pressed=after;
+                main.post(() -> showPressed(generation,slipSerial,pressed));
+                Result rescued=mergeSlip(codePoint,biasX,biasY,pressed);
                 if(rescued!=null) return rescued;
-                after=state();
-            } else correctionStems=null;
+            } else { correctionStems=null; releaseSlipSessions(); }
 
             if(after.composing()) {
                 lastTypedChar=codePoint;
@@ -643,7 +656,7 @@ public final class RimesInputMethodService extends InputMethodService {
         List<CorrectionRank.Probe> probes=new ArrayList<>();
         Map<String,Integer> index=new HashMap<>();
         if(pressed.composing() && !pressed.candidates.isEmpty()) {
-            double[] qualities=engine.candidateQualities(session);
+            double[] qualities=engine.candidateQualities(session,pressed.candidates.size());
             if(qualities==null) qualities=new double[0];
             spellings.add(new CorrectionRank.Spelling(typedRaw,pressed.candidates,pressed.comments,qualities,true));
             index.put(typedRaw,0);
@@ -673,18 +686,29 @@ public final class RimesInputMethodService extends InputMethodService {
         }
         // The bar can fill up with the pressed spelling. The stems remember the other spellings anyway.
         correctionStems=CorrectionRank.selectStems(typedRaw,probes,CorrectionRank.STEM_LIMIT);
+        parkStems(correctionStems);
         lastTypedChar=codePoint; lastBiasX=biasX; lastBiasY=biasY;
-        if(!neighborWord) {
-            if(!typedRaw.equals(state().raw)) replay(typedRaw);
-            return null;
-        }
+        if(!neighborWord) return null;
         // The pressed keys stay on screen. A seam tap can still put a heavier neighbor first.
-        RimeEngine.Snapshot shown=!typedRaw.equals(state().raw)?replay(typedRaw):pressed;
         String[] texts=new String[offers.size()], comments=new String[offers.size()];
         for(int i=0;i<offers.size();i++) { texts[i]=offers.get(i).text; comments[i]=offers.get(i).comment==null?"":offers.get(i).comment; }
         // Neighbor probes must not commit. A commit the pressed key already produced still goes out.
         String commit=pressedHasWords && pressed.commit!=null ? pressed.commit : "";
-        return Result.corrected(new RimeEngine.Snapshot(shown.handled,shown.raw,shown.preedit,shown.caret,commit,texts,comments,0,0,true),offers);
+        return Result.corrected(new RimeEngine.Snapshot(pressed.handled,pressed.raw==null?"":pressed.raw,pressed.preedit==null?"":pressed.preedit,pressed.caret,commit,texts,comments,0,0,true),offers);
+    }
+    /** Pressed words, before the neighbor spellings are ready. Does not write into the editor. */
+    private void showPressed(long generation,int serial,RimeEngine.Snapshot pressed) {
+        if(generation!=epoch.generation() || serial!=slipGeneration.get()) return;
+        if(pressed==null || !pressed.composing()) return;
+        int keep=Math.min(pressed.candidates.size(),CorrectionRank.PROBE_WIDTH);
+        String[] texts=new String[keep], comments=new String[keep];
+        for(int i=0;i<keep;i++) {
+            texts[i]=pressed.candidates.get(i);
+            comments[i]=i<pressed.comments.size() && pressed.comments.get(i)!=null?pressed.comments.get(i):"";
+        }
+        snapshot=new RimeEngine.Snapshot(pressed.handled,pressed.raw==null?"":pressed.raw,pressed.preedit==null?"":pressed.preedit,pressed.caret,"",texts,comments,0,0,true);
+        correctionOffers=null;
+        render();
     }
     private List<CorrectionRank.Stem> slipParents(String typedPrefix) {
         LinkedHashMap<String,Boolean> parents=new LinkedHashMap<>();
@@ -712,20 +736,158 @@ public final class RimesInputMethodService extends InputMethodService {
             probes.add(new CorrectionRank.Probe(raw,favored,words,words?spellings.get(at).bestQuality():Double.NaN));
             return;
         }
-        RimeEngine.Snapshot snap=probeRaw(raw);
-        boolean words=snap.composing() && snap.candidates!=null && !snap.candidates.isEmpty();
-        double[] qualities=words?engine.candidateQualities(session):null;
-        if(qualities==null) qualities=new double[0];
-        probes.add(new CorrectionRank.Probe(raw,favored,words,CorrectionRank.bestQuality(qualities)));
+        ProbeHit hit=probeAppend(raw);
+        boolean words=hit.snap.composing() && hit.snap.candidates!=null && !hit.snap.candidates.isEmpty();
+        probes.add(new CorrectionRank.Probe(raw,favored,words,CorrectionRank.bestQuality(hit.qualities)));
         if(!words) { index.put(raw,-1); return; }
-        spellings.add(new CorrectionRank.Spelling(raw,snap.candidates,snap.comments,qualities,favored));
+        spellings.add(new CorrectionRank.Spelling(raw,hit.snap.candidates,hit.snap.comments,hit.qualities,favored));
         index.put(raw,spellings.size()-1);
     }
-    private RimeEngine.Snapshot probeRaw(String raw) {
+    /** One neighbor spelling: its words, and the weights of those words only. */
+    private static final class ProbeHit {
+        final RimeEngine.Snapshot snap;
+        final double[] qualities;
+        ProbeHit(RimeEngine.Snapshot snap,double[] qualities) { this.snap=snap; this.qualities=qualities==null?new double[0]:qualities; }
+        static ProbeHit empty() { return new ProbeHit(RimeEngine.Snapshot.EMPTY,new double[0]); }
+    }
+    /**
+     * Add the last letter to a spelling that is already composed.
+     * The parked session goes back to the parent so the other side can use it.
+     * A spelling with no parked parent is typed once and kept if it produced words.
+     */
+    private ProbeHit probeAppend(String raw) {
+        if(raw==null || raw.isEmpty() || engine==null) return ProbeHit.empty();
+        String parent=dropLast(raw);
+        int code=raw.codePointBefore(raw.length());
+        Long parked=slipAt.get(parent);
+        long probe;
+        boolean own=false;
+        if(parked!=null && parked!=0 && parent.equals(engine.compositionRaw(parked))) probe=parked;
+        else {
+            if(parked!=null && parked!=0) { slipAt.remove(parent); recycleSlip(parked); }
+            probe=borrowSlip();
+            own=true;
+            if(probe==0 || !replayQuiet(probe,parent)) { if(probe!=0) recycleSlip(probe); return ProbeHit.empty(); }
+        }
+        engine.discardCommit(probe);
+        engine.processKeyQuiet(probe,code);
+        engine.discardCommit(probe);
+        String now=engine.compositionRaw(probe);
+        ProbeHit hit=ProbeHit.empty();
+        if(raw.equals(now)) {
+            RimeEngine.Snapshot snap=engine.snapshotLimited(probe,CorrectionRank.PROBE_WIDTH);
+            int width=snap.candidates==null?0:snap.candidates.size();
+            double[] qualities=width==0?new double[0]:engine.candidateQualities(probe,width);
+            hit=new ProbeHit(snap,qualities);
+        }
+        if(!own) {
+            if(!parent.equals(now)) {
+                engine.processKeyQuiet(probe,0xff08);
+                engine.discardCommit(probe);
+            }
+            if(!parent.equals(engine.compositionRaw(probe))) { slipAt.remove(parent); recycleSlip(probe); }
+        } else if(raw.equals(now)) {
+            Long previous=slipFresh.put(raw,probe);
+            if(previous!=null) recycleSlip(previous);
+        } else recycleSlip(probe);
+        return hit;
+    }
+    private boolean replayQuiet(long probe,String raw) {
+        engine.clearComposition(probe);
+        engine.discardCommit(probe);
+        if(raw!=null) for(int key:raw.codePoints().toArray()) { engine.processKeyQuiet(probe,key); engine.discardCommit(probe); }
+        String now=engine.compositionRaw(probe);
+        return raw==null || raw.isEmpty() ? now.isEmpty() : raw.equals(now);
+    }
+    /** Leave one session on each spelling the next letter continues. */
+    private void parkStems(List<CorrectionRank.Stem> stems) {
+        LinkedHashMap<String,Long> keep=new LinkedHashMap<>();
+        if(stems!=null) for(CorrectionRank.Stem stem:stems) {
+            if(stem==null || stem.raw==null || stem.raw.isEmpty() || keep.containsKey(stem.raw)) continue;
+            Long fresh=slipFresh.remove(stem.raw);
+            if(fresh!=null && fresh!=0 && stem.raw.equals(engine.compositionRaw(fresh))) { keep.put(stem.raw,fresh); continue; }
+            if(fresh!=null && fresh!=0) recycleSlip(fresh);
+            Long exact=slipAt.remove(stem.raw);
+            if(exact!=null && exact!=0 && stem.raw.equals(engine.compositionRaw(exact))) { keep.put(stem.raw,exact); continue; }
+            if(exact!=null && exact!=0) recycleSlip(exact);
+            String parent=dropLast(stem.raw);
+            Long from=slipAt.remove(parent);
+            if(from!=null && from!=0) {
+                if(parent.equals(engine.compositionRaw(from))) {
+                    engine.discardCommit(from);
+                    engine.processKeyQuiet(from,stem.raw.codePointBefore(stem.raw.length()));
+                    engine.discardCommit(from);
+                    if(stem.raw.equals(engine.compositionRaw(from))) { keep.put(stem.raw,from); continue; }
+                }
+                recycleSlip(from);
+            }
+            long created=borrowSlip();
+            if(created!=0 && replayQuiet(created,stem.raw)) keep.put(stem.raw,created);
+            else if(created!=0) recycleSlip(created);
+        }
+        for(Long old:slipFresh.values()) recycleSlip(old);
+        slipFresh.clear();
+        for(Long old:new ArrayList<>(slipAt.values())) recycleSlip(old);
+        slipAt.clear();
+        slipAt.putAll(keep);
+    }
+    /** Backspace each parked spelling by one letter, matching the shortened beam. */
+    private void retreatSlip(String liveRaw) {
+        List<CorrectionRank.Stem> next=CorrectionRank.shorten(correctionStems,liveRaw);
+        correctionStems=next;
+        if(next==null) { releaseSlipSessions(); return; }
+        LinkedHashMap<String,Long> keep=new LinkedHashMap<>();
+        for(CorrectionRank.Stem stem:next) {
+            if(stem==null || stem.raw==null || stem.raw.isEmpty() || keep.containsKey(stem.raw)) continue;
+            String longer=null; Long parked=null;
+            for(Map.Entry<String,Long> entry:slipAt.entrySet()) {
+                if(entry.getValue()==null || keep.containsValue(entry.getValue())) continue;
+                if(entry.getKey().startsWith(stem.raw) && dropLast(entry.getKey()).equals(stem.raw)) { longer=entry.getKey(); parked=entry.getValue(); break; }
+            }
+            if(parked==null) continue;
+            slipAt.remove(longer);
+            engine.discardCommit(parked);
+            engine.processKeyQuiet(parked,0xff08);
+            engine.discardCommit(parked);
+            if(stem.raw.equals(engine.compositionRaw(parked))) keep.put(stem.raw,parked);
+            else recycleSlip(parked);
+        }
+        for(Long old:new ArrayList<>(slipAt.values())) recycleSlip(old);
+        slipAt.clear();
+        slipAt.putAll(keep);
+    }
+    private long borrowSlip() {
+        if(engine==null) return 0;
+        String schema=loadedSchema==null?"":loadedSchema;
+        if(schema.isEmpty()) return 0;
+        if(!schema.equals(slipSchema)) { destroySlipSessions(); slipSchema=schema; }
+        Long spared=slipPool.pollLast();
+        if(spared!=null && spared!=0) return spared;
+        if(slipAt.size()+slipFresh.size()>=CorrectionRank.STEM_LIMIT+4) return 0;
+        long created=engine.createSession();
+        if(created==0 || !engine.selectSchema(created,schema)) { if(created!=0) engine.destroySession(created); return 0; }
+        return created;
+    }
+    private void recycleSlip(long session) {
+        if(session==0 || engine==null) return;
         engine.clearComposition(session);
-        RimeEngine.Snapshot snap=RimeEngine.Snapshot.EMPTY;
-        for(int key:raw.codePoints().toArray()) snap=engine.processKey(session,key);
-        return snap;
+        engine.discardCommit(session);
+        if(slipPool.size()<SLIP_POOL) slipPool.addLast(session); else engine.destroySession(session);
+    }
+    private void releaseSlipSessions() {
+        if(engine==null) { slipAt.clear(); slipFresh.clear(); slipPool.clear(); slipSchema=""; return; }
+        for(Long id:slipAt.values()) recycleSlip(id==null?0:id);
+        slipAt.clear();
+        for(Long id:slipFresh.values()) recycleSlip(id==null?0:id);
+        slipFresh.clear();
+    }
+    private void destroySlipSessions() {
+        if(engine!=null) {
+            for(Long id:slipAt.values()) if(id!=null && id!=0) engine.destroySession(id);
+            for(Long id:slipFresh.values()) if(id!=null && id!=0) engine.destroySession(id);
+            while(!slipPool.isEmpty()) { Long id=slipPool.pollLast(); if(id!=null && id!=0) engine.destroySession(id); }
+        }
+        slipAt.clear(); slipFresh.clear(); slipPool.clear(); slipSchema="";
     }
     private static String dropLast(String raw) {
         if(raw==null || raw.isEmpty()) return "";
@@ -913,9 +1075,10 @@ public final class RimesInputMethodService extends InputMethodService {
             if(!state().composing()) { abandonSlip(); return new Result(RimeEngine.Snapshot.EMPTY,"",false,1); }
             if(nine) return replaceNineKey(NineKeyPinyin.backspace(state().raw));
             RimeEngine.Snapshot after=expandSnapshot(engine.processKey(session,0xff08));
-            correctionStems=CorrectionRank.shorten(correctionStems,after.composing()?after.raw:"");
+            if(!after.composing()) { abandonSlip(); return new Result(RimeEngine.Snapshot.EMPTY,"",false,1); }
+            retreatSlip(after.raw);
             lastTypedChar=0;
-            return after.composing()?Result.state(after):new Result(RimeEngine.Snapshot.EMPTY,"",false,1);
+            return Result.state(after);
         });
     }
     /** Swipe up on delete. Drops text before the cursor, and the whole Buffer draft when Buffer is on. Text after the cursor stays. */
@@ -1069,7 +1232,7 @@ public final class RimesInputMethodService extends InputMethodService {
         });
     }
     private void page(boolean forward) {
-        if(correctionOffers!=null) return;
+        if(correctionOffers!=null || pending!=0) return;
         if(snapshot.composing()) dispatch(() -> Result.state(engine.processKey(session,forward?0xff56:0xff55)));
     }
     private void notice(int message) { Toast.makeText(this,message,Toast.LENGTH_SHORT).show(); }
