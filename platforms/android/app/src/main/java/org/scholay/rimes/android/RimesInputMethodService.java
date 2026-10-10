@@ -155,7 +155,7 @@ public final class RimesInputMethodService extends InputMethodService {
     private String renderedKeyStamp="";
     private final ArrayDeque<Result> retainedResults=new ArrayDeque<>();
     private RimeEngine.Snapshot snapshot=RimeEngine.Snapshot.EMPTY;
-    /** Words from the pressed spelling and the slips still in play, highest weight first. Null when the bar is the live menu. */
+    /** Pressed spelling first, then neighbor words by weight. Null when the bar is the live menu. */
     private List<CorrectionRank.Offer> correctionOffers;
     // Worker-owned state. Access only inside EngineWorker.QUEUE.
     private RimeEngine engine;
@@ -612,7 +612,7 @@ public final class RimesInputMethodService extends InputMethodService {
                 return new Result(after,text,false,0);
             }
 
-            // Same-row slip. Earlier slips stay in the list, and this key continues each of them.
+            // Same-row slip. The spelling stays on the pressed keys. Neighbors only add candidates.
             boolean correctableSchema="rimes_pinyin".equals(schema) || "rimes_ziranma".equals(schema) || "rimes_flypy".equals(schema) || "rimes_wubi".equals(schema);
             boolean allowCorrection=!english && settings.isCorrectionEnabled() && correctableSchema && !nineKeyVisible();
             if(allowCorrection && text.length()==1 && SmartCorrector.isSupportedLetter((char)codePoint) && after.composing()) {
@@ -657,7 +657,7 @@ public final class RimesInputMethodService extends InputMethodService {
                 }
             }
         }
-        List<CorrectionRank.Offer> offers=CorrectionRank.merge(spellings);
+        List<CorrectionRank.Offer> offers=CorrectionRank.mergePrefer(spellings,typedRaw);
         boolean pressedHasWords=false, typedOnly=true;
         for(CorrectionRank.Offer offer:offers) {
             if(typedRaw.equals(offer.raw)) pressedHasWords=true;
@@ -668,19 +668,10 @@ public final class RimesInputMethodService extends InputMethodService {
             correctionStems=null;
             return null;
         }
-        RimeEngine.Snapshot shown=pressed;
-        if(!pressedHasWords) {
-            // This key has no words, so the next letter follows the heaviest spelling.
-            CorrectionRank.Offer best=offers.get(0);
-            shown=replay(best.raw);
-            lastTypedChar=best.raw.isEmpty()?0:best.raw.codePointBefore(best.raw.length());
-            lastBiasX=0f; lastBiasY=0f;
-        } else {
-            // The typed spelling stays on screen. Earlier slips remain in the list for the next letter.
-            if(!typedRaw.equals(state().raw)) shown=replay(typedRaw);
-            lastTypedChar=codePoint; lastBiasX=biasX; lastBiasY=biasY;
-        }
-        correctionStems=CorrectionRank.continueStems(shown.raw,typedRaw,offers,CorrectionRank.STEM_LIMIT);
+        // The pressed keys stay on screen, even when a neighbor word is heavier or this spelling has no word yet.
+        RimeEngine.Snapshot shown=!typedRaw.equals(state().raw)?replay(typedRaw):pressed;
+        lastTypedChar=codePoint; lastBiasX=biasX; lastBiasY=biasY;
+        correctionStems=CorrectionRank.continueStems(typedRaw,typedRaw,offers,CorrectionRank.STEM_LIMIT);
         String[] texts=new String[offers.size()], comments=new String[offers.size()];
         for(int i=0;i<offers.size();i++) { texts[i]=offers.get(i).text; comments[i]=offers.get(i).comment==null?"":offers.get(i).comment; }
         // Neighbor probes must not commit. A commit the pressed key already produced still goes out.
@@ -1200,7 +1191,10 @@ public final class RimesInputMethodService extends InputMethodService {
             return;
         }
         lastSpaceTime=now;
-        if(correctionOffers!=null && !correctionOffers.isEmpty()) { select(0); return; }
+        if(correctionOffers!=null) {
+            String raw=snapshot.raw==null?"":snapshot.raw;
+            for(int i=0;i<correctionOffers.size();i++) if(raw.equals(correctionOffers.get(i).raw)) { select(i); return; }
+        }
         type(" ");
     }
     private void typeChord(String code) {

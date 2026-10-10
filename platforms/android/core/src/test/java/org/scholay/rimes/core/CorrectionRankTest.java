@@ -35,6 +35,20 @@ public class CorrectionRankTest {
     }
 
     @Test
+    public void typedSpellingStaysAheadOfAHeavierNeighbor() {
+        CorrectionRank.Spelling typed=new CorrectionRank.Spelling("agy",
+                Collections.singletonList("轻"), Collections.singletonList(""), new double[]{1.0});
+        CorrectionRank.Spelling neighbor=new CorrectionRank.Spelling("agu",
+                Arrays.asList("重","轻"), Arrays.asList("",""), new double[]{9.0,8.0});
+        List<CorrectionRank.Offer> offers=CorrectionRank.mergePrefer(Arrays.asList(neighbor,typed), "agy");
+        assertEquals("轻", offers.get(0).text);
+        assertEquals("agy", offers.get(0).raw);
+        assertEquals("重", offers.get(1).text);
+        assertEquals("agu", offers.get(1).raw);
+        assertEquals(2, offers.size());
+    }
+
+    @Test
     public void continueStemsKeepsTheTypedSpellingThenHeavierOnes() {
         CorrectionRank.Offer heavy=new CorrectionRank.Offer("甲","", "right", 0, 5);
         CorrectionRank.Offer mid=new CorrectionRank.Offer("乙","", "side", 0, 2);

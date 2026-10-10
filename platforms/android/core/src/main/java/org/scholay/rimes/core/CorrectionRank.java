@@ -69,26 +69,32 @@ public final class CorrectionRank {
     }
 
     public static List<Offer> merge(List<Spelling> spellings) {
-        List<Offer> found=new ArrayList<>();
+        return mergePrefer(spellings,null);
+    }
+
+    /** Typed spelling first, then the other spellings by weight. The same word keeps the typed spelling. */
+    public static List<Offer> mergePrefer(List<Spelling> spellings,String preferredRaw) {
+        List<Offer> preferred=new ArrayList<>();
+        List<Offer> rest=new ArrayList<>();
         if(spellings!=null) {
             for(Spelling spelling:spellings) {
                 if(spelling==null || spelling.raw==null || spelling.texts==null) continue;
+                List<Offer> into=spelling.raw.equals(preferredRaw)?preferred:rest;
                 for(int i=0;i<spelling.texts.size();i++) {
                     String text=spelling.texts.get(i);
                     if(text==null || text.isEmpty()) continue;
                     String comment=spelling.comments!=null && i<spelling.comments.size() && spelling.comments.get(i)!=null?spelling.comments.get(i):"";
                     double quality=spelling.qualities!=null && i<spelling.qualities.length && !Double.isNaN(spelling.qualities[i])?spelling.qualities[i]:-i;
-                    found.add(new Offer(text,comment,spelling.raw,i,quality));
+                    into.add(new Offer(text,comment,spelling.raw,i,quality));
                 }
             }
         }
-        found.sort((a,b) -> Double.compare(b.quality,a.quality));
+        preferred.sort((a,b) -> Double.compare(b.quality,a.quality));
+        rest.sort((a,b) -> Double.compare(b.quality,a.quality));
         List<Offer> ranked=new ArrayList<>();
         Set<String> seen=new HashSet<>();
-        for(Offer offer:found) {
-            if(seen.add(offer.text)) ranked.add(offer);
-            if(ranked.size()==60) break;
-        }
+        for(Offer offer:preferred) { if(seen.add(offer.text)) ranked.add(offer); if(ranked.size()==60) return ranked; }
+        for(Offer offer:rest) { if(seen.add(offer.text)) ranked.add(offer); if(ranked.size()==60) break; }
         return ranked;
     }
 }
