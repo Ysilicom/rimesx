@@ -154,7 +154,7 @@ public final class RimesInputMethodService extends InputMethodService {
     private String renderedKeyStamp="";
     private final ArrayDeque<Result> retainedResults=new ArrayDeque<>();
     private RimeEngine.Snapshot snapshot=RimeEngine.Snapshot.EMPTY;
-    /** Words from the left and right spellings, highest weight first. Null when the bar is the live menu. */
+    /** Words from the pressed key and its left and right neighbors, highest weight first. Null when the bar is the live menu. */
     private List<CorrectionRank.Offer> correctionOffers;
     // Worker-owned state. Access only inside EngineWorker.QUEUE.
     private RimeEngine engine;
@@ -608,15 +608,13 @@ public final class RimesInputMethodService extends InputMethodService {
                 return new Result(after,text,false,0);
             }
 
-            // Same-row rescue. Both neighbors are spelled, then their words share one list by weight.
+            // Same-row slip. The pressed key and both neighbors share one list by weight.
             boolean correctableSchema="rimes_pinyin".equals(schema) || "rimes_ziranma".equals(schema) || "rimes_flypy".equals(schema) || "rimes_wubi".equals(schema);
             boolean allowCorrection=!english && settings.isCorrectionEnabled() && correctableSchema && !nineKeyVisible();
-            if(allowCorrection && text.length()==1 && SmartCorrector.isSupportedLetter((char)codePoint)) {
-                if((!before.composing() || !before.candidates.isEmpty()) && after.composing() && after.candidates.isEmpty()) {
-                    Result rescued=rescueNeighbors(codePoint,biasX,biasY);
-                    if(rescued!=null) return rescued;
-                    after=state();
-                }
+            if(allowCorrection && text.length()==1 && SmartCorrector.isSupportedLetter((char)codePoint) && after.composing()) {
+                Result rescued=mergeSlip(codePoint,biasX,biasY,after);
+                if(rescued!=null) return rescued;
+                after=state();
             }
 
             if(after.composing()) {
@@ -630,12 +628,16 @@ public final class RimesInputMethodService extends InputMethodService {
             return Result.state(expandSnapshot(after));
         });
     }
-    /** The typed key had no words. Spell each same-row neighbor and rank the words by weight. */
-    private Result rescueNeighbors(int codePoint,float biasX,float biasY) {
-        List<Character> neighbors=SmartCorrector.getPrioritizedNeighbors((char)codePoint,biasX,biasY);
-        engine.processKey(session,0xff08);
+    /** Spell the pressed key and the key on each side, then rank every word by weight. */
+    private Result mergeSlip(int codePoint,float biasX,float biasY,RimeEngine.Snapshot pressed) {
         List<CorrectionRank.Spelling> spellings=new ArrayList<>();
-        for(char neighbor:neighbors) probeKeys(new int[]{neighbor},spellings);
+        if(pressed.composing() && !pressed.candidates.isEmpty()) {
+            double[] qualities=engine.candidateQualities(session);
+            spellings.add(new CorrectionRank.Spelling(pressed.raw,pressed.candidates,pressed.comments,qualities==null?new double[0]:qualities));
+        }
+        engine.processKey(session,0xff08);
+        for(char neighbor:SmartCorrector.getPrioritizedNeighbors((char)codePoint,biasX,biasY)) probeKeys(new int[]{neighbor},spellings);
+        // The three spellings produced nothing. Try the previous letter's left and right with this key.
         if(spellings.isEmpty() && lastTypedChar>0 && SmartCorrector.isSupportedLetter((char)lastTypedChar)) {
             char previous=(char)lastTypedChar;
             List<Character> prevNeighbors=SmartCorrector.getPrioritizedNeighbors(previous,lastBiasX,lastBiasY);
@@ -644,15 +646,32 @@ public final class RimesInputMethodService extends InputMethodService {
             if(spellings.isEmpty()) engine.processKey(session,(int)previous);
         }
         List<CorrectionRank.Offer> offers=CorrectionRank.merge(spellings);
-        if(offers.isEmpty()) { engine.processKey(session,codePoint); return null; }
-        CorrectionRank.Offer best=offers.get(0);
-        RimeEngine.Snapshot live=replay(best.raw);
+        boolean pressedHasWords=false, typedOnly=true;
+        for(CorrectionRank.Offer offer:offers) {
+            if(offer.raw.equals(pressed.raw)) pressedHasWords=true;
+            else typedOnly=false;
+        }
+        if(offers.isEmpty() || pressedHasWords && typedOnly) {
+            if(!pressed.raw.equals(state().raw)) replay(pressed.raw);
+            return null;
+        }
+        RimeEngine.Snapshot shown=pressed;
+        if(!pressedHasWords) {
+            // This key has no words, so the next letter follows the heaviest spelling.
+            CorrectionRank.Offer best=offers.get(0);
+            shown=replay(best.raw);
+            lastTypedChar=best.raw.isEmpty()?0:best.raw.codePointBefore(best.raw.length());
+            lastBiasX=0f; lastBiasY=0f;
+        } else {
+            // Neighbors only share the list. The next letter continues the key that was pressed.
+            if(!pressed.raw.equals(state().raw)) replay(pressed.raw);
+            lastTypedChar=codePoint; lastBiasX=biasX; lastBiasY=biasY;
+        }
         String[] texts=new String[offers.size()], comments=new String[offers.size()];
         for(int i=0;i<offers.size();i++) { texts[i]=offers.get(i).text; comments[i]=offers.get(i).comment==null?"":offers.get(i).comment; }
-        lastTypedChar=best.raw.isEmpty()?0:best.raw.codePointBefore(best.raw.length());
-        lastBiasX=0f; lastBiasY=0f;
-        // The merged list is only a preview. Nothing is committed until the user picks a word.
-        return Result.corrected(new RimeEngine.Snapshot(live.handled,live.raw,live.preedit,live.caret,"",texts,comments,0,0,true),offers);
+        // Neighbor probes must not commit. A commit the pressed key already produced still goes out.
+        String commit=pressedHasWords && pressed.commit!=null ? pressed.commit : "";
+        return Result.corrected(new RimeEngine.Snapshot(shown.handled,shown.raw,shown.preedit,shown.caret,commit,texts,comments,0,0,true),offers);
     }
     private void probeKeys(int[] keys,List<CorrectionRank.Spelling> spellings) {
         String prefix=state().raw;
