@@ -12,6 +12,8 @@ public interface RimeEngine {
     Snapshot selectCandidate(long session, int index);
     Snapshot snapshot(long session);
     void clearComposition(long session);
+    /** Weight of each current candidate, in the same order as {@link Snapshot#candidates}. Empty when unknown. */
+    default double[] candidateQualities(long session) { return new double[0]; }
 
     final class Snapshot {
         public static final Snapshot EMPTY = new Snapshot(false,"","",0,"",new String[0],new String[0],0,0,true);

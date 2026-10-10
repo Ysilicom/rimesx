@@ -1,5 +1,8 @@
 #include <jni.h>
 #include <rime_api.h>
+#include <rime/candidate.h>
+#include <rime/context.h>
+#include <rime/service.h>
 #include <algorithm>
 #include <codecvt>
 #include <locale>
@@ -118,4 +121,26 @@ extern "C" JNIEXPORT jobject JNICALL JNI(snapshotNative)(JNIEnv* env, jclass, jl
         env->DeleteLocalRef(t); env->DeleteLocalRef(n);
     }
     return env->NewObject(g_snapshot_class,g_snapshot_init,handled,string(env,raw),string(env,preedit),cursor,string(env,commit),texts,notes,start,highlighted,static_cast<jboolean>(last));
+}
+extern "C" JNIEXPORT jdoubleArray JNICALL JNI(qualitiesNative)(JNIEnv* env, jclass, jlong session_id) {
+    jdoubleArray empty = env->NewDoubleArray(0);
+    if (session_id == 0) return empty;
+    auto held = rime::Service::instance().GetSession(static_cast<rime::SessionId>(session_id));
+    if (!held || !held->context()) return empty;
+    auto& composition = held->context()->composition();
+    const rime::Segment* segment = nullptr;
+    for (auto it = composition.rbegin(); it != composition.rend(); ++it) {
+        if (it->GetCandidateAt(0)) { segment = &(*it); break; }
+    }
+    if (!segment) return empty;
+    std::vector<jdouble> values;
+    for (size_t i = 0; i < 60; ++i) {
+        auto candidate = segment->GetCandidateAt(i);
+        if (!candidate) break;
+        values.push_back(candidate->quality());
+    }
+    if (values.empty()) return empty;
+    jdoubleArray array = env->NewDoubleArray(static_cast<jsize>(values.size()));
+    env->SetDoubleArrayRegion(array, 0, static_cast<jsize>(values.size()), values.data());
+    return array;
 }

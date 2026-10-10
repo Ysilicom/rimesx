@@ -12,6 +12,7 @@ final class NativeRimeEngine implements RimeEngine {
     public Snapshot selectCandidate(long session,int index) { return snapshotNative(session,selectNative(session,index)); }
     public Snapshot snapshot(long session) { return snapshotNative(session,false); }
     public void clearComposition(long session) { clearNative(session); }
+    @Override public double[] candidateQualities(long session) { return session==0?new double[0]:qualitiesNative(session); }
     private static native void initializeNative(String system,String user);
     private static native long createNative();
     private static native void destroyNative(long session);
@@ -19,6 +20,7 @@ final class NativeRimeEngine implements RimeEngine {
     private static native boolean keyNative(long session,int key);
     private static native boolean selectNative(long session,int index);
     private static native void clearNative(long session);
+    private static native double[] qualitiesNative(long session);
     private static native Snapshot snapshotNative(long session,boolean handled);
     static native String roundTripNative(String text);
 }
