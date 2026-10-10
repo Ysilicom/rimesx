@@ -2,6 +2,7 @@ package org.scholay.rimes.core;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -24,7 +25,48 @@ public final class CorrectionRank {
         }
     }
 
+    /** How many spellings the next letter keeps continuing. */
+    public static final int STEM_LIMIT=8;
+
     private CorrectionRank() {}
+
+    /**
+     * Spellings the next letter continues. The live spelling stays, then the
+     * typed one, then the heavier remaining spellings.
+     */
+    public static List<String> continueStems(String sessionRaw,String typedRaw,List<Offer> offers,int limit) {
+        if(limit<1) limit=1;
+        LinkedHashSet<String> stems=new LinkedHashSet<>();
+        if(sessionRaw!=null && !sessionRaw.isEmpty()) stems.add(sessionRaw);
+        if(typedRaw!=null && !typedRaw.isEmpty()) stems.add(typedRaw);
+        if(offers!=null) {
+            for(Offer offer:offers) {
+                if(offer==null || offer.raw==null || offer.raw.isEmpty()) continue;
+                stems.add(offer.raw);
+                if(stems.size()>=limit) break;
+            }
+        }
+        return stems.isEmpty()?null:new ArrayList<>(stems);
+    }
+
+    /** Drop the last letter after backspace. A beam that no longer matches the live spelling is dropped. */
+    public static List<String> shorten(List<String> stems,String liveRaw) {
+        if(stems==null || stems.isEmpty() || liveRaw==null || liveRaw.isEmpty()) return null;
+        boolean aligned=false;
+        for(String stem:stems) {
+            if(stem!=null && stem.startsWith(liveRaw) && stem.length()>liveRaw.length()) { aligned=true; break; }
+        }
+        if(!aligned) return null;
+        LinkedHashSet<String> next=new LinkedHashSet<>();
+        next.add(liveRaw);
+        for(String stem:stems) {
+            if(stem==null || stem.isEmpty()) continue;
+            int cut=stem.offsetByCodePoints(stem.length(),-1);
+            if(cut<=0) continue;
+            next.add(stem.substring(0,cut));
+        }
+        return new ArrayList<>(next);
+    }
 
     public static List<Offer> merge(List<Spelling> spellings) {
         List<Offer> found=new ArrayList<>();

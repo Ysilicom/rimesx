@@ -33,4 +33,26 @@ public class CorrectionRankTest {
         assertEquals("niha", offers.get(0).raw);
         assertEquals("右", offers.get(0).comment);
     }
+
+    @Test
+    public void continueStemsKeepsTheTypedSpellingThenHeavierOnes() {
+        CorrectionRank.Offer heavy=new CorrectionRank.Offer("甲","", "right", 0, 5);
+        CorrectionRank.Offer mid=new CorrectionRank.Offer("乙","", "side", 0, 2);
+        CorrectionRank.Offer typed=new CorrectionRank.Offer("丙","", "typed", 0, 1);
+        assertEquals(Arrays.asList("typed","right","side"),
+                CorrectionRank.continueStems("typed","typed", Arrays.asList(heavy,mid,typed), 8));
+    }
+
+    @Test
+    public void shortenKeepsTheSlippedInitial() {
+        assertEquals(Arrays.asList("bi","ni","bu"),
+                CorrectionRank.shorten(Arrays.asList("bih","nih","buh"), "bi"));
+    }
+
+    @Test
+    public void shortenDropsABeamThatDoesNotMatch() {
+        assertNull(CorrectionRank.shorten(Arrays.asList("abcd"), "x"));
+        assertNull(CorrectionRank.shorten(Arrays.asList("bi"), ""));
+        assertNull(CorrectionRank.shorten(null, "b"));
+    }
 }

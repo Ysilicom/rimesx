@@ -367,7 +367,7 @@ public final class SetupActivity extends Activity {
 
         LinearLayout correctionGroup=group(t("智能按键纠错 (Gboard 级)","Spatial Autocorrect"));
         toggle(correctionGroup,t("26键邻近键触控纠错","26-key spatial neighbor correction"),"settings.correction",settings.isCorrectionEnabled(),v -> { settings.setCorrectionEnabled(v); render(); });
-        note(t("默认关闭。开启后，26 键的全拼、小鹤、自然码和五笔每次按键都用按下的键和左右相邻的键一起组词，按权重排在同一条候选栏里。空格上屏第一个词。九键和英文不纠，也不试上一行或下一行。","Off by default. On a 26-key keyboard, full Pinyin, Xiaohe, Natural Code, and Wubi spell the pressed key and the keys on its left and right, then show those words together by weight. Space commits the first word. Nine-key and English stay exact, and the rows above or below are not tried."));
+        note(t("默认关闭。开启后，26 键的全拼、小鹤、自然码和五笔每一笔都留下按下的键和左右相邻键。后面的字母同时接在这些拼写上，按权重排在同一条候选栏里。空格上屏第一个词。九键和英文不纠，也不试上一行或下一行。","Off by default. On a 26-key keyboard, full Pinyin, Xiaohe, Natural Code, and Wubi keep the pressed key and its left and right neighbors at every letter. Later letters continue each of those spellings, and the words share one list by weight. Space commits the first word. Nine-key and English stay exact, and the rows above or below are not tried."));
 
         LinearLayout group=group(t("声母模糊音","Initials"));
         toggle(group,t("平翘舌互通 (z ↔ zh)","z ↔ zh"),"settings.fuzzy.z_zh",settings.isFuzzy(KeyboardSettings.KEY_FUZZY_ZH_Z),v -> { settings.setFuzzy(KeyboardSettings.KEY_FUZZY_ZH_Z,v); render(); });
