@@ -2,7 +2,9 @@ cmake_minimum_required(VERSION 3.22.1)
 project(rimes_android LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 add_library(rimes_jni SHARED rime_jni.cpp)
-target_include_directories(rimes_jni PRIVATE ${RIME_SOURCE}/src)
+# Candidate::quality lives in the C++ headers. Those need the generated
+# rime/build_config.h and the header-only Boost that librime was built with.
+target_include_directories(rimes_jni PRIVATE ${RIME_SOURCE}/src ${RIME_BUILD}/src ${BOOST_INCLUDE})
 target_link_libraries(rimes_jni PRIVATE -Wl,--whole-archive ${RIME_BUILD}/lib/librime.a -Wl,--no-whole-archive
     ${RIME_DEPS}/lib/libopencc.a ${RIME_DEPS}/lib/libmarisa.a ${RIME_DEPS}/lib/libleveldb.a ${RIME_DEPS}/lib/libyaml-cpp.a)
 target_link_options(rimes_jni PRIVATE -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384)

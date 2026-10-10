@@ -205,7 +205,7 @@ def build(src, abi, sdk):
     run(cmake,'-S',src,'-B',folder,*base,*flags, '-DBUILD_SHARED_LIBS='+('ON' if abi=='host' else 'OFF'))
     run(cmake,'--build',folder,'--target','rime_deployer' if abi=='host' else 'rime-static','--parallel','2')
     if abi != 'host':
-        run(cmake,'-S',ANDROID/'native','-B',WORK/abi/'bridge',*base,f'-DRIME_SOURCE={src}',f'-DRIME_BUILD={folder}',f'-DRIME_DEPS={prefix}')
+        run(cmake,'-S',ANDROID/'native','-B',WORK/abi/'bridge',*base,f'-DRIME_SOURCE={src}',f'-DRIME_BUILD={folder}',f'-DRIME_DEPS={prefix}',f'-DBOOST_INCLUDE={WORK/"boost_1_86_0"}')
         run(cmake,'--build',WORK/abi/'bridge','--parallel','2')
         destination = ANDROID/'app/build/generated/rime/jniLibs'/abi
         destination.mkdir(parents=True,exist_ok=True)
